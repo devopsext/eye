@@ -10,37 +10,42 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 )
 
-type RemoteWriteHandlerRequest struct {
+type MetricHandlerRequest struct {
 }
 
-type RemoteWriteHandlerResponse struct {
-	Request *RemoteWriteHandlerRequest `json:"request"`
+type MetricHandlerResponse struct {
+	Request *MetricHandlerRequest `json:"request"`
 }
 
-type RemoteWriteHandlerOptions struct {
+type MetricHandlerOptions struct {
+	URL string
 }
 
-type RemoteWriteHandler struct {
-	options       RemoteWriteHandlerOptions
+type MetricHandler struct {
+	options       MetricHandlerOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 }
 
-func RemoteWriteHandlerType() string {
-	return "RemoteWrite"
+func MetricHandlerName() string {
+	return "Metric"
 }
 
-func (p *RemoteWriteHandler) Type() string {
-	return RemoteWriteHandlerType()
+func (c *MetricHandler) Name() string {
+	return MetricHandlerName()
 }
 
-func (p *RemoteWriteHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
+func (c *MetricHandler) URL() string {
+	return c.options.URL
+}
+
+func (c *MetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
 
 	labels := make(sreCommon.Labels)
 
-	requests := p.meter.Counter(p.Type(), "requests", "Count of all remote_write Handler requests", labels, "remote_write", "Handler")
-	errs := p.meter.Counter(p.Type(), "errors", "Count of all remote_write Handler errors", labels, "remote_write", "Handler")
+	requests := c.meter.Counter(c.Name(), "requests", "Count of all remote_write Handler requests", labels, "remote_write", "Handler")
+	errs := c.meter.Counter(c.Name(), "errors", "Count of all remote_write Handler errors", labels, "remote_write", "Handler")
 
 	requests.Inc()
 
@@ -53,7 +58,7 @@ func (p *RemoteWriteHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Re
 
 	decoder := form.NewDecoder()
 
-	var request RemoteWriteHandlerRequest
+	var request MetricHandlerRequest
 	err = decoder.Decode(&request, r.Form)
 	if err != nil {
 		errs.Inc()
@@ -77,9 +82,9 @@ func (p *RemoteWriteHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Re
 	return nil
 }
 
-func NewRemoteWriteHandler(options RemoteWriteHandlerOptions, observability *common.Observability) *RemoteWriteHandler {
+func NewMetricHandler(options MetricHandlerOptions, observability *common.Observability) *MetricHandler {
 
-	return &RemoteWriteHandler{
+	return &MetricHandler{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),

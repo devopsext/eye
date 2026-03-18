@@ -6,12 +6,12 @@ import (
 )
 
 type Handler interface {
-	Type() string
+	Name() string
 }
 
 type HttpHandler interface {
 	Handler
-	Path() string
+	URL() string
 	HandleHttpRequest(w http.ResponseWriter, r *http.Request) error
 }
 
@@ -31,19 +31,19 @@ func (ps *Handlers) Add(p Handler) {
 	ps.list = append(ps.list, p)
 }
 
-func (ps *Handlers) Find(typ string) Handler {
+func (ps *Handlers) Find(name string) Handler {
 	for _, p := range ps.list {
-		if p.Type() == typ {
+		if p.Name() == name {
 			return p
 		}
 	}
 	return nil
 }
 
-func (ps *Handlers) FindHttpHandler(typ string) HttpHandler {
+func (ps *Handlers) FindHttpHandler(name string) HttpHandler {
 	for _, p := range ps.list {
 		hp, ok := p.(HttpHandler)
-		if ok && hp.Type() == typ {
+		if ok && hp.Name() == name {
 			return hp
 		}
 	}

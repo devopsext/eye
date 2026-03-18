@@ -122,7 +122,7 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 		for _, p := range h.handlers.Items() {
 			hp, _ := p.(common.HttpHandler)
 			if !utils.IsEmpty(hp) {
-				h.processPath(hp.Path(), mux, hp)
+				h.processPath(hp.URL(), mux, hp)
 			}
 		}
 

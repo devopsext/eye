@@ -9,7 +9,7 @@ import (
 )
 
 type HealthHandlerOptions struct {
-	Path string
+	URL string
 }
 
 type HealthHandler struct {
@@ -19,16 +19,16 @@ type HealthHandler struct {
 	meter         sreCommon.Meter
 }
 
-func HealthHandlerType() string {
+func HealthHandlerName() string {
 	return "Health"
 }
 
-func (p *HealthHandler) Type() string {
-	return HealthHandlerType()
+func (p *HealthHandler) Name() string {
+	return HealthHandlerName()
 }
 
-func (p *HealthHandler) Path() string {
-	return p.options.Path
+func (p *HealthHandler) URL() string {
+	return p.options.URL
 }
 
 func (p *HealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {

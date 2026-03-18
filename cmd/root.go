@@ -63,18 +63,11 @@ var httpServerOptions = server.HttpServerOptions{
 }
 
 var healthHandlerOptions = handler.HealthHandlerOptions{
-	Path: envGet("HEALTH_PATH", "/health").(string),
+	URL: envGet("HEALTH_URL", "/health").(string),
 }
 
-var remoteWriteHandlerOptions = handler.RemoteWriteHandlerOptions{
-	/*BrowserPath: envGet("IMAGE_BROWSER_PATH", "").(string),
-	BrowserKind: envGet("IMAGE_BROWSER_KIND", "chrome").(string),
-	Width:       envGet("IMAGE_WIDTH", 1920).(int),
-	Height:      envGet("IMAGE_HEIGHT", 1280).(int),
-	Timeout:     envGet("IMAGE_TIMEOUT", 10).(int),
-	Delay:       envGet("IMAGE_DELAY", 3).(int),
-	UserAgent:   envGet("IMAGE_USER_AGENT", appName).(string),
-	AsPDF:       envGet("IMAGE_AS_PDF", false).(bool),*/
+var metricHandlerOptions = handler.MetricHandlerOptions{
+	URL: envGet("METRIC_URL", "/metric").(string),
 }
 
 func getOnlyEnv(key string) string {
@@ -143,12 +136,15 @@ func Execute() {
 
 			obs := common.NewObservability(logs, metrics)
 
-			Handlers := common.NewHandlers()
-			Handlers.Add(handler.NewHealthHandler(healthHandlerOptions, obs))
-			Handlers.Add(handler.NewRemoteWriteHandler(remoteWriteHandlerOptions, obs))
+			models := common.NewModels()
+			models.Add(nil)
+
+			handlers := common.NewHandlers()
+			handlers.Add(handler.NewHealthHandler(healthHandlerOptions, obs))
+			handlers.Add(handler.NewMetricHandler(metricHandlerOptions, obs))
 
 			servers := common.NewServers()
-			servers.Add(server.NewHttpServer(httpServerOptions, Handlers, obs))
+			servers.Add(server.NewHttpServer(httpServerOptions, handlers, obs))
 			servers.Start(&mainWG)
 			mainWG.Wait()
 		},
@@ -178,8 +174,9 @@ func Execute() {
 	flags.StringVar(&httpServerOptions.Key, "http-key", httpServerOptions.Key, "Http key file or content")
 	flags.StringVar(&httpServerOptions.Chain, "http-chain", httpServerOptions.Chain, "Http CA chain file or content")
 
-	flags.StringVar(&healthHandlerOptions.Path, "health-path", healthHandlerOptions.Path, "Http health url")
-	//flags.StringVar(&httpServerOptions.RemoteWriteURL, "http-remote-write-url", httpServerOptions.RemoteWriteURL, "Http remote write url")
+	flags.StringVar(&healthHandlerOptions.URL, "health-url", healthHandlerOptions.URL, "Http health url")
+
+	flags.StringVar(&metricHandlerOptions.URL, "metric-url", metricHandlerOptions.URL, "Http metric url")
 
 	interceptSyscall()
 
