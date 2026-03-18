@@ -1,4 +1,4 @@
-package processor
+package Handler
 
 import (
 	"fmt"
@@ -8,30 +8,30 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 )
 
-type HealthProcessorOptions struct {
+type HealthHandlerOptions struct {
 	Path string
 }
 
-type HealthProcessor struct {
-	options       HealthProcessorOptions
+type HealthHandler struct {
+	options       HealthHandlerOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 }
 
-func HealthProcessorType() string {
+func HealthHandlerType() string {
 	return "Health"
 }
 
-func (p *HealthProcessor) Type() string {
-	return HealthProcessorType()
+func (p *HealthHandler) Type() string {
+	return HealthHandlerType()
 }
 
-func (p *HealthProcessor) Path() string {
+func (p *HealthHandler) Path() string {
 	return p.options.Path
 }
 
-func (p *HealthProcessor) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
+func (p *HealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
 
 	_, err := w.Write([]byte("OK"))
 
@@ -42,9 +42,9 @@ func (p *HealthProcessor) HandleHttpRequest(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
-func NewHealthProcessor(options HealthProcessorOptions, observability *common.Observability) *HealthProcessor {
+func NewHealthHandler(options HealthHandlerOptions, observability *common.Observability) *HealthHandler {
 
-	return &HealthProcessor{
+	return &HealthHandler{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),

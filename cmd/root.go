@@ -11,7 +11,7 @@ import (
 	"syscall"
 
 	"github.com/devopsext/eye/common"
-	"github.com/devopsext/eye/processor"
+	handler "github.com/devopsext/eye/handler"
 	"github.com/devopsext/eye/server"
 	sreCommon "github.com/devopsext/sre/common"
 	sreProvider "github.com/devopsext/sre/provider"
@@ -62,11 +62,11 @@ var httpServerOptions = server.HttpServerOptions{
 	Chain:      envGet("HTTP_CHAIN", "").(string),
 }
 
-var healthProcessorOptions = processor.HealthProcessorOptions{
+var healthHandlerOptions = handler.HealthHandlerOptions{
 	Path: envGet("HEALTH_PATH", "/health").(string),
 }
 
-var remoteWriteProcessorOptions = processor.RemoteWriteProcessorOptions{
+var remoteWriteHandlerOptions = handler.RemoteWriteHandlerOptions{
 	/*BrowserPath: envGet("IMAGE_BROWSER_PATH", "").(string),
 	BrowserKind: envGet("IMAGE_BROWSER_KIND", "chrome").(string),
 	Width:       envGet("IMAGE_WIDTH", 1920).(int),
@@ -143,12 +143,12 @@ func Execute() {
 
 			obs := common.NewObservability(logs, metrics)
 
-			processors := common.NewProcessors()
-			processors.Add(processor.NewHealthProcessor(healthProcessorOptions, obs))
-			processors.Add(processor.NewRemoteWriteProcessor(remoteWriteProcessorOptions, obs))
+			Handlers := common.NewHandlers()
+			Handlers.Add(handler.NewHealthHandler(healthHandlerOptions, obs))
+			Handlers.Add(handler.NewRemoteWriteHandler(remoteWriteHandlerOptions, obs))
 
 			servers := common.NewServers()
-			servers.Add(server.NewHttpServer(httpServerOptions, processors, obs))
+			servers.Add(server.NewHttpServer(httpServerOptions, Handlers, obs))
 			servers.Start(&mainWG)
 			mainWG.Wait()
 		},
@@ -178,7 +178,7 @@ func Execute() {
 	flags.StringVar(&httpServerOptions.Key, "http-key", httpServerOptions.Key, "Http key file or content")
 	flags.StringVar(&httpServerOptions.Chain, "http-chain", httpServerOptions.Chain, "Http CA chain file or content")
 
-	flags.StringVar(&healthProcessorOptions.Path, "health-path", healthProcessorOptions.Path, "Http health url")
+	flags.StringVar(&healthHandlerOptions.Path, "health-path", healthHandlerOptions.Path, "Http health url")
 	//flags.StringVar(&httpServerOptions.RemoteWriteURL, "http-remote-write-url", httpServerOptions.RemoteWriteURL, "Http remote write url")
 
 	interceptSyscall()

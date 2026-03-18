@@ -1,9 +1,8 @@
-package processor
+package Handler
 
 import (
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/go-playground/form"
 
@@ -11,40 +10,37 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 )
 
-type RemoteWriteProcessorRequest struct {
+type RemoteWriteHandlerRequest struct {
 }
 
-type RemoteWriteProcessorResponse struct {
-	Request *RemoteWriteProcessorRequest `json:"request"`
+type RemoteWriteHandlerResponse struct {
+	Request *RemoteWriteHandlerRequest `json:"request"`
 }
 
-type RemoteWriteProcessorOptions struct {
+type RemoteWriteHandlerOptions struct {
 }
 
-type RemoteWriteProcessor struct {
-	options       RemoteWriteProcessorOptions
+type RemoteWriteHandler struct {
+	options       RemoteWriteHandlerOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 }
 
-func RemoteWriteProcessorType() string {
+func RemoteWriteHandlerType() string {
 	return "RemoteWrite"
 }
 
-func (p *RemoteWriteProcessor) Type() string {
-	return RemoteWriteProcessorType()
+func (p *RemoteWriteHandler) Type() string {
+	return RemoteWriteHandlerType()
 }
 
-func (p *RemoteWriteProcessor) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
-
-	channel := strings.TrimLeft(r.URL.Path, "/")
+func (p *RemoteWriteHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
 
 	labels := make(sreCommon.Labels)
-	labels["channel"] = channel
 
-	requests := p.meter.Counter("remote_write", "requests", "Count of all remote_write processor requests", labels, "remote_write", "processor")
-	errs := p.meter.Counter("remote_write", "errors", "Count of all remote_write processor errors", labels, "remote_write", "processor")
+	requests := p.meter.Counter(p.Type(), "requests", "Count of all remote_write Handler requests", labels, "remote_write", "Handler")
+	errs := p.meter.Counter(p.Type(), "errors", "Count of all remote_write Handler errors", labels, "remote_write", "Handler")
 
 	requests.Inc()
 
@@ -57,7 +53,7 @@ func (p *RemoteWriteProcessor) HandleHttpRequest(w http.ResponseWriter, r *http.
 
 	decoder := form.NewDecoder()
 
-	var request RemoteWriteProcessorRequest
+	var request RemoteWriteHandlerRequest
 	err = decoder.Decode(&request, r.Form)
 	if err != nil {
 		errs.Inc()
@@ -81,9 +77,9 @@ func (p *RemoteWriteProcessor) HandleHttpRequest(w http.ResponseWriter, r *http.
 	return nil
 }
 
-func NewRemoteWriteProcessor(options RemoteWriteProcessorOptions, observability *common.Observability) *RemoteWriteProcessor {
+func NewRemoteWriteHandler(options RemoteWriteHandlerOptions, observability *common.Observability) *RemoteWriteHandler {
 
-	return &RemoteWriteProcessor{
+	return &RemoteWriteHandler{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),

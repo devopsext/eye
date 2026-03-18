@@ -25,15 +25,15 @@ type HttpServerOptions struct {
 }
 
 type HttpServer struct {
-	options    HttpServerOptions
-	processors *common.Processors
-	logger     sreCommon.Logger
-	meter      sreCommon.Meter
+	options  HttpServerOptions
+	handlers *common.Handlers
+	logger   sreCommon.Logger
+	meter    sreCommon.Meter
 }
 
 type HttpProcessHandleFunc = func(w http.ResponseWriter, r *http.Request)
 
-func (h *HttpServer) processPath(path string, mux *http.ServeMux, p common.HttpProcessor) {
+func (h *HttpServer) processPath(path string, mux *http.ServeMux, p common.HttpHandler) {
 
 	paths := strings.Split(path, ",")
 	for _, path := range paths {
@@ -41,8 +41,8 @@ func (h *HttpServer) processPath(path string, mux *http.ServeMux, p common.HttpP
 		labels := make(sreCommon.Labels)
 		labels["path"] = path
 
-		requests := h.meter.Counter("http_server", "requests", "Count of all http server requests", labels, "http", "server")
-		errors := h.meter.Counter("http_server", "errors", "Count of all server input errors", labels, "http", "server")
+		requests := h.meter.Counter("HttpServer", "requests", "Count of all http server requests", labels, "http", "server")
+		errors := h.meter.Counter("HttpServer", "errors", "Count of all server input errors", labels, "http", "server")
 
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 
@@ -119,8 +119,8 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 
 		mux := http.NewServeMux()
 
-		for _, p := range h.processors.Items() {
-			hp, _ := p.(common.HttpProcessor)
+		for _, p := range h.handlers.Items() {
+			hp, _ := p.(common.HttpHandler)
 			if !utils.IsEmpty(hp) {
 				h.processPath(hp.Path(), mux, hp)
 			}
@@ -160,14 +160,14 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 	}(wg)
 }
 
-func NewHttpServer(options HttpServerOptions, processors *common.Processors, observability *common.Observability) *HttpServer {
+func NewHttpServer(options HttpServerOptions, handlers *common.Handlers, observability *common.Observability) *HttpServer {
 
 	meter := observability.Metrics()
 
 	return &HttpServer{
-		options:    options,
-		processors: processors,
-		logger:     observability.Logs(),
-		meter:      meter,
+		options:  options,
+		handlers: handlers,
+		logger:   observability.Logs(),
+		meter:    meter,
 	}
 }

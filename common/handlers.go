@@ -5,25 +5,25 @@ import (
 	"reflect"
 )
 
-type Processor interface {
+type Handler interface {
 	Type() string
 }
 
-type HttpProcessor interface {
-	Processor
+type HttpHandler interface {
+	Handler
 	Path() string
 	HandleHttpRequest(w http.ResponseWriter, r *http.Request) error
 }
 
-type Processors struct {
-	list []Processor
+type Handlers struct {
+	list []Handler
 }
 
-func (ps *Processors) Items() []Processor {
+func (ps *Handlers) Items() []Handler {
 	return ps.list
 }
 
-func (ps *Processors) Add(p Processor) {
+func (ps *Handlers) Add(p Handler) {
 
 	if reflect.ValueOf(p).IsNil() {
 		return
@@ -31,7 +31,7 @@ func (ps *Processors) Add(p Processor) {
 	ps.list = append(ps.list, p)
 }
 
-func (ps *Processors) Find(typ string) Processor {
+func (ps *Handlers) Find(typ string) Handler {
 	for _, p := range ps.list {
 		if p.Type() == typ {
 			return p
@@ -40,9 +40,9 @@ func (ps *Processors) Find(typ string) Processor {
 	return nil
 }
 
-func (ps *Processors) FindHttpProcessor(typ string) HttpProcessor {
+func (ps *Handlers) FindHttpHandler(typ string) HttpHandler {
 	for _, p := range ps.list {
-		hp, ok := p.(HttpProcessor)
+		hp, ok := p.(HttpHandler)
 		if ok && hp.Type() == typ {
 			return hp
 		}
@@ -50,6 +50,6 @@ func (ps *Processors) FindHttpProcessor(typ string) HttpProcessor {
 	return nil
 }
 
-func NewProcessors() *Processors {
-	return &Processors{}
+func NewHandlers() *Handlers {
+	return &Handlers{}
 }

@@ -8,7 +8,7 @@ grafana.yml
 k8s.yml
 coverage.txt
 __debug_bin
-chatops
+eye
 .start.template
 .commands/
 .templates/
@@ -23,3 +23,4 @@ public.key
 docs/
 .junie/
 .idea/
+.readme
