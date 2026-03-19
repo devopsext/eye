@@ -3,25 +3,19 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
-	"sync"
-	"syscall"
+	"github.com/devopsext/utils"
+	"github.com/spf13/cobra"
 
-	"github.com/devopsext/eye/common"
-	handler "github.com/devopsext/eye/handler"
-	"github.com/devopsext/eye/server"
 	sreCommon "github.com/devopsext/sre/common"
 	sreProvider "github.com/devopsext/sre/provider"
-	utils "github.com/devopsext/utils"
-	"github.com/spf13/cobra"
 )
 
 var version = "unknown"
-var APPNAME = "EYE"
-var appName = strings.ToLower(APPNAME)
+var APPNAME = "TOOLS"
 
 var logs = sreCommon.NewLogs()
 var metrics = sreCommon.NewMetrics()
@@ -29,13 +23,15 @@ var stdout *sreProvider.Stdout
 var mainWG sync.WaitGroup
 
 type RootOptions struct {
-	Logs    []string
-	Metrics []string
+	Logs     []string
+	Metrics  []string
+	Profiler string
 }
 
 var rootOptions = RootOptions{
-	Logs:    strings.Split(envGet("LOGS", "stdout").(string), ","),
-	Metrics: strings.Split(envGet("METRICS", "prometheus").(string), ","),
+	Logs:     strings.Split(envGet("LOGS", "stdout").(string), ","),
+	Metrics:  strings.Split(envGet("METRICS", "prometheus").(string), ","),
+	Profiler: envGet("PROFILER", "").(string),
 }
 
 var stdoutOptions = sreProvider.StdoutOptions{
@@ -44,31 +40,15 @@ var stdoutOptions = sreProvider.StdoutOptions{
 	Template:        envGet("STDOUT_TEMPLATE", "{{.file}} {{.msg}}").(string),
 	TimestampFormat: envGet("STDOUT_TIMESTAMP_FORMAT", time.RFC3339Nano).(string),
 	TextColors:      envGet("STDOUT_TEXT_COLORS", true).(bool),
+	Debug:           envGet("STDOUT_DEBUG", false).(bool),
 }
 
-var prometheusOptions = sreProvider.PrometheusOptions{
-	URL:    envGet("PROMETHEUS_METRICS_URL", "/metrics").(string),
-	Listen: envGet("PROMETHEUS_METRICS_LISTEN", "127.0.0.1:8080").(string),
-	Prefix: envGet("PROMETHEUS_METRICS_PREFIX", appName).(string),
-}
-
-var httpServerOptions = server.HttpServerOptions{
-	ServerName: envGet("HTTP_SERVER_NAME", "").(string),
-	Listen:     envGet("HTTP_LISTEN", ":80").(string),
-	Tls:        envGet("HTTP_TLS", false).(bool),
-	Insecure:   envGet("HTTP_INSECURE", false).(bool),
-	Cert:       envGet("HTTP_CERT", "").(string),
-	Key:        envGet("HTTP_KEY", "").(string),
-	Chain:      envGet("HTTP_CHAIN", "").(string),
-}
-
-var healthHandlerOptions = handler.HealthHandlerOptions{
-	URL: envGet("HEALTH_URL", "/health").(string),
-}
-
-var metricHandlerOptions = handler.MetricHandlerOptions{
-	URL: envGet("METRIC_URL", "/metric").(string),
-}
+/*var prometheusMetricsOptions = sreProvider.PrometheusOptions{
+	URL:       envGet("PROMETHEUS_METRICS_URL", "/metrics").(string),
+	Listen:    envGet("PROMETHEUS_METRICS_LISTEN", ":8080").(string),
+	Prefix:    envGet("PROMETHEUS_METRICS_PREFIX", "").(string),
+	GoRuntime: envGet("PROMETHEUS_METRICS_GO_RUNTIME", true).(bool),
+}*/
 
 func getOnlyEnv(key string) string {
 	value, ok := os.LookupEnv(key)
@@ -96,17 +76,6 @@ func envFileContentExpand(s string, def string) string {
 	return os.Expand(string(bytes), getOnlyEnv)
 }
 
-func interceptSyscall() {
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	go func() {
-		<-c
-		logs.Info("Exiting...")
-		os.Exit(1)
-	}()
-}
-
 func Execute() {
 
 	rootCmd := &cobra.Command{
@@ -124,29 +93,12 @@ func Execute() {
 			logs.Info("Booting...")
 
 			// Metrics
-
-			prometheusOptions.Version = version
-			prometheus := sreProvider.NewPrometheusMeter(prometheusOptions, logs, stdout)
+			/*prometheusMetricsOptions.Version = version
+			prometheus := sreProvider.NewPrometheusMeter(prometheusMetricsOptions, logs, stdout)
 			if utils.Contains(rootOptions.Metrics, "prometheus") && prometheus != nil {
 				prometheus.StartInWaitGroup(&mainWG)
 				metrics.Register(prometheus)
-			}
-		},
-		Run: func(cmd *cobra.Command, args []string) {
-
-			obs := common.NewObservability(logs, metrics)
-
-			models := common.NewModels()
-			models.Add(nil)
-
-			handlers := common.NewHandlers()
-			handlers.Add(handler.NewHealthHandler(healthHandlerOptions, obs))
-			handlers.Add(handler.NewMetricHandler(metricHandlerOptions, obs))
-
-			servers := common.NewServers()
-			servers.Add(server.NewHttpServer(httpServerOptions, handlers, obs))
-			servers.Start(&mainWG)
-			mainWG.Wait()
+			}*/
 		},
 	}
 
@@ -154,6 +106,7 @@ func Execute() {
 
 	flags.StringSliceVar(&rootOptions.Logs, "logs", rootOptions.Logs, "Log providers: stdout")
 	flags.StringSliceVar(&rootOptions.Metrics, "metrics", rootOptions.Metrics, "Metric providers: prometheus")
+	flags.StringVar(&rootOptions.Profiler, "profiler", rootOptions.Profiler, "Profiler address: aka localhost:6060")
 
 	flags.StringVar(&stdoutOptions.Format, "stdout-format", stdoutOptions.Format, "Stdout format: json, text, template")
 	flags.StringVar(&stdoutOptions.Level, "stdout-level", stdoutOptions.Level, "Stdout level: info, warn, error, debug, panic")
@@ -162,23 +115,11 @@ func Execute() {
 	flags.BoolVar(&stdoutOptions.TextColors, "stdout-text-colors", stdoutOptions.TextColors, "Stdout text colors")
 	flags.BoolVar(&stdoutOptions.Debug, "stdout-debug", stdoutOptions.Debug, "Stdout debug")
 
-	flags.StringVar(&prometheusOptions.URL, "prometheus-url", prometheusOptions.URL, "Prometheus endpoint url")
-	flags.StringVar(&prometheusOptions.Listen, "prometheus-listen", prometheusOptions.Listen, "Prometheus listen")
-	flags.StringVar(&prometheusOptions.Prefix, "prometheus-prefix", prometheusOptions.Prefix, "Prometheus prefix")
-
-	flags.StringVar(&httpServerOptions.ServerName, "http-server-name", httpServerOptions.ServerName, "Http server name")
-	flags.StringVar(&httpServerOptions.Listen, "http-listen", httpServerOptions.Listen, "Http listen")
-	flags.BoolVar(&httpServerOptions.Tls, "http-tls", httpServerOptions.Tls, "Http TLS")
-	flags.BoolVar(&httpServerOptions.Insecure, "http-insecure", httpServerOptions.Insecure, "Http insecure skip verify")
-	flags.StringVar(&httpServerOptions.Cert, "http-cert", httpServerOptions.Cert, "Http cert file or content")
-	flags.StringVar(&httpServerOptions.Key, "http-key", httpServerOptions.Key, "Http key file or content")
-	flags.StringVar(&httpServerOptions.Chain, "http-chain", httpServerOptions.Chain, "Http CA chain file or content")
-
-	flags.StringVar(&healthHandlerOptions.URL, "health-url", healthHandlerOptions.URL, "Http health url")
-
-	flags.StringVar(&metricHandlerOptions.URL, "metric-url", metricHandlerOptions.URL, "Http metric url")
-
-	interceptSyscall()
+	/*flags.StringVar(&prometheusMetricsOptions.URL, "prometheus-metrics-url", prometheusMetricsOptions.URL, "Prometheus metrics endpoint url")
+	flags.StringVar(&prometheusMetricsOptions.Listen, "prometheus-metrics-listen", prometheusMetricsOptions.Listen, "Prometheus metrics listen")
+	flags.StringVar(&prometheusMetricsOptions.Prefix, "prometheus-metrics-prefix", prometheusMetricsOptions.Prefix, "Prometheus metrics prefix")
+	flags.StringVar(&prometheusMetricsOptions.Version, "prometheus-metrics-version", prometheusMetricsOptions.Version, "Prometheus metrics version")
+	flags.BoolVar(&prometheusMetricsOptions.GoRuntime, "prometheus-metrics-goruntime", prometheusMetricsOptions.GoRuntime, "Prometheus metrics goruntime")*/
 
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "version",
@@ -188,8 +129,11 @@ func Execute() {
 		},
 	})
 
+	rootCmd.AddCommand(NewTrainCommand(&mainWG))
+	rootCmd.AddCommand(NewServerCommand(&mainWG))
+
 	if err := rootCmd.Execute(); err != nil {
-		logs.Error(err)
+		stdout.Error(err)
 		os.Exit(1)
 	}
 }

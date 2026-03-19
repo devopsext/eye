@@ -19,9 +19,10 @@ type HttpServerOptions struct {
 	Listen     string
 	Tls        bool
 	Insecure   bool
-	Cert       string
+	CA         string
+	Crt        string
 	Key        string
-	Chain      string
+	Timeout    int
 }
 
 type HttpServer struct {
@@ -70,14 +71,14 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 
 			// load certififcate
 			var cert []byte
-			if _, err := os.Stat(h.options.Cert); err == nil {
+			if _, err := os.Stat(h.options.Crt); err == nil {
 
-				cert, err = os.ReadFile(h.options.Cert)
+				cert, err = os.ReadFile(h.options.Crt)
 				if err != nil {
 					h.logger.Panic(err)
 				}
 			} else {
-				cert = []byte(h.options.Cert)
+				cert = []byte(h.options.Crt)
 			}
 
 			// load key
@@ -99,21 +100,21 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 
 			certificates = append(certificates, pair)
 
-			// load CA chain
-			var chain []byte
-			if _, err := os.Stat(h.options.Chain); err == nil {
-				chain, err = os.ReadFile(h.options.Chain)
+			// load CA
+			var ca []byte
+			if _, err := os.Stat(h.options.CA); err == nil {
+				ca, err = os.ReadFile(h.options.CA)
 				if err != nil {
 					h.logger.Panic(err)
 				}
 			} else {
-				chain = []byte(h.options.Chain)
+				ca = []byte(h.options.CA)
 			}
 
-			// make pool of chains
+			// make pool of CA
 			caPool = x509.NewCertPool()
-			if !caPool.AppendCertsFromPEM(chain) {
-				h.logger.Debug("CA chain is invalid")
+			if !caPool.AppendCertsFromPEM(ca) {
+				h.logger.Debug("HTTP Server CA is invalid")
 			}
 		}
 

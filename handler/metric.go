@@ -1,4 +1,4 @@
-package Handler
+package handler
 
 import (
 	"fmt"
@@ -10,42 +10,38 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 )
 
-type MetricHandlerRequest struct {
+type HttpMetricHandlerRequest struct {
 }
 
-type MetricHandlerResponse struct {
-	Request *MetricHandlerRequest `json:"request"`
+type HttpMetricHandlerResponse struct {
+	Request *HttpMetricHandlerRequest `json:"request"`
 }
 
-type MetricHandlerOptions struct {
+type HttpMetricHandlerOptions struct {
 	URL string
 }
 
-type MetricHandler struct {
-	options       MetricHandlerOptions
+type HttpMetricHandler struct {
+	options       HttpMetricHandlerOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 }
 
-func MetricHandlerName() string {
+func (h *HttpMetricHandler) Name() string {
 	return "Metric"
 }
 
-func (c *MetricHandler) Name() string {
-	return MetricHandlerName()
+func (h *HttpMetricHandler) URL() string {
+	return h.options.URL
 }
 
-func (c *MetricHandler) URL() string {
-	return c.options.URL
-}
-
-func (c *MetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
+func (h *HttpMetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
 
 	labels := make(sreCommon.Labels)
 
-	requests := c.meter.Counter(c.Name(), "requests", "Count of all remote_write Handler requests", labels, "remote_write", "Handler")
-	errs := c.meter.Counter(c.Name(), "errors", "Count of all remote_write Handler errors", labels, "remote_write", "Handler")
+	requests := h.meter.Counter(h.Name(), "requests", "Count of all remote_write Handler requests", labels, "remote_write", "Handler")
+	errs := h.meter.Counter(h.Name(), "errors", "Count of all remote_write Handler errors", labels, "remote_write", "Handler")
 
 	requests.Inc()
 
@@ -58,7 +54,7 @@ func (c *MetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request
 
 	decoder := form.NewDecoder()
 
-	var request MetricHandlerRequest
+	var request HttpMetricHandlerRequest
 	err = decoder.Decode(&request, r.Form)
 	if err != nil {
 		errs.Inc()
@@ -82,9 +78,9 @@ func (c *MetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request
 	return nil
 }
 
-func NewMetricHandler(options MetricHandlerOptions, observability *common.Observability) *MetricHandler {
+func NewHttpMetricHandler(options HttpMetricHandlerOptions, observability *common.Observability) *HttpMetricHandler {
 
-	return &MetricHandler{
+	return &HttpMetricHandler{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),

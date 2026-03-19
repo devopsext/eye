@@ -1,12 +1,14 @@
 package common
 
-import "reflect"
+import (
+	"reflect"
+	"sync"
+)
 
 type Model interface {
 	Name() string
-	Save()
-	Load()
-	Train()
+	Train(wg *sync.WaitGroup)
+	Start(wg *sync.WaitGroup)
 }
 
 type Models struct {
@@ -32,6 +34,16 @@ func (ms *Models) Find(name string) Model {
 		}
 	}
 	return nil
+}
+
+func (ms *Models) Start(wg *sync.WaitGroup) {
+
+	for _, i := range ms.list {
+
+		if i != nil {
+			(i).Start(wg)
+		}
+	}
 }
 
 func NewModels() *Models {

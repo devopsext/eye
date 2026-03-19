@@ -1,4 +1,4 @@
-package Handler
+package handler
 
 import (
 	"fmt"
@@ -8,30 +8,26 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 )
 
-type HealthHandlerOptions struct {
+type HttpHealthHandlerOptions struct {
 	URL string
 }
 
-type HealthHandler struct {
-	options       HealthHandlerOptions
+type HttpHealthHandler struct {
+	options       HttpHealthHandlerOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 }
 
-func HealthHandlerName() string {
+func (h *HttpHealthHandler) Name() string {
 	return "Health"
 }
 
-func (p *HealthHandler) Name() string {
-	return HealthHandlerName()
+func (h *HttpHealthHandler) URL() string {
+	return h.options.URL
 }
 
-func (p *HealthHandler) URL() string {
-	return p.options.URL
-}
-
-func (p *HealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
+func (h *HttpHealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
 
 	_, err := w.Write([]byte("OK"))
 
@@ -42,9 +38,9 @@ func (p *HealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request
 	return nil
 }
 
-func NewHealthHandler(options HealthHandlerOptions, observability *common.Observability) *HealthHandler {
+func NewHttpHealthHandler(options HttpHealthHandlerOptions, observability *common.Observability) *HttpHealthHandler {
 
-	return &HealthHandler{
+	return &HttpHealthHandler{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
