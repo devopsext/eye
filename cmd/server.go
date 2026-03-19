@@ -24,8 +24,8 @@ var httpHealthHandlerOptions = handler.HttpHealthHandlerOptions{
 	URL: envGet("HTTP_HEALTH_URL", "/health").(string),
 }
 
-var httpMetricHandlerOptions = handler.HttpMetricHandlerOptions{
-	URL: envGet("HTTP_METRIC_URL", "/metric").(string),
+var httpInspectHandlerOptions = handler.HttpInspectHandlerOptions{
+	URL: envGet("HTTP_INSPECT_URL", "/inspect").(string),
 }
 
 func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
@@ -42,7 +42,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			handlers := common.NewHandlers()
 			handlers.Add(handler.NewHttpHealthHandler(httpHealthHandlerOptions, obs))
-			handlers.Add(handler.NewHttpMetricHandler(httpMetricHandlerOptions, obs))
+			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
 
 			servers := common.NewServers()
 			servers.Add(server.NewHttpServer(httpServerOptions, handlers, obs))
@@ -63,7 +63,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.IntVar(&httpServerOptions.Timeout, "http-server-timeout", httpServerOptions.Timeout, "Http server timeout")
 
 	flags.StringVar(&httpHealthHandlerOptions.URL, "http-health-url", httpHealthHandlerOptions.URL, "Http health handler url")
-	flags.StringVar(&httpMetricHandlerOptions.URL, "http-metric-url", httpMetricHandlerOptions.URL, "Http metric handler url")
+	flags.StringVar(&httpInspectHandlerOptions.URL, "http-inspect-url", httpInspectHandlerOptions.URL, "Http inspect handler url")
 
 	return &serverCmd
 }

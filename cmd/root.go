@@ -15,7 +15,7 @@ import (
 )
 
 var version = "unknown"
-var APPNAME = "TOOLS"
+var APPNAME = "EYE"
 
 var logs = sreCommon.NewLogs()
 var metrics = sreCommon.NewMetrics()

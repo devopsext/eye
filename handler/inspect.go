@@ -10,33 +10,35 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 )
 
-type HttpMetricHandlerRequest struct {
+type HttpInspectHandlerRequest struct {
+	ID    string `form:"id"`
+	Model string `form:"model"`
 }
 
-type HttpMetricHandlerResponse struct {
-	Request *HttpMetricHandlerRequest `json:"request"`
+type HttpInspectHandlerResponse struct {
+	Request *HttpInspectHandlerRequest `json:"request"`
 }
 
-type HttpMetricHandlerOptions struct {
+type HttpInspectHandlerOptions struct {
 	URL string
 }
 
-type HttpMetricHandler struct {
-	options       HttpMetricHandlerOptions
+type HttpInspectHandler struct {
+	options       HttpInspectHandlerOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 }
 
-func (h *HttpMetricHandler) Name() string {
-	return "Metric"
+func (h *HttpInspectHandler) Name() string {
+	return "Inspect"
 }
 
-func (h *HttpMetricHandler) URL() string {
+func (h *HttpInspectHandler) URL() string {
 	return h.options.URL
 }
 
-func (h *HttpMetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
+func (h *HttpInspectHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
 
 	labels := make(sreCommon.Labels)
 
@@ -54,7 +56,7 @@ func (h *HttpMetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Req
 
 	decoder := form.NewDecoder()
 
-	var request HttpMetricHandlerRequest
+	var request HttpInspectHandlerRequest
 	err = decoder.Decode(&request, r.Form)
 	if err != nil {
 		errs.Inc()
@@ -78,9 +80,9 @@ func (h *HttpMetricHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Req
 	return nil
 }
 
-func NewHttpMetricHandler(options HttpMetricHandlerOptions, observability *common.Observability) *HttpMetricHandler {
+func NewHttpInspectHandler(options HttpInspectHandlerOptions, observability *common.Observability) *HttpInspectHandler {
 
-	return &HttpMetricHandler{
+	return &HttpInspectHandler{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
