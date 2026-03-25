@@ -39,6 +39,9 @@ func (m *V1Model) debug(msg any, args ...any) {
 
 func (m *V1Model) train() error {
 
+	// 1. gather incoming traffic, errors, latency per application
+	// 2. gather outgoing traffic, errors, latency per application
+
 	prom := toolsVendors.NewPrometheus(m.options.Prometheus)
 	if prom == nil {
 		return fmt.Errorf("")
