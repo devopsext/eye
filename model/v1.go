@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -8,11 +9,16 @@ import (
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
 	toolsVendors "github.com/devopsext/tools/vendors"
+	"github.com/devopsext/utils"
+	"github.com/jinzhu/copier"
 )
 
 type V1ModelOptions struct {
-	File       string
-	Prometheus toolsVendors.PrometheusOptions
+	File                        string
+	PrometheusAppInTrafficQuery string
+	PrometheusAppInErrorsQuery  string
+	PrometheusAppInLatencyQuery string
+	Prometheus                  toolsVendors.PrometheusOptions
 }
 
 type V1Model struct {
@@ -37,22 +43,56 @@ func (m *V1Model) debug(msg any, args ...any) {
 	m.logger.Debug(fmt.Sprintf("%v: %v", m.Name(), msg), args...)
 }
 
+func (m *V1Model) getPrometheusVector(q string) ([]*common.PrometheusResponseDataVector, error) {
+
+	opts := toolsVendors.PrometheusOptions{}
+	copier.Copy(&opts, &m.options.Prometheus)
+	opts.Query = q
+
+	prom := toolsVendors.NewPrometheus(opts)
+	if prom == nil {
+		return nil, fmt.Errorf("prometheus cannot create client")
+	}
+
+	data, err := prom.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	var res common.PrometheusResponse
+	if err := json.Unmarshal(data, &res); err != nil {
+		return nil, err
+	}
+
+	if res.Status != "success" {
+		return nil, fmt.Errorf("prometheus got wrong status %s", res.Status)
+	}
+
+	if (res.Data == nil) || (len(res.Data.Result) == 0) {
+		return nil, fmt.Errorf("prometheus got no data")
+	}
+
+	if !utils.Contains([]string{"vector", "matrix"}, res.Data.ResultType) {
+		return nil, fmt.Errorf("prometheus supports only vector and matrix data")
+	}
+
+	return res.Data.Result, nil
+}
+
 func (m *V1Model) train() error {
 
 	// 1. gather incoming traffic, errors, latency per application
 	// 2. gather outgoing traffic, errors, latency per application
 
-	prom := toolsVendors.NewPrometheus(m.options.Prometheus)
-	if prom == nil {
-		return fmt.Errorf("")
-	}
-
-	data, err := prom.Get()
+	vector, err := m.getPrometheusVector(m.options.PrometheusAppInTrafficQuery)
 	if err != nil {
 		return err
 	}
 
-	m.debug(data)
+	for _, v := range vector {
+
+		m.debug("Vector %d : %v %s", v.Stamp(), v.Value(), v.Labels)
+	}
 
 	return nil
 }
