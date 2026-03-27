@@ -9,7 +9,9 @@ require (
 	github.com/devopsext/tools v0.20.17
 	github.com/devopsext/utils v0.4.8
 	github.com/go-playground/form v3.1.4+incompatible
+	github.com/jinzhu/copier v0.4.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sync v0.16.0
 )
 
 require (
@@ -48,7 +50,6 @@ require (
 	github.com/gravitational/trace v1.5.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

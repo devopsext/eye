@@ -13,6 +13,7 @@ import (
 	toolsVendors "github.com/devopsext/tools/vendors"
 	"github.com/devopsext/utils"
 	"github.com/jinzhu/copier"
+	"golang.org/x/sync/errgroup"
 )
 
 type V1ModelPrometheusDataValue struct {
@@ -152,23 +153,57 @@ func (m *V1Model) train() error {
 	// 6. add hosts to applications
 	// 7. add saturation to host signals
 
-	// gather incoming traffic
-	traffic, err := m.loadPrometheusData(m.options.PrometheusAppInTrafficQuery)
+	when := time.Now()
+	m.info("Gathering incoming signals...")
+
+	incomings := make(map[common.SignalKind]string)
+	incomings[common.SignalTraffic] = m.options.PrometheusAppInTrafficQuery
+	incomings[common.SignalErrors] = m.options.PrometheusAppInErrorsQuery
+	incomings[common.SignalLatency] = m.options.PrometheusAppInLatencyQuery
+
+	gr := &errgroup.Group{}
+	mp := &sync.Map{}
+
+	// gather incoming signals
+	for k, q := range incomings {
+
+		gr.Go(func() error {
+
+			// gather incoming errors
+			data, err := m.loadPrometheusData(q)
+			if err != nil {
+				return err
+			}
+
+			mp.Store(k, data)
+			return nil
+		})
+	}
+
+	err := gr.Wait()
 	if err != nil {
 		return err
 	}
 
-	// gather incoming errors
-	errors, err := m.loadPrometheusData(m.options.PrometheusAppInErrorsQuery)
-	if err != nil {
-		return err
+	var traffic V1ModelPrometheusData
+	st, ok := mp.Load(common.SignalTraffic)
+	if ok {
+		traffic, _ = st.(V1ModelPrometheusData)
 	}
 
-	// gather incoming latency
-	latency, err := m.loadPrometheusData(m.options.PrometheusAppInLatencyQuery)
-	if err != nil {
-		return err
+	var errors V1ModelPrometheusData
+	se, ok := mp.Load(common.SignalErrors)
+	if ok {
+		errors, _ = se.(V1ModelPrometheusData)
 	}
+
+	var latency V1ModelPrometheusData
+	sl, ok := mp.Load(common.SignalLatency)
+	if ok {
+		latency, _ = sl.(V1ModelPrometheusData)
+	}
+
+	m.debug("Gathering successfully finished in %s (traffic: %d, errors: %d, latency: %d)", time.Since(when), len(traffic), len(errors), len(latency))
 
 	m.mergePrometheusData(traffic, errors, latency)
 

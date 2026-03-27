@@ -2,6 +2,15 @@ package common
 
 import "github.com/devopsext/utils"
 
+type SignalKind = int
+
+const (
+	SignalTraffic = iota
+	SignalErrors
+	SignalLatency
+	SignalSaturation
+)
+
 type HostKind = int
 
 const (
