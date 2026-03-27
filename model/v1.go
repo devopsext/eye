@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,13 @@ import (
 	"github.com/devopsext/utils"
 	"github.com/jinzhu/copier"
 )
+
+type V1ModelPrometheusDataValue struct {
+	Labels *map[string]string
+	Value  float64
+}
+
+type V1ModelPrometheusData = map[int64][]V1ModelPrometheusDataValue
 
 type V1ModelOptions struct {
 	File                        string
@@ -43,7 +52,7 @@ func (m *V1Model) debug(msg any, args ...any) {
 	m.logger.Debug(fmt.Sprintf("%v: %v", m.Name(), msg), args...)
 }
 
-func (m *V1Model) getPrometheusVector(q string) ([]*common.PrometheusResponseDataVector, error) {
+func (m *V1Model) loadPrometheusData(q string) (V1ModelPrometheusData, error) {
 
 	opts := toolsVendors.PrometheusOptions{}
 	copier.Copy(&opts, &m.options.Prometheus)
@@ -54,13 +63,13 @@ func (m *V1Model) getPrometheusVector(q string) ([]*common.PrometheusResponseDat
 		return nil, fmt.Errorf("prometheus cannot create client")
 	}
 
-	data, err := prom.Get()
+	d, err := prom.Get()
 	if err != nil {
 		return nil, err
 	}
 
 	var res common.PrometheusResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	if err := json.Unmarshal(d, &res); err != nil {
 		return nil, err
 	}
 
@@ -76,23 +85,92 @@ func (m *V1Model) getPrometheusVector(q string) ([]*common.PrometheusResponseDat
 		return nil, fmt.Errorf("prometheus supports only vector and matrix data")
 	}
 
-	return res.Data.Result, nil
+	data := V1ModelPrometheusData{}
+
+	for _, dr := range res.Data.Result {
+
+		var stamp int64 = 0
+		var value float64 = 0.0
+
+		for _, rv := range dr.Values {
+
+			if len(rv) < 2 {
+				continue
+			}
+
+			// get stamp
+			s := fmt.Sprintf("%.0f", rv[0])
+			s = strings.ReplaceAll(s, ".", "")
+			if len(s) == 13 { // unix millisec
+				i, err := strconv.ParseInt(s, 10, 64)
+				if err != nil {
+					continue
+				}
+				stamp = i
+			} else if len(s) == 10 { // unix sec
+				i, err := strconv.ParseInt(s, 10, 64)
+				if err != nil {
+					continue
+				}
+				stamp = i * 1000 // unix millisec
+			}
+
+			// get value
+			s = fmt.Sprintf("%s", rv[1])
+			f, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				continue
+			}
+			value = f
+
+			if stamp <= 0 {
+				continue
+			}
+
+			v := V1ModelPrometheusDataValue{
+				Labels: &dr.Labels,
+				Value:  value,
+			}
+
+			data[stamp] = append(data[stamp], v)
+		}
+	}
+	return data, nil
+}
+
+func (m *V1Model) mergePrometheusData(traffic, errors, latency V1ModelPrometheusData) {
+	//
 }
 
 func (m *V1Model) train() error {
 
 	// 1. gather incoming traffic, errors, latency per application
-	// 2. gather outgoing traffic, errors, latency per application
+	// 2. create initial application signals based on incoming
+	// 3. gather outgoing traffic, errors, latency per application
+	// 4. add outgoing to application signals, with dependencies
+	// 5. add saturation to application signals
+	// 6. add hosts to applications
+	// 7. add saturation to host signals
 
-	vector, err := m.getPrometheusVector(m.options.PrometheusAppInTrafficQuery)
+	// gather incoming traffic
+	traffic, err := m.loadPrometheusData(m.options.PrometheusAppInTrafficQuery)
 	if err != nil {
 		return err
 	}
 
-	for _, v := range vector {
-
-		m.debug("Vector %d : %v %s", v.Stamp(), v.Value(), v.Labels)
+	// gather incoming errors
+	errors, err := m.loadPrometheusData(m.options.PrometheusAppInErrorsQuery)
+	if err != nil {
+		return err
 	}
+
+	// gather incoming latency
+	latency, err := m.loadPrometheusData(m.options.PrometheusAppInLatencyQuery)
+	if err != nil {
+		return err
+	}
+
+	m.mergePrometheusData(traffic, errors, latency)
 
 	return nil
 }

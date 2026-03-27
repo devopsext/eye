@@ -8,7 +8,7 @@ import (
 
 type PrometheusResponseDataVector struct {
 	Labels map[string]string `json:"metric"`
-	Values []any             `json:"values"`
+	Values [][]any           `json:"values"`
 }
 
 type PrometheusResponseData struct {
