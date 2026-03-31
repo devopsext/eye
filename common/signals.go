@@ -104,6 +104,21 @@ type Measurements struct {
 	items map[int64]Signals
 }
 
+func SignalKindToString(kind SignalKind) string {
+
+	switch kind {
+	case SignalTraffic:
+		return "traffic"
+	case SignalErrors:
+		return "errors"
+	case SignalLatency:
+		return "latency"
+	case SignalSaturation:
+		return "saturation"
+	}
+	return ""
+}
+
 // HostSignal
 
 func (hs *HostSignal) Name() string {

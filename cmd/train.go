@@ -12,6 +12,7 @@ import (
 var v1ModelOptions = model.V1ModelOptions{
 	File: envGet("V1_MODEL_FILE", "").(string),
 
+	PrometheusAppCommonLabels:   envStringExpand("V1_MODEL_PROMETHEUS_APP_COMMON_LABELS", ""),
 	PrometheusAppInTrafficQuery: envStringExpand("V1_MODEL_PROMETHEUS_APP_IN_TRAFFIC_QUERY", ""),
 	PrometheusAppInErrorsQuery:  envStringExpand("V1_MODEL_PROMETHEUS_APP_IN_ERRORS_QUERY", ""),
 	PrometheusAppInLatencyQuery: envStringExpand("V1_MODEL_PROMETHEUS_APP_IN_LATENCY_QUERY", ""),
@@ -22,11 +23,10 @@ var v1ModelOptions = model.V1ModelOptions{
 		Password: envStringExpand("V1_MODEL_PROMETHEUS_PASSWORD", ""),
 		Timeout:  envGet("V1_MODEL_PROMETHEUS_TIMEOUT", 30).(int),
 		Insecure: envGet("V1_MODEL_PROMETHEUS_INSECURE", false).(bool),
-		// Query:    envStringExpand("V1_MODEL_PROMETHEUS_QUERY", ""), use separate queries
-		From:   envGet("V1_MODEL_PROMETHEUS_FROM", "").(string),
-		To:     envGet("V1_MODEL_PROMETHEUS_TO", "").(string),
-		Step:   envGet("V1_MODEL_PROMETHEUS_STEP", "60s").(string),
-		Params: envGet("V1_MODEL_PROMETHEUS_PARAMS", "").(string),
+		From:     envGet("V1_MODEL_PROMETHEUS_FROM", "").(string),
+		To:       envGet("V1_MODEL_PROMETHEUS_TO", "").(string),
+		Step:     envGet("V1_MODEL_PROMETHEUS_STEP", "60s").(string),
+		Params:   envGet("V1_MODEL_PROMETHEUS_PARAMS", "").(string),
 	},
 }
 
@@ -59,6 +59,7 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags := trainV1ModelCmd.PersistentFlags()
 	flags.StringVar(&v1ModelOptions.File, "v1-model-file", v1ModelOptions.File, "V1 model file path")
 
+	flags.StringVar(&v1ModelOptions.PrometheusAppCommonLabels, "v1-model-prometheus-app-common-labels", v1ModelOptions.PrometheusAppCommonLabels, "V1 model prometheus app common labels")
 	flags.StringVar(&v1ModelOptions.PrometheusAppInTrafficQuery, "v1-model-prometheus-app-in-traffic-query", v1ModelOptions.PrometheusAppInTrafficQuery, "V1 model prometheus app incoming traffic query")
 	flags.StringVar(&v1ModelOptions.PrometheusAppInErrorsQuery, "v1-model-prometheus-app-in-errors-query", v1ModelOptions.PrometheusAppInErrorsQuery, "V1 model prometheus app incoming errors query")
 	flags.StringVar(&v1ModelOptions.PrometheusAppInLatencyQuery, "v1-model-prometheus-app-in-latency-query", v1ModelOptions.PrometheusAppInLatencyQuery, "V1 model prometheus app incoming latency query")
@@ -68,7 +69,6 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.Prometheus.Password, "v1-model-prometheus-password", v1ModelOptions.Prometheus.Password, "V1 model prometheus password")
 	flags.IntVar(&v1ModelOptions.Prometheus.Timeout, "v1-model-prometheus-timeout", v1ModelOptions.Prometheus.Timeout, "V1 model prometheus timeout")
 	flags.BoolVar(&v1ModelOptions.Prometheus.Insecure, "v1-model-prometheus-insecure", v1ModelOptions.Prometheus.Insecure, "V1 model prometheus insecure")
-	//flags.StringVar(&v1ModelOptions.Prometheus.Query, "v1-model-prometheus-query", v1ModelOptions.Prometheus.Query, "V1 model prometheus query")
 	flags.StringVar(&v1ModelOptions.Prometheus.From, "v1-model-prometheus-from", v1ModelOptions.Prometheus.From, "V1 model prometheus from")
 	flags.StringVar(&v1ModelOptions.Prometheus.To, "v1-model-prometheus-to", v1ModelOptions.Prometheus.To, "V1 model prometheus to")
 	flags.StringVar(&v1ModelOptions.Prometheus.Step, "v1-model-prometheus-step", v1ModelOptions.Prometheus.Step, "V1 model prometheus step")

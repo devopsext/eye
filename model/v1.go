@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type V1ModelPrometheusData = map[int64][]V1ModelPrometheusDataValue
 
 type V1ModelOptions struct {
 	File                        string
+	PrometheusAppCommonLabels   string
 	PrometheusAppInTrafficQuery string
 	PrometheusAppInErrorsQuery  string
 	PrometheusAppInLatencyQuery string
@@ -53,6 +55,56 @@ func (m *V1Model) debug(msg any, args ...any) {
 	m.logger.Debug(fmt.Sprintf("%v: %v", m.Name(), msg), args...)
 }
 
+func (m *V1Model) addUniqueKeys(keys []string, ma []map[string]string) []string {
+
+	r := keys
+	for _, v := range ma {
+		mKeys := common.GetStringKeys(v)
+		for _, v2 := range mKeys {
+			if utils.Contains(keys, v2) {
+				continue
+			}
+			r = append(r, v2)
+		}
+	}
+	return r
+}
+
+func (m *V1Model) sliceCommonLabels(parent, labels map[string]string) []map[string]string {
+
+	r := []map[string]string{}
+	pKeys := common.GetStringKeys(parent)
+	lKeys := common.GetStringKeys(labels)
+	if len(pKeys) == len(lKeys) {
+		r = append(r, parent)
+		return r
+	}
+	for k, v := range labels {
+		if utils.Contains(pKeys, k) {
+			continue
+		}
+		vv := common.RemoveEmptyStrings(strings.Split(v, ","))
+		for _, v2 := range vv {
+			lbs := make(map[string]string)
+			maps.Copy(lbs, parent)
+			lbs[k] = v2
+			r2 := m.sliceCommonLabels(lbs, labels)
+			r = append(r, r2...)
+		}
+		pKeys = m.addUniqueKeys(pKeys, r)
+	}
+	return r
+}
+
+func (m *V1Model) preparePrometheusQuery(q string, labels map[string]string) string {
+
+	s := q
+	for k, v := range labels {
+		s = strings.ReplaceAll(s, fmt.Sprintf(".%s", k), v)
+	}
+	return s
+}
+
 func (m *V1Model) loadPrometheusData(q string) (V1ModelPrometheusData, error) {
 
 	opts := toolsVendors.PrometheusOptions{}
@@ -78,12 +130,12 @@ func (m *V1Model) loadPrometheusData(q string) (V1ModelPrometheusData, error) {
 		return nil, fmt.Errorf("prometheus got wrong status %s", res.Status)
 	}
 
-	if (res.Data == nil) || (len(res.Data.Result) == 0) {
-		return nil, fmt.Errorf("prometheus got no data")
-	}
-
 	if !utils.Contains([]string{"vector", "matrix"}, res.Data.ResultType) {
 		return nil, fmt.Errorf("prometheus supports only vector and matrix data")
+	}
+
+	if (res.Data == nil) || (len(res.Data.Result) == 0) {
+		return nil, nil
 	}
 
 	data := V1ModelPrometheusData{}
@@ -139,6 +191,132 @@ func (m *V1Model) loadPrometheusData(q string) (V1ModelPrometheusData, error) {
 	return data, nil
 }
 
+func (m *V1Model) gatherSignals(queries map[common.SignalKind]string) (map[common.SignalKind]V1ModelPrometheusData, error) {
+
+	gr := &errgroup.Group{}
+	mp := &sync.Map{}
+
+	// gather signals
+	for k, q := range queries {
+
+		gr.Go(func() error {
+
+			data, err := m.loadPrometheusData(q)
+			if err != nil {
+				return err
+			}
+
+			mp.Store(k, data)
+			return nil
+		})
+	}
+
+	err := gr.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	r := make(map[common.SignalKind]V1ModelPrometheusData)
+
+	for k, _ := range queries {
+
+		v, ok := mp.Load(k)
+		if ok {
+			d, ok := v.(V1ModelPrometheusData)
+			if ok {
+				r[k] = d
+			}
+		}
+	}
+	return r, nil
+}
+
+func (m *V1Model) prepareIncomingQueries(labels map[string]string) map[common.SignalKind]string {
+
+	queries := make(map[common.SignalKind]string)
+
+	qTraffic := m.preparePrometheusQuery(m.options.PrometheusAppInTrafficQuery, labels)
+	if !utils.IsEmpty(qTraffic) {
+		queries[common.SignalTraffic] = qTraffic
+	}
+
+	qErrors := m.preparePrometheusQuery(m.options.PrometheusAppInErrorsQuery, labels)
+	if !utils.IsEmpty(qErrors) {
+		queries[common.SignalErrors] = qErrors
+	}
+
+	qLatency := m.preparePrometheusQuery(m.options.PrometheusAppInLatencyQuery, labels)
+	if !utils.IsEmpty(qLatency) {
+		queries[common.SignalLatency] = qLatency
+	}
+	return queries
+}
+
+func (m *V1Model) gatherIncomingSignals() ([]map[common.SignalKind]V1ModelPrometheusData, error) {
+
+	when := time.Now()
+
+	signals := []map[common.SignalKind]V1ModelPrometheusData{}
+
+	m.info("Gathering incoming...")
+
+	labels := utils.MapGetKeyValuesEx(m.options.PrometheusAppCommonLabels, ";", "=")
+	if len(labels) > 0 {
+
+		arr := m.sliceCommonLabels(nil, labels)
+
+		for n, lbs := range arr {
+
+			queries := m.prepareIncomingQueries(lbs)
+			for k, q := range queries {
+				m.info("Gathering #%d incoming started %s => %s", n, common.SignalKindToString(k), q)
+			}
+
+			r, err := m.gatherSignals(queries)
+			if err != nil {
+				return nil, err
+			}
+
+			infos := []string{}
+			for k, v := range r {
+				infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
+			}
+			if len(infos) > 0 {
+				m.debug("Gathering #%d incoming finished in %s%s", n, time.Since(when), fmt.Sprintf(" %s", strings.Join(infos, ", ")))
+			} else {
+				m.debug("Gathering #%d incoming finished in %s (no data)", n, time.Since(when))
+			}
+
+			signals = append(signals, r)
+		}
+
+	} else {
+
+		queries := m.prepareIncomingQueries(nil)
+		for k, q := range queries {
+			m.info("Gathering incoming started %s => %s", common.SignalKindToString(k), q)
+		}
+
+		r, err := m.gatherSignals(queries)
+		if err != nil {
+			return nil, err
+		}
+
+		infos := []string{}
+		for k, v := range r {
+			infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
+		}
+		if len(infos) > 0 {
+			m.debug("Gathering incoming finished in %s%s", time.Since(when), fmt.Sprintf(" %s", strings.Join(infos, ", ")))
+		} else {
+			m.debug("Gathering incoming finished in %s (no data)", time.Since(when))
+		}
+
+		signals = append(signals, r)
+	}
+	return signals, nil
+}
+
 func (m *V1Model) mergePrometheusData(traffic, errors, latency V1ModelPrometheusData) {
 	//
 }
@@ -153,59 +331,11 @@ func (m *V1Model) train() error {
 	// 6. add hosts to applications
 	// 7. add saturation to host signals
 
-	when := time.Now()
-	m.info("Gathering incoming signals...")
+	m.gatherIncomingSignals()
 
-	incomings := make(map[common.SignalKind]string)
-	incomings[common.SignalTraffic] = m.options.PrometheusAppInTrafficQuery
-	incomings[common.SignalErrors] = m.options.PrometheusAppInErrorsQuery
-	incomings[common.SignalLatency] = m.options.PrometheusAppInLatencyQuery
+	//measurements := &common.Measurements{}
 
-	gr := &errgroup.Group{}
-	mp := &sync.Map{}
-
-	// gather incoming signals
-	for k, q := range incomings {
-
-		gr.Go(func() error {
-
-			// gather incoming errors
-			data, err := m.loadPrometheusData(q)
-			if err != nil {
-				return err
-			}
-
-			mp.Store(k, data)
-			return nil
-		})
-	}
-
-	err := gr.Wait()
-	if err != nil {
-		return err
-	}
-
-	var traffic V1ModelPrometheusData
-	st, ok := mp.Load(common.SignalTraffic)
-	if ok {
-		traffic, _ = st.(V1ModelPrometheusData)
-	}
-
-	var errors V1ModelPrometheusData
-	se, ok := mp.Load(common.SignalErrors)
-	if ok {
-		errors, _ = se.(V1ModelPrometheusData)
-	}
-
-	var latency V1ModelPrometheusData
-	sl, ok := mp.Load(common.SignalLatency)
-	if ok {
-		latency, _ = sl.(V1ModelPrometheusData)
-	}
-
-	m.debug("Gathering successfully finished in %s (traffic: %d, errors: %d, latency: %d)", time.Since(when), len(traffic), len(errors), len(latency))
-
-	m.mergePrometheusData(traffic, errors, latency)
+	//m.mergePrometheusData(traffic, errors, latency)
 
 	return nil
 }
