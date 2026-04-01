@@ -12,10 +12,15 @@ import (
 var v1ModelOptions = model.V1ModelOptions{
 	File: envGet("V1_MODEL_FILE", "").(string),
 
-	PrometheusAppCommonLabels:   envStringExpand("V1_MODEL_PROMETHEUS_APP_COMMON_LABELS", ""),
-	PrometheusAppInTrafficQuery: envStringExpand("V1_MODEL_PROMETHEUS_APP_IN_TRAFFIC_QUERY", ""),
-	PrometheusAppInErrorsQuery:  envStringExpand("V1_MODEL_PROMETHEUS_APP_IN_ERRORS_QUERY", ""),
-	PrometheusAppInLatencyQuery: envStringExpand("V1_MODEL_PROMETHEUS_APP_IN_LATENCY_QUERY", ""),
+	AppCommonLabels: envStringExpand("V1_MODEL_APP_COMMON_LABELS", ""),
+
+	AppInTrafficQuery: envStringExpand("V1_MODEL_APP_IN_TRAFFIC_QUERY", ""),
+	AppInErrorsQuery:  envStringExpand("V1_MODEL_APP_IN_ERRORS_QUERY", ""),
+	AppInLatencyQuery: envStringExpand("V1_MODEL_APP_IN_LATENCY_QUERY", ""),
+
+	AppOutTrafficQuery: envStringExpand("V1_MODEL_APP_OUT_TRAFFIC_QUERY", ""),
+	AppOutErrorsQuery:  envStringExpand("V1_MODEL_APP_OUT_ERRORS_QUERY", ""),
+	AppOutLatencyQuery: envStringExpand("V1_MODEL_APP_OUT_LATENCY_QUERY", ""),
 
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("V1_MODEL_PROMETHEUS_URL", ""),
@@ -59,10 +64,15 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags := trainV1ModelCmd.PersistentFlags()
 	flags.StringVar(&v1ModelOptions.File, "v1-model-file", v1ModelOptions.File, "V1 model file path")
 
-	flags.StringVar(&v1ModelOptions.PrometheusAppCommonLabels, "v1-model-prometheus-app-common-labels", v1ModelOptions.PrometheusAppCommonLabels, "V1 model prometheus app common labels")
-	flags.StringVar(&v1ModelOptions.PrometheusAppInTrafficQuery, "v1-model-prometheus-app-in-traffic-query", v1ModelOptions.PrometheusAppInTrafficQuery, "V1 model prometheus app incoming traffic query")
-	flags.StringVar(&v1ModelOptions.PrometheusAppInErrorsQuery, "v1-model-prometheus-app-in-errors-query", v1ModelOptions.PrometheusAppInErrorsQuery, "V1 model prometheus app incoming errors query")
-	flags.StringVar(&v1ModelOptions.PrometheusAppInLatencyQuery, "v1-model-prometheus-app-in-latency-query", v1ModelOptions.PrometheusAppInLatencyQuery, "V1 model prometheus app incoming latency query")
+	flags.StringVar(&v1ModelOptions.AppCommonLabels, "v1-model-app-common-labels", v1ModelOptions.AppCommonLabels, "V1 model prometheus app common labels")
+
+	flags.StringVar(&v1ModelOptions.AppInTrafficQuery, "v1-model-app-in-traffic-query", v1ModelOptions.AppInTrafficQuery, "V1 model prometheus app incoming traffic query")
+	flags.StringVar(&v1ModelOptions.AppInErrorsQuery, "v1-model-app-in-errors-query", v1ModelOptions.AppInErrorsQuery, "V1 model prometheus app incoming errors query")
+	flags.StringVar(&v1ModelOptions.AppInLatencyQuery, "v1-model-app-in-latency-query", v1ModelOptions.AppInLatencyQuery, "V1 model prometheus app incoming latency query")
+
+	flags.StringVar(&v1ModelOptions.AppOutTrafficQuery, "v1-model-app-out-traffic-query", v1ModelOptions.AppOutTrafficQuery, "V1 model prometheus app outgoing traffic query")
+	flags.StringVar(&v1ModelOptions.AppOutErrorsQuery, "v1-model-app-out-errors-query", v1ModelOptions.AppOutErrorsQuery, "V1 model prometheus app outgoing errors query")
+	flags.StringVar(&v1ModelOptions.AppOutLatencyQuery, "v1-model-app-out-latency-query", v1ModelOptions.AppOutLatencyQuery, "V1 model prometheus app outgoing latency query")
 
 	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
 	flags.StringVar(&v1ModelOptions.Prometheus.User, "v1-model-prometheus-user", v1ModelOptions.Prometheus.User, "V1 model prometheus user")
