@@ -22,6 +22,9 @@ var v1ModelOptions = model.V1ModelOptions{
 	AppOutErrorsQuery:  envStringExpand("V1_MODEL_APP_OUT_ERRORS_QUERY", ""),
 	AppOutLatencyQuery: envStringExpand("V1_MODEL_APP_OUT_LATENCY_QUERY", ""),
 
+	AppSaturationQuery:  envStringExpand("V1_MODEL_APP_SATURATION_QUERY", ""),
+	HostSaturationQuery: envStringExpand("V1_MODEL_HOST_SATURATION_QUERY", ""),
+
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("V1_MODEL_PROMETHEUS_URL", ""),
 		User:     envStringExpand("V1_MODEL_PROMETHEUS_USER", ""),
@@ -73,6 +76,9 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.AppOutTrafficQuery, "v1-model-app-out-traffic-query", v1ModelOptions.AppOutTrafficQuery, "V1 model prometheus app outgoing traffic query")
 	flags.StringVar(&v1ModelOptions.AppOutErrorsQuery, "v1-model-app-out-errors-query", v1ModelOptions.AppOutErrorsQuery, "V1 model prometheus app outgoing errors query")
 	flags.StringVar(&v1ModelOptions.AppOutLatencyQuery, "v1-model-app-out-latency-query", v1ModelOptions.AppOutLatencyQuery, "V1 model prometheus app outgoing latency query")
+
+	flags.StringVar(&v1ModelOptions.AppSaturationQuery, "v1-model-app-saturation-query", v1ModelOptions.AppSaturationQuery, "V1 model prometheus app saturation query")
+	flags.StringVar(&v1ModelOptions.HostSaturationQuery, "v1-model-host-saturation-query", v1ModelOptions.HostSaturationQuery, "V1 model prometheus host saturation query")
 
 	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
 	flags.StringVar(&v1ModelOptions.Prometheus.User, "v1-model-prometheus-user", v1ModelOptions.Prometheus.User, "V1 model prometheus user")

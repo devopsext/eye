@@ -37,6 +37,9 @@ type V1ModelOptions struct {
 	AppOutErrorsQuery  string
 	AppOutLatencyQuery string
 
+	AppSaturationQuery  string
+	HostSaturationQuery string
+
 	Prometheus toolsVendors.PrometheusOptions
 }
 
@@ -51,15 +54,18 @@ func (m *V1Model) Name() string {
 }
 
 func (m *V1Model) info(msg any, args ...any) {
-	m.logger.Info(fmt.Sprintf("%v: %v", m.Name(), msg), args...)
+	gid := utils.GoRoutineID()
+	m.logger.Info(fmt.Sprintf("%v: [%d] %v", m.Name(), gid, msg), args...)
 }
 
 func (m *V1Model) error(msg any, args ...any) {
-	m.logger.Error(fmt.Sprintf("%v: %v", m.Name(), msg), args...)
+	gid := utils.GoRoutineID()
+	m.logger.Error(fmt.Sprintf("%v: [%d] %v", m.Name(), gid, msg), args...)
 }
 
 func (m *V1Model) debug(msg any, args ...any) {
-	m.logger.Debug(fmt.Sprintf("%v: %v", m.Name(), msg), args...)
+	gid := utils.GoRoutineID()
+	m.logger.Debug(fmt.Sprintf("%v: [%d] %v", m.Name(), gid, msg), args...)
 }
 
 func (m *V1Model) addUniqueKeys(keys []string, ma []map[string]string) []string {
@@ -269,11 +275,9 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 
 			gr.Go(func() error {
 
-				gid := utils.GoRoutineID()
-
 				qrs := m.prepareQueries(queries, lbs)
 				for k, q := range qrs {
-					m.info("Gathering #%d %s started %s => %s", gid, name, common.SignalKindToString(k), q)
+					m.info("Gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 				}
 
 				r, err := m.gatherSignals(qrs)
@@ -286,9 +290,9 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 					infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 				}
 				if len(infos) > 0 {
-					m.debug("Gathering #%d %s finished in %s%s", gid, name, time.Since(when), fmt.Sprintf(" %s", strings.Join(infos, ", ")))
+					m.debug("Gathering %s finished in %s%s", name, time.Since(when), fmt.Sprintf(" %s", strings.Join(infos, ", ")))
 				} else {
-					m.debug("Gathering #%d %s finished in %s (no data)", gid, name, time.Since(when))
+					m.debug("Gathering %s finished in %s (no data)", name, time.Since(when))
 				}
 
 				mp.Store(k, r)
@@ -316,7 +320,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 
 		queries := m.prepareQueries(queries, nil)
 		for k, q := range queries {
-			m.info("Gathering %s started %s => %s", name, common.SignalKindToString(k), q)
+			m.info("Gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 		}
 
 		r, err := m.gatherSignals(queries)
@@ -339,6 +343,26 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 	return signals, nil
 }
 
+func (m *V1Model) gatherAllSignals(queries map[string]map[common.SignalKind]string) error {
+
+	labels := utils.MapGetKeyValuesEx(m.options.AppCommonLabels, ";", "=")
+
+	gr := &errgroup.Group{}
+	for k, q := range queries {
+
+		gr.Go(func() error {
+			_, err := m.gatherSignalsByQueries(k, q, labels)
+			return err
+		})
+	}
+
+	err := gr.Wait()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (m *V1Model) train() error {
 
 	// 1. gather incoming traffic, errors, latency per application +++
@@ -349,23 +373,29 @@ func (m *V1Model) train() error {
 	// 6. add hosts to applications
 	// 7. add saturation to host signals
 
-	labels := utils.MapGetKeyValuesEx(m.options.AppCommonLabels, ";", "=")
+	queries := make(map[string]map[common.SignalKind]string)
 
 	incomings := make(map[common.SignalKind]string)
 	incomings[common.SignalTraffic] = m.options.AppInTrafficQuery
 	incomings[common.SignalErrors] = m.options.AppInErrorsQuery
 	incomings[common.SignalLatency] = m.options.AppInLatencyQuery
+	queries["apps incoming"] = incomings
 
 	outgoings := make(map[common.SignalKind]string)
 	outgoings[common.SignalTraffic] = m.options.AppOutTrafficQuery
 	outgoings[common.SignalErrors] = m.options.AppOutErrorsQuery
 	outgoings[common.SignalLatency] = m.options.AppOutLatencyQuery
+	queries["apps outgoing"] = outgoings
 
-	//apps := make(map[common.SignalKind]string)
-	//saturations[common.Sat]
+	apps := make(map[common.SignalKind]string)
+	apps[common.SignalSaturation] = m.options.AppSaturationQuery
+	queries["apps"] = apps
 
-	m.gatherSignalsByQueries("incoming", incomings, labels)
-	m.gatherSignalsByQueries("outgoing", outgoings, labels)
+	hosts := make(map[common.SignalKind]string)
+	hosts[common.SignalSaturation] = m.options.HostSaturationQuery
+	queries["hosts"] = hosts
+
+	m.gatherAllSignals(queries)
 
 	//measurements := &common.Measurements{}
 
