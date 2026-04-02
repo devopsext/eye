@@ -349,9 +349,39 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 	return signals, nil
 }
 
-func (m *V1Model) gatherSignalsBySpan(ms *common.Measurements, name string,
+func (m *V1Model) reduceSignals(arr []map[common.SignalKind]V1ModelData) map[common.SignalKind]V1ModelData {
+
+	r := make(map[common.SignalKind]V1ModelData)
+
+	for _, v := range arr {
+
+		for k, d := range v {
+
+			rk := r[k]
+			if rk == nil {
+				rk = d
+			} else {
+
+				for dk, dd := range d {
+
+					rkt := rk[dk]
+					if rkt == nil {
+						rkt = dd
+					} else {
+						rkt = append(rkt, dd...)
+					}
+					rk[dk] = rkt
+				}
+			}
+			r[k] = rk
+		}
+	}
+	return r
+}
+
+func (m *V1Model) gatherSignalsBySpan(name string,
 	queries map[common.SignalKind]string, labels map[string]string,
-	from, to time.Time, span time.Duration) error {
+	from, to time.Time, span time.Duration) (map[common.SignalKind]V1ModelData, error) {
 
 	qs := make(map[common.SignalKind]string)
 	for i, v := range queries {
@@ -362,7 +392,7 @@ func (m *V1Model) gatherSignalsBySpan(ms *common.Measurements, name string,
 	}
 
 	if len(qs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	tt := make(map[time.Time]time.Time)
@@ -376,30 +406,44 @@ func (m *V1Model) gatherSignalsBySpan(ms *common.Measurements, name string,
 	}
 
 	gr := &errgroup.Group{}
+	mp := &sync.Map{}
+
 	for t1, t2 := range tt {
 
 		gr.Go(func() error {
 
-			_, err := m.gatherSignalsByQueries(name, qs, labels, t1, t2)
+			sqd, err := m.gatherSignalsByQueries(name, qs, labels, t1, t2)
 			if err != nil {
 				return err
 			}
-
-			/*ms.Add()
-			for k, v := range qs {
-
-				md
-			}*/
-
+			d := m.reduceSignals(sqd)
+			mp.Store(t1, d)
 			return nil
 		})
 	}
 
 	err := gr.Wait()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	dd := []map[common.SignalKind]V1ModelData{}
+
+	for t1 := range tt {
+
+		v, ok := mp.Load(t1)
+		if ok {
+			d, ok := v.(map[common.SignalKind]V1ModelData)
+			if !ok {
+				continue
+			}
+			dd = append(dd, d)
+		}
+	}
+
+	r := m.reduceSignals(dd)
+
+	return r, nil
 }
 
 func (m *V1Model) string2Time(ts string) time.Time {
@@ -459,24 +503,47 @@ func (m *V1Model) train() error {
 	appLabels := utils.MapGetKeyValuesEx(m.options.AppCommonLabels, ";", "=")
 	hostLabels := utils.MapGetKeyValuesEx(m.options.HostCommonLabels, ";", "=")
 
-	measurements := &common.Measurements{}
+	//measurements := &common.Measurements{}
 
 	incomings := make(map[common.SignalKind]string)
 	incomings[common.SignalTraffic] = m.options.AppInTrafficQuery
 	incomings[common.SignalErrors] = m.options.AppInErrorsQuery
 	incomings[common.SignalLatency] = m.options.AppInLatencyQuery
 
-	err := m.gatherSignalsBySpan(measurements, "apps incoming", incomings, appLabels, from, to, span)
+	_, err := m.gatherSignalsBySpan("apps incoming", incomings, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
+
+	/*
+		for k := range incomings {
+
+			in := ins[k]
+			if in == nil {
+				continue
+			}
+
+			for i, _ := range in {
+
+				as := &common.ApplicationSignal{}
+				measurements.Add(i, as)
+			}
+
+			/*
+						switch k
+						case сommon.SignalTraffic:
+				      //
+						}
+
+
+		} */
 
 	outgoings := make(map[common.SignalKind]string)
 	outgoings[common.SignalTraffic] = m.options.AppOutTrafficQuery
 	outgoings[common.SignalErrors] = m.options.AppOutErrorsQuery
 	outgoings[common.SignalLatency] = m.options.AppOutLatencyQuery
 
-	err = m.gatherSignalsBySpan(measurements, "apps outgoing", outgoings, appLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("apps outgoing", outgoings, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
@@ -484,7 +551,7 @@ func (m *V1Model) train() error {
 	apps := make(map[common.SignalKind]string)
 	apps[common.SignalSaturation] = m.options.AppSaturationQuery
 
-	err = m.gatherSignalsBySpan(measurements, "apps", apps, appLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("apps", apps, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
@@ -492,7 +559,7 @@ func (m *V1Model) train() error {
 	hosts := make(map[common.SignalKind]string)
 	hosts[common.SignalSaturation] = m.options.HostSaturationQuery
 
-	err = m.gatherSignalsBySpan(measurements, "hosts", hosts, hostLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("hosts", hosts, hostLabels, from, to, span)
 	if err != nil {
 		return err
 	}
