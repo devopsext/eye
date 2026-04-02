@@ -22,7 +22,9 @@ var v1ModelOptions = model.V1ModelOptions{
 	AppOutErrorsQuery:  envStringExpand("V1_MODEL_APP_OUT_ERRORS_QUERY", ""),
 	AppOutLatencyQuery: envStringExpand("V1_MODEL_APP_OUT_LATENCY_QUERY", ""),
 
-	AppSaturationQuery:  envStringExpand("V1_MODEL_APP_SATURATION_QUERY", ""),
+	AppSaturationQuery: envStringExpand("V1_MODEL_APP_SATURATION_QUERY", ""),
+
+	HostCommonLabels:    envStringExpand("V1_MODEL_HOST_COMMON_LABELS", ""),
 	HostSaturationQuery: envStringExpand("V1_MODEL_HOST_SATURATION_QUERY", ""),
 
 	Prometheus: toolsVendors.PrometheusOptions{
@@ -31,11 +33,13 @@ var v1ModelOptions = model.V1ModelOptions{
 		Password: envStringExpand("V1_MODEL_PROMETHEUS_PASSWORD", ""),
 		Timeout:  envGet("V1_MODEL_PROMETHEUS_TIMEOUT", 30).(int),
 		Insecure: envGet("V1_MODEL_PROMETHEUS_INSECURE", false).(bool),
-		From:     envGet("V1_MODEL_PROMETHEUS_FROM", "").(string),
+		From:     envGet("V1_MODEL_PROMETHEUS_FROM", "-1h").(string),
 		To:       envGet("V1_MODEL_PROMETHEUS_TO", "").(string),
 		Step:     envGet("V1_MODEL_PROMETHEUS_STEP", "60s").(string),
 		Params:   envGet("V1_MODEL_PROMETHEUS_PARAMS", "").(string),
 	},
+
+	Span: envGet("V1_MODEL_PROMETHEUS_SPAN", "").(string),
 }
 
 func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
@@ -78,6 +82,8 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.AppOutLatencyQuery, "v1-model-app-out-latency-query", v1ModelOptions.AppOutLatencyQuery, "V1 model prometheus app outgoing latency query")
 
 	flags.StringVar(&v1ModelOptions.AppSaturationQuery, "v1-model-app-saturation-query", v1ModelOptions.AppSaturationQuery, "V1 model prometheus app saturation query")
+
+	flags.StringVar(&v1ModelOptions.HostCommonLabels, "v1-model-host-common-labels", v1ModelOptions.HostCommonLabels, "V1 model prometheus host common labels")
 	flags.StringVar(&v1ModelOptions.HostSaturationQuery, "v1-model-host-saturation-query", v1ModelOptions.HostSaturationQuery, "V1 model prometheus host saturation query")
 
 	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
@@ -89,6 +95,9 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.Prometheus.To, "v1-model-prometheus-to", v1ModelOptions.Prometheus.To, "V1 model prometheus to")
 	flags.StringVar(&v1ModelOptions.Prometheus.Step, "v1-model-prometheus-step", v1ModelOptions.Prometheus.Step, "V1 model prometheus step")
 	flags.StringVar(&v1ModelOptions.Prometheus.Params, "v1-model-prometheus-params", v1ModelOptions.Prometheus.Params, "V1 model prometheus params")
+
+	flags.StringVar(&v1ModelOptions.Span, "v1-model-prometheus-span", v1ModelOptions.Span, "V1 model prometheus span")
+
 	trainCmd.AddCommand(&trainV1ModelCmd)
 
 	return &trainCmd

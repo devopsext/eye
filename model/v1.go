@@ -37,10 +37,13 @@ type V1ModelOptions struct {
 	AppOutErrorsQuery  string
 	AppOutLatencyQuery string
 
-	AppSaturationQuery  string
+	AppSaturationQuery string
+
+	HostCommonLabels    string
 	HostSaturationQuery string
 
 	Prometheus toolsVendors.PrometheusOptions
+	Span       string
 }
 
 type V1Model struct {
@@ -109,11 +112,14 @@ func (m *V1Model) sliceCommonLabels(parent, labels map[string]string) []map[stri
 	return r
 }
 
-func (m *V1Model) loadData(q string) (V1ModelData, error) {
+func (m *V1Model) loadData(q string, from, to time.Time) (V1ModelData, error) {
 
 	opts := toolsVendors.PrometheusOptions{}
 	copier.Copy(&opts, &m.options.Prometheus)
+
 	opts.Query = q
+	opts.From = strconv.Itoa(int(from.UTC().Unix()))
+	opts.To = strconv.Itoa(int(to.UTC().Unix()))
 
 	prom := toolsVendors.NewPrometheus(opts)
 	if prom == nil {
@@ -195,7 +201,7 @@ func (m *V1Model) loadData(q string) (V1ModelData, error) {
 	return data, nil
 }
 
-func (m *V1Model) gatherSignals(queries map[common.SignalKind]string) (map[common.SignalKind]V1ModelData, error) {
+func (m *V1Model) gatherSignals(queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]V1ModelData, error) {
 
 	gr := &errgroup.Group{}
 	mp := &sync.Map{}
@@ -205,7 +211,7 @@ func (m *V1Model) gatherSignals(queries map[common.SignalKind]string) (map[commo
 
 		gr.Go(func() error {
 
-			data, err := m.loadData(q)
+			data, err := m.loadData(q, from, to)
 			if err != nil {
 				return err
 			}
@@ -257,13 +263,13 @@ func (m *V1Model) prepareQueries(queries map[common.SignalKind]string, labels ma
 	return r
 }
 
-func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalKind]string, labels map[string]string) ([]map[common.SignalKind]V1ModelData, error) {
+func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]V1ModelData, error) {
 
 	when := time.Now()
 
 	signals := []map[common.SignalKind]V1ModelData{}
 
-	m.info("Gathering %s...", name)
+	m.info("Gathering %s (%s / %s)...", name, from, to)
 
 	if len(labels) > 0 {
 
@@ -280,7 +286,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 					m.info("Gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 				}
 
-				r, err := m.gatherSignals(qrs)
+				r, err := m.gatherSignals(qrs, from, to)
 				if err != nil {
 					return err
 				}
@@ -290,9 +296,9 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 					infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 				}
 				if len(infos) > 0 {
-					m.debug("Gathering %s finished in %s%s", name, time.Since(when), fmt.Sprintf(" %s", strings.Join(infos, ", ")))
+					m.debug("Gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
 				} else {
-					m.debug("Gathering %s finished in %s (no data)", name, time.Since(when))
+					m.debug("Gathering %s finished (no data) in %s", name, time.Since(when))
 				}
 
 				mp.Store(k, r)
@@ -323,7 +329,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 			m.info("Gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 		}
 
-		r, err := m.gatherSignals(queries)
+		r, err := m.gatherSignals(queries, from, to)
 		if err != nil {
 			return nil, err
 		}
@@ -333,9 +339,9 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 			infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 		}
 		if len(infos) > 0 {
-			m.debug("Gathering %s finished in %s%s", name, time.Since(when), fmt.Sprintf(" %s", strings.Join(infos, ", ")))
+			m.debug("Gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
 		} else {
-			m.debug("Gathering %s finished in %s (no data)", name, time.Since(when))
+			m.debug("Gathering %s finished (no data) in %s", name, time.Since(when))
 		}
 
 		signals = append(signals, r)
@@ -343,16 +349,49 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 	return signals, nil
 }
 
-func (m *V1Model) gatherAllSignals(queries map[string]map[common.SignalKind]string) error {
+func (m *V1Model) gatherSignalsBySpan(ms *common.Measurements, name string,
+	queries map[common.SignalKind]string, labels map[string]string,
+	from, to time.Time, span time.Duration) error {
 
-	labels := utils.MapGetKeyValuesEx(m.options.AppCommonLabels, ";", "=")
+	qs := make(map[common.SignalKind]string)
+	for i, v := range queries {
+		if utils.IsEmpty(v) {
+			continue
+		}
+		qs[i] = v
+	}
+
+	if len(qs) == 0 {
+		return nil
+	}
+
+	tt := make(map[time.Time]time.Time)
+	t1 := from
+
+	for t1.Unix() < to.Unix() {
+
+		t2 := t1.Add(span)
+		tt[t1] = t2
+		t1 = t2
+	}
 
 	gr := &errgroup.Group{}
-	for k, q := range queries {
+	for t1, t2 := range tt {
 
 		gr.Go(func() error {
-			_, err := m.gatherSignalsByQueries(k, q, labels)
-			return err
+
+			_, err := m.gatherSignalsByQueries(name, qs, labels, t1, t2)
+			if err != nil {
+				return err
+			}
+
+			/*ms.Add()
+			for k, v := range qs {
+
+				md
+			}*/
+
+			return nil
 		})
 	}
 
@@ -363,44 +402,100 @@ func (m *V1Model) gatherAllSignals(queries map[string]map[common.SignalKind]stri
 	return nil
 }
 
+func (m *V1Model) string2Time(ts string) time.Time {
+
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err == nil {
+		return t
+	} else {
+
+		d, err := time.ParseDuration(ts)
+		if err == nil {
+			td := time.Now().Add(d)
+			return td
+		}
+	}
+
+	i, err := strconv.Atoi(ts)
+	if err != nil {
+		return time.Now()
+	}
+
+	t = time.Unix(int64(i), 0)
+	return t
+}
+
 func (m *V1Model) train() error {
 
 	// 1. gather incoming traffic, errors, latency per application +++
 	// 2. create initial application signals based on incoming
-	// 3. gather outgoing traffic, errors, latency per application
+	// 3. gather outgoing traffic, errors, latency per application +++
 	// 4. add outgoing to application signals, with dependencies
 	// 5. add saturation to application signals
 	// 6. add hosts to applications
 	// 7. add saturation to host signals
 
-	queries := make(map[string]map[common.SignalKind]string)
+	if utils.IsEmpty(m.options.Prometheus.From) {
+		return fmt.Errorf("Prometheus from time is not defined")
+	}
+
+	from := m.string2Time(m.options.Prometheus.From)
+
+	to := time.Now()
+	if !utils.IsEmpty(m.options.Prometheus.To) {
+		to = m.string2Time(m.options.Prometheus.To)
+	}
+
+	span := to.Sub(from)
+	if !utils.IsEmpty(m.options.Span) {
+		s, err := time.ParseDuration(m.options.Span)
+		if err == nil {
+			span = s
+		}
+	}
+
+	m.info("Gathering (%s / %s, span: %s)...", from, to, span)
+
+	appLabels := utils.MapGetKeyValuesEx(m.options.AppCommonLabels, ";", "=")
+	hostLabels := utils.MapGetKeyValuesEx(m.options.HostCommonLabels, ";", "=")
+
+	measurements := &common.Measurements{}
 
 	incomings := make(map[common.SignalKind]string)
 	incomings[common.SignalTraffic] = m.options.AppInTrafficQuery
 	incomings[common.SignalErrors] = m.options.AppInErrorsQuery
 	incomings[common.SignalLatency] = m.options.AppInLatencyQuery
-	queries["apps incoming"] = incomings
+
+	err := m.gatherSignalsBySpan(measurements, "apps incoming", incomings, appLabels, from, to, span)
+	if err != nil {
+		return err
+	}
 
 	outgoings := make(map[common.SignalKind]string)
 	outgoings[common.SignalTraffic] = m.options.AppOutTrafficQuery
 	outgoings[common.SignalErrors] = m.options.AppOutErrorsQuery
 	outgoings[common.SignalLatency] = m.options.AppOutLatencyQuery
-	queries["apps outgoing"] = outgoings
+
+	err = m.gatherSignalsBySpan(measurements, "apps outgoing", outgoings, appLabels, from, to, span)
+	if err != nil {
+		return err
+	}
 
 	apps := make(map[common.SignalKind]string)
 	apps[common.SignalSaturation] = m.options.AppSaturationQuery
-	queries["apps"] = apps
+
+	err = m.gatherSignalsBySpan(measurements, "apps", apps, appLabels, from, to, span)
+	if err != nil {
+		return err
+	}
 
 	hosts := make(map[common.SignalKind]string)
 	hosts[common.SignalSaturation] = m.options.HostSaturationQuery
-	queries["hosts"] = hosts
 
-	m.gatherAllSignals(queries)
-
-	//measurements := &common.Measurements{}
-
-	//m.mergePrometheusData(traffic, errors, latency)
-
+	err = m.gatherSignalsBySpan(measurements, "hosts", hosts, hostLabels, from, to, span)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

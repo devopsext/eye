@@ -6,7 +6,7 @@ go 1.26
 
 require (
 	github.com/devopsext/sre v0.7.0
-	github.com/devopsext/tools v0.20.17
+	github.com/devopsext/tools v0.21.0
 	github.com/devopsext/utils v0.4.8
 	github.com/go-playground/form v3.1.4+incompatible
 	github.com/jinzhu/copier v0.4.0

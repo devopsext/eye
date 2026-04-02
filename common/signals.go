@@ -1,6 +1,10 @@
 package common
 
-import "github.com/devopsext/utils"
+import (
+	"sync"
+
+	"github.com/devopsext/utils"
+)
 
 type SignalKind = int
 
@@ -102,6 +106,7 @@ type Signals struct {
 
 type Measurements struct {
 	items map[int64]Signals
+	mu    sync.Mutex
 }
 
 func SignalKindToString(kind SignalKind) string {
@@ -136,6 +141,9 @@ func (as *ApplicationSignal) Name() string {
 // Measurement
 
 func (ms *Measurements) Add(t int64, s Signal) {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 
 	if utils.IsEmpty(s) {
 		return
