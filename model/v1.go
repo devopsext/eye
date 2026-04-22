@@ -27,6 +27,9 @@ type V1ModelData = map[int64][]V1ModelDataValue
 type V1ModelOptions struct {
 	File string
 
+	AppQuery string
+	AppName  string
+
 	AppCommonLabels string
 
 	AppInTrafficQuery string
@@ -38,6 +41,9 @@ type V1ModelOptions struct {
 	AppOutLatencyQuery string
 
 	AppSaturationQuery string
+
+	HostQuery string
+	HostName  string
 
 	HostCommonLabels    string
 	HostSaturationQuery string
@@ -112,7 +118,7 @@ func (m *V1Model) sliceCommonLabels(parent, labels map[string]string) []map[stri
 	return r
 }
 
-func (m *V1Model) loadData(q string, from, to time.Time) (V1ModelData, error) {
+func (m *V1Model) loadData(q string, from, to time.Time) (*common.PrometheusResponseData, error) {
 
 	opts := toolsVendors.PrometheusOptions{}
 	copier.Copy(&opts, &m.options.Prometheus)
@@ -147,58 +153,110 @@ func (m *V1Model) loadData(q string, from, to time.Time) (V1ModelData, error) {
 	if (res.Data == nil) || (len(res.Data.Result) == 0) {
 		return nil, nil
 	}
+	return res.Data, nil
+}
 
-	data := V1ModelData{}
+func (m *V1Model) getStampedValue(values [][]any) (bool, int64, float64) {
 
-	for _, dr := range res.Data.Result {
+	found := false
+	var stamp int64 = 0
+	var value float64 = 0.0
 
-		var stamp int64 = 0
-		var value float64 = 0.0
+	for _, rv := range values {
 
-		for _, rv := range dr.Values {
+		if len(rv) < 2 {
+			continue
+		}
 
-			if len(rv) < 2 {
-				continue
-			}
-
-			// get stamp
-			s := fmt.Sprintf("%.0f", rv[0])
-			s = strings.ReplaceAll(s, ".", "")
-			if len(s) == 13 { // unix millisec
-				i, err := strconv.ParseInt(s, 10, 64)
-				if err != nil {
-					continue
-				}
-				stamp = i
-			} else if len(s) == 10 { // unix sec
-				i, err := strconv.ParseInt(s, 10, 64)
-				if err != nil {
-					continue
-				}
-				stamp = i * 1000 // unix millisec
-			}
-
-			// get value
-			s = fmt.Sprintf("%s", rv[1])
-			f, err := strconv.ParseFloat(s, 64)
+		// get stamp
+		s := fmt.Sprintf("%.0f", rv[0])
+		s = strings.ReplaceAll(s, ".", "")
+		if len(s) == 13 { // unix millisec
+			i, err := strconv.ParseInt(s, 10, 64)
 			if err != nil {
 				continue
 			}
-			value = f
-
-			if stamp <= 0 {
+			stamp = i
+		} else if len(s) == 10 { // unix sec
+			i, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
 				continue
 			}
+			stamp = i * 1000 // unix millisec
+		}
 
-			v := V1ModelDataValue{
-				Labels: &dr.Labels,
-				Value:  value,
+		// get value
+		s = fmt.Sprintf("%s", rv[1])
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			continue
+		}
+		value = f
+
+		if stamp <= 0 {
+			continue
+		}
+		found = true
+	}
+	return found, stamp, value
+}
+
+func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applications, error) {
+
+	promData, err := m.loadData(q, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	apps := &common.Applications{}
+
+	for _, dr := range promData.Result {
+
+		name := dr.Labels[m.options.AppName]
+		if utils.IsEmpty(name) {
+			continue
+		}
+
+		found, stamp, _ := m.getStampedValue(dr.Values)
+		if !found {
+			continue
+		}
+
+		app := apps.Find(stamp, name)
+		if app == nil {
+			app := &common.Application{
+				Name:   name,
+				Labels: dr.Labels,
 			}
-
-			data[stamp] = append(data[stamp], v)
+			apps.Add(stamp, app)
 		}
 	}
-	return data, nil
+	return apps, nil
+}
+
+func (m *V1Model) loadModelData(q string, from, to time.Time) (V1ModelData, error) {
+
+	promData, err := m.loadData(q, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	modelData := V1ModelData{}
+
+	for _, dr := range promData.Result {
+
+		found, stamp, value := m.getStampedValue(dr.Values)
+		if !found {
+			continue
+		}
+
+		v := V1ModelDataValue{
+			Labels: &dr.Labels,
+			Value:  value,
+		}
+		modelData[stamp] = append(modelData[stamp], v)
+	}
+	return modelData, nil
 }
 
 func (m *V1Model) gatherSignals(queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]V1ModelData, error) {
@@ -211,7 +269,7 @@ func (m *V1Model) gatherSignals(queries map[common.SignalKind]string, from, to t
 
 		gr.Go(func() error {
 
-			data, err := m.loadData(q, from, to)
+			data, err := m.loadModelData(q, from, to)
 			if err != nil {
 				return err
 			}
@@ -469,8 +527,13 @@ func (m *V1Model) string2Time(ts string) time.Time {
 	return t
 }
 
+func (m *V1Model) labels2Traffic(labels *map[string]string) (string, string, common.TrafficKind) {
+	return "", "", common.TrafficKindRps
+}
+
 func (m *V1Model) train() error {
 
+	// 0. load application and host infos
 	// 1. gather incoming traffic, errors, latency per application +++
 	// 2. create initial application signals based on incoming
 	// 3. gather outgoing traffic, errors, latency per application +++
@@ -488,6 +551,13 @@ func (m *V1Model) train() error {
 	to := time.Now()
 	if !utils.IsEmpty(m.options.Prometheus.To) {
 		to = m.string2Time(m.options.Prometheus.To)
+	}
+
+	m.info("Applications (%s / %s)...", from, to)
+
+	_, err := m.loadApplications(m.options.AppQuery, from, to)
+	if err != nil {
+		return err
 	}
 
 	span := to.Sub(from)
@@ -510,10 +580,58 @@ func (m *V1Model) train() error {
 	incomings[common.SignalErrors] = m.options.AppInErrorsQuery
 	incomings[common.SignalLatency] = m.options.AppInLatencyQuery
 
-	_, err := m.gatherSignalsBySpan("apps incoming", incomings, appLabels, from, to, span)
+	/*ins, err := m.gatherSignalsBySpan("apps incoming", incomings, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
+
+	// fill initial app measurements
+
+	//sit := ins[common.SignalTraffic]
+
+	/*hostList := make(map[string]*common.Host)
+
+	for t, s := range sit {
+
+		for _, v := range s {
+
+			appName, hostName, _ := m.labels2Traffic(v.Labels)
+
+			app := appList[appName]
+			if utils.IsEmpty(app) {
+
+				host := hostList[hostName]
+				if utils.IsEmpty(host) {
+					host = &common.Host{
+						Name: hostName,
+						Rack: "",
+						Kind: common.HostKindVM,
+						On:   nil,
+					}
+					hostList[hostName] = host
+				}
+
+				app = &common.Application{
+					Name: appName,
+					Host: host,
+				}
+				appList[appName] = app
+			}
+
+			as := measurements.FindByApplication(t, app)
+			if utils.IsEmpty(as) {
+
+				intr := make(map[common.TrafficKind]*common.IncomingTraffic)
+
+				as = &common.ApplicationSignal{
+					Application:     app,
+					IncomingTraffic: intr,
+				}
+				measurements.Add(t, as)
+			}
+			m.debug(v)
+		}
+	}*/
 
 	/*
 		for k := range incomings {
@@ -556,10 +674,10 @@ func (m *V1Model) train() error {
 		return err
 	}
 
-	hosts := make(map[common.SignalKind]string)
-	hosts[common.SignalSaturation] = m.options.HostSaturationQuery
+	hsts := make(map[common.SignalKind]string)
+	hsts[common.SignalSaturation] = m.options.HostSaturationQuery
 
-	_, err = m.gatherSignalsBySpan("hosts", hosts, hostLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("hosts", hsts, hostLabels, from, to, span)
 	if err != nil {
 		return err
 	}

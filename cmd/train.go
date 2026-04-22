@@ -12,20 +12,26 @@ import (
 var v1ModelOptions = model.V1ModelOptions{
 	File: envGet("V1_MODEL_FILE", "").(string),
 
+	AppQuery: envFileContentExpand("V1_MODEL_APP_QUERY", ""),
+	AppName:  envStringExpand("V1_MODEL_APP_NAME", "name"),
+
 	AppCommonLabels: envStringExpand("V1_MODEL_APP_COMMON_LABELS", ""),
 
-	AppInTrafficQuery: envStringExpand("V1_MODEL_APP_IN_TRAFFIC_QUERY", ""),
-	AppInErrorsQuery:  envStringExpand("V1_MODEL_APP_IN_ERRORS_QUERY", ""),
-	AppInLatencyQuery: envStringExpand("V1_MODEL_APP_IN_LATENCY_QUERY", ""),
+	AppInTrafficQuery: envFileContentExpand("V1_MODEL_APP_IN_TRAFFIC_QUERY", ""),
+	AppInErrorsQuery:  envFileContentExpand("V1_MODEL_APP_IN_ERRORS_QUERY", ""),
+	AppInLatencyQuery: envFileContentExpand("V1_MODEL_APP_IN_LATENCY_QUERY", ""),
 
-	AppOutTrafficQuery: envStringExpand("V1_MODEL_APP_OUT_TRAFFIC_QUERY", ""),
-	AppOutErrorsQuery:  envStringExpand("V1_MODEL_APP_OUT_ERRORS_QUERY", ""),
-	AppOutLatencyQuery: envStringExpand("V1_MODEL_APP_OUT_LATENCY_QUERY", ""),
+	AppOutTrafficQuery: envFileContentExpand("V1_MODEL_APP_OUT_TRAFFIC_QUERY", ""),
+	AppOutErrorsQuery:  envFileContentExpand("V1_MODEL_APP_OUT_ERRORS_QUERY", ""),
+	AppOutLatencyQuery: envFileContentExpand("V1_MODEL_APP_OUT_LATENCY_QUERY", ""),
 
-	AppSaturationQuery: envStringExpand("V1_MODEL_APP_SATURATION_QUERY", ""),
+	AppSaturationQuery: envFileContentExpand("V1_MODEL_APP_SATURATION_QUERY", ""),
+
+	HostQuery: envFileContentExpand("V1_MODEL_HOST_QUERY", ""),
+	HostName:  envStringExpand("V1_MODEL_HOST_NAME", "name"),
 
 	HostCommonLabels:    envStringExpand("V1_MODEL_HOST_COMMON_LABELS", ""),
-	HostSaturationQuery: envStringExpand("V1_MODEL_HOST_SATURATION_QUERY", ""),
+	HostSaturationQuery: envFileContentExpand("V1_MODEL_HOST_SATURATION_QUERY", ""),
 
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("V1_MODEL_PROMETHEUS_URL", ""),
@@ -71,6 +77,8 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags := trainV1ModelCmd.PersistentFlags()
 	flags.StringVar(&v1ModelOptions.File, "v1-model-file", v1ModelOptions.File, "V1 model file path")
 
+	flags.StringVar(&v1ModelOptions.AppQuery, "v1-model-app-query", v1ModelOptions.AppQuery, "V1 model prometheus app query")
+	flags.StringVar(&v1ModelOptions.AppName, "v1-model-app-name", v1ModelOptions.AppName, "V1 model prometheus app name")
 	flags.StringVar(&v1ModelOptions.AppCommonLabels, "v1-model-app-common-labels", v1ModelOptions.AppCommonLabels, "V1 model prometheus app common labels")
 
 	flags.StringVar(&v1ModelOptions.AppInTrafficQuery, "v1-model-app-in-traffic-query", v1ModelOptions.AppInTrafficQuery, "V1 model prometheus app incoming traffic query")
@@ -83,7 +91,10 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 
 	flags.StringVar(&v1ModelOptions.AppSaturationQuery, "v1-model-app-saturation-query", v1ModelOptions.AppSaturationQuery, "V1 model prometheus app saturation query")
 
+	flags.StringVar(&v1ModelOptions.HostQuery, "v1-model-host-query", v1ModelOptions.HostQuery, "V1 model prometheus host query")
+	flags.StringVar(&v1ModelOptions.HostName, "v1-model-host-name", v1ModelOptions.HostName, "V1 model prometheus host name")
 	flags.StringVar(&v1ModelOptions.HostCommonLabels, "v1-model-host-common-labels", v1ModelOptions.HostCommonLabels, "V1 model prometheus host common labels")
+
 	flags.StringVar(&v1ModelOptions.HostSaturationQuery, "v1-model-host-saturation-query", v1ModelOptions.HostSaturationQuery, "V1 model prometheus host saturation query")
 
 	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
