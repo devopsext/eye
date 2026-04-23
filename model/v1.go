@@ -27,9 +27,7 @@ type V1ModelData = map[int64][]V1ModelDataValue
 type V1ModelOptions struct {
 	File string
 
-	AppQuery string
-	AppName  string
-
+	AppQuery        string
 	AppCommonLabels string
 
 	AppInTrafficQuery string
@@ -42,9 +40,7 @@ type V1ModelOptions struct {
 
 	AppSaturationQuery string
 
-	HostQuery string
-	HostName  string
-
+	HostQuery           string
 	HostCommonLabels    string
 	HostSaturationQuery string
 
@@ -156,49 +152,175 @@ func (m *V1Model) loadData(q string, from, to time.Time) (*common.PrometheusResp
 	return res.Data, nil
 }
 
-func (m *V1Model) getStampedValue(values [][]any) (bool, int64, float64) {
+func (m *V1Model) getStampedValue(values []any) (bool, int64, float64) {
 
-	found := false
 	var stamp int64 = 0
 	var value float64 = 0.0
 
-	for _, rv := range values {
-
-		if len(rv) < 2 {
-			continue
-		}
-
-		// get stamp
-		s := fmt.Sprintf("%.0f", rv[0])
-		s = strings.ReplaceAll(s, ".", "")
-		if len(s) == 13 { // unix millisec
-			i, err := strconv.ParseInt(s, 10, 64)
-			if err != nil {
-				continue
-			}
-			stamp = i
-		} else if len(s) == 10 { // unix sec
-			i, err := strconv.ParseInt(s, 10, 64)
-			if err != nil {
-				continue
-			}
-			stamp = i * 1000 // unix millisec
-		}
-
-		// get value
-		s = fmt.Sprintf("%s", rv[1])
-		f, err := strconv.ParseFloat(s, 64)
-		if err != nil {
-			continue
-		}
-		value = f
-
-		if stamp <= 0 {
-			continue
-		}
-		found = true
+	if len(values) < 2 {
+		return false, stamp, value
 	}
-	return found, stamp, value
+
+	// get stamp
+	s := fmt.Sprintf("%.0f", values[0])
+	s = strings.ReplaceAll(s, ".", "")
+	if len(s) == 13 { // unix millisec
+		i, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return false, stamp, value
+		}
+		stamp = i
+	} else if len(s) == 10 { // unix sec
+		i, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return false, stamp, value
+		}
+		stamp = i * 1000 // unix millisec
+	}
+
+	// get value
+	s = fmt.Sprintf("%s", values[1])
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return false, stamp, value
+	}
+	value = f
+
+	if stamp <= 0 {
+		return false, stamp, value
+	}
+	return true, stamp, value
+}
+
+func (m *V1Model) loadHosts(q string, from, to time.Time) (*common.Hosts, error) {
+
+	promData, err := m.loadData(q, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	hosts := &common.Hosts{}
+
+	for _, dr := range promData.Result {
+
+		name := dr.Labels[common.HostName]
+		if utils.IsEmpty(name) {
+			continue
+		}
+		nameOn := dr.Labels[common.HostOn]
+		findOn := !utils.IsEmpty(nameOn)
+
+		for _, v := range dr.Values {
+
+			found, stamp, _ := m.getStampedValue(v)
+			if !found {
+				continue
+			}
+
+			hostLbs := maps.Clone(dr.Labels)
+
+			var on *common.Host
+			if findOn {
+				on = hosts.Find(stamp, nameOn)
+				if on == nil {
+
+					lbs := maps.Clone(hostLbs)
+					lbs[common.HostName] = nameOn
+					delete(lbs, common.HostOn)
+
+					// delete all key apart from name
+					for k := range maps.Keys(hostLbs) {
+						if k == common.HostName {
+							continue
+						}
+						delete(hostLbs, k)
+					}
+
+					on = common.NewHost(lbs, nil)
+				}
+			}
+
+			host := hosts.Find(stamp, name)
+			if host == nil {
+				host = common.NewHost(hostLbs, on)
+			}
+			if host.On == nil {
+				host.On = on
+			}
+			hosts.AddOrUpdate(stamp, host)
+		}
+	}
+	return hosts, nil
+}
+
+func (m *V1Model) gatherHostsByQuery(query string, from, to time.Time) (*common.Hosts, error) {
+
+	when := time.Now()
+
+	m.debug("Hosts gathering (%s / %s) ...", from, to)
+	m.debug("Hosts gathering started => %s", query)
+
+	hosts, err := m.loadHosts(query, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	ts, hs := hosts.Sizes()
+	if ts > 0 {
+		m.debug("Hosts gathering finished (%d over %d timeseries) in %s", hs, ts, time.Since(when))
+	} else {
+		m.debug("Hosts gathering finished (no data) in %s", time.Since(when))
+	}
+	return hosts, nil
+}
+
+func (m *V1Model) gatherHostsBySpan(query string, from, to time.Time, span time.Duration) (*common.Hosts, error) {
+
+	tt := make(map[time.Time]time.Time)
+	t1 := from
+
+	for t1.Unix() < to.Unix() {
+
+		t2 := t1.Add(span)
+		tt[t1] = t2
+		t1 = t2
+	}
+
+	gr := &errgroup.Group{}
+	mp := &sync.Map{}
+
+	for t1, t2 := range tt {
+
+		gr.Go(func() error {
+
+			hosts, err := m.gatherHostsByQuery(query, t1, t2)
+			if err != nil {
+				return err
+			}
+			mp.Store(t1, hosts)
+			return nil
+		})
+	}
+
+	err := gr.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	hosts := &common.Hosts{}
+
+	for t1 := range tt {
+
+		v, ok := mp.Load(t1)
+		if ok {
+			d, ok := v.(*common.Hosts)
+			if !ok {
+				continue
+			}
+			hosts.Merge(d)
+		}
+	}
+	return hosts, nil
 }
 
 func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applications, error) {
@@ -212,23 +334,93 @@ func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applic
 
 	for _, dr := range promData.Result {
 
-		name := dr.Labels[m.options.AppName]
+		name := dr.Labels[common.ApplicationName]
 		if utils.IsEmpty(name) {
 			continue
 		}
 
-		found, stamp, _ := m.getStampedValue(dr.Values)
-		if !found {
-			continue
-		}
+		for _, v := range dr.Values {
 
-		app := apps.Find(stamp, name)
-		if app == nil {
-			app := &common.Application{
-				Name:   name,
-				Labels: dr.Labels,
+			found, stamp, _ := m.getStampedValue(v)
+			if !found {
+				continue
 			}
-			apps.Add(stamp, app)
+
+			app := apps.Find(stamp, name)
+			if app == nil {
+				app = common.NewApplication(dr.Labels)
+			}
+			apps.AddOrUpdate(stamp, app)
+		}
+	}
+	return apps, nil
+}
+
+func (m *V1Model) gatherApplicationsByQuery(query string, from, to time.Time) (*common.Applications, error) {
+
+	when := time.Now()
+
+	m.debug("Applications gathering (%s / %s) ...", from, to)
+	m.debug("Applications gathering started => %s", query)
+
+	apps, err := m.loadApplications(query, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	ts, hs := apps.Sizes()
+	if ts > 0 {
+		m.debug("Applications gathering finished (%d over %d timeseries) in %s", hs, ts, time.Since(when))
+	} else {
+		m.debug("Applications gathering finished (no data) in %s", time.Since(when))
+	}
+	return apps, nil
+}
+
+func (m *V1Model) gatherApplicationsBySpan(query string, from, to time.Time, span time.Duration) (*common.Applications, error) {
+
+	tt := make(map[time.Time]time.Time)
+	t1 := from
+
+	for t1.Unix() < to.Unix() {
+
+		t2 := t1.Add(span)
+		tt[t1] = t2
+		t1 = t2
+	}
+
+	gr := &errgroup.Group{}
+	mp := &sync.Map{}
+
+	for t1, t2 := range tt {
+
+		gr.Go(func() error {
+
+			apps, err := m.gatherApplicationsByQuery(query, t1, t2)
+			if err != nil {
+				return err
+			}
+			mp.Store(t1, apps)
+			return nil
+		})
+	}
+
+	err := gr.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	apps := &common.Applications{}
+
+	for t1 := range tt {
+
+		v, ok := mp.Load(t1)
+		if ok {
+			d, ok := v.(*common.Applications)
+			if !ok {
+				continue
+			}
+			apps.Merge(d)
 		}
 	}
 	return apps, nil
@@ -245,16 +437,19 @@ func (m *V1Model) loadModelData(q string, from, to time.Time) (V1ModelData, erro
 
 	for _, dr := range promData.Result {
 
-		found, stamp, value := m.getStampedValue(dr.Values)
-		if !found {
-			continue
-		}
+		for _, v := range dr.Values {
 
-		v := V1ModelDataValue{
-			Labels: &dr.Labels,
-			Value:  value,
+			found, stamp, value := m.getStampedValue(v)
+			if !found {
+				continue
+			}
+
+			v := V1ModelDataValue{
+				Labels: &dr.Labels,
+				Value:  value,
+			}
+			modelData[stamp] = append(modelData[stamp], v)
 		}
-		modelData[stamp] = append(modelData[stamp], v)
 	}
 	return modelData, nil
 }
@@ -327,7 +522,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 
 	signals := []map[common.SignalKind]V1ModelData{}
 
-	m.info("Gathering %s (%s / %s)...", name, from, to)
+	m.debug("Signals gathering %s (%s / %s)...", name, from, to)
 
 	if len(labels) > 0 {
 
@@ -341,7 +536,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 
 				qrs := m.prepareQueries(queries, lbs)
 				for k, q := range qrs {
-					m.info("Gathering %s %s started => %s", name, common.SignalKindToString(k), q)
+					m.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 				}
 
 				r, err := m.gatherSignals(qrs, from, to)
@@ -354,9 +549,9 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 					infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 				}
 				if len(infos) > 0 {
-					m.debug("Gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
+					m.debug("Signals gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
 				} else {
-					m.debug("Gathering %s finished (no data) in %s", name, time.Since(when))
+					m.debug("Signals gathering %s finished (no data) in %s", name, time.Since(when))
 				}
 
 				mp.Store(k, r)
@@ -384,7 +579,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 
 		queries := m.prepareQueries(queries, nil)
 		for k, q := range queries {
-			m.info("Gathering %s %s started => %s", name, common.SignalKindToString(k), q)
+			m.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 		}
 
 		r, err := m.gatherSignals(queries, from, to)
@@ -397,9 +592,9 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 			infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 		}
 		if len(infos) > 0 {
-			m.debug("Gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
+			m.debug("Signals gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
 		} else {
-			m.debug("Gathering %s finished (no data) in %s", name, time.Since(when))
+			m.debug("Signals gathering %s finished (no data) in %s", name, time.Since(when))
 		}
 
 		signals = append(signals, r)
@@ -438,6 +633,7 @@ func (m *V1Model) reduceSignals(arr []map[common.SignalKind]V1ModelData) map[com
 }
 
 func (m *V1Model) gatherSignalsBySpan(name string,
+	apps *common.Applications, hosts *common.Hosts,
 	queries map[common.SignalKind]string, labels map[string]string,
 	from, to time.Time, span time.Duration) (map[common.SignalKind]V1ModelData, error) {
 
@@ -553,13 +749,6 @@ func (m *V1Model) train() error {
 		to = m.string2Time(m.options.Prometheus.To)
 	}
 
-	m.info("Applications (%s / %s)...", from, to)
-
-	_, err := m.loadApplications(m.options.AppQuery, from, to)
-	if err != nil {
-		return err
-	}
-
 	span := to.Sub(from)
 	if !utils.IsEmpty(m.options.Span) {
 		s, err := time.ParseDuration(m.options.Span)
@@ -568,22 +757,38 @@ func (m *V1Model) train() error {
 		}
 	}
 
-	m.info("Gathering (%s / %s, span: %s)...", from, to, span)
+	m.info("Gathering hosts (%s / %s, span: %s)...", from, to, span)
+
+	hosts, err := m.gatherHostsBySpan(m.options.HostQuery, from, to, span)
+	if err != nil {
+		return err
+	}
+
+	m.info("Gathering applications (%s / %s, span: %s)...", from, to, span)
+
+	applications, err := m.gatherApplicationsBySpan(m.options.AppQuery, from, to, span)
+	if err != nil {
+		return err
+	}
+
+	return nil
+	m.info("Gathering signals (%s / %s, span: %s)...", from, to, span)
 
 	appLabels := utils.MapGetKeyValuesEx(m.options.AppCommonLabels, ";", "=")
 	hostLabels := utils.MapGetKeyValuesEx(m.options.HostCommonLabels, ";", "=")
 
 	//measurements := &common.Measurements{}
 
-	incomings := make(map[common.SignalKind]string)
-	incomings[common.SignalTraffic] = m.options.AppInTrafficQuery
-	incomings[common.SignalErrors] = m.options.AppInErrorsQuery
-	incomings[common.SignalLatency] = m.options.AppInLatencyQuery
+	inQueries := make(map[common.SignalKind]string)
+	inQueries[common.SignalTraffic] = m.options.AppInTrafficQuery
+	inQueries[common.SignalErrors] = m.options.AppInErrorsQuery
+	inQueries[common.SignalLatency] = m.options.AppInLatencyQuery
 
-	/*ins, err := m.gatherSignalsBySpan("apps incoming", incomings, appLabels, from, to, span)
+	ins, err := m.gatherSignalsBySpan("apps incoming", applications, hosts, inQueries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
+	m.debug(len(ins))
 
 	// fill initial app measurements
 
@@ -656,28 +861,28 @@ func (m *V1Model) train() error {
 
 		} */
 
-	outgoings := make(map[common.SignalKind]string)
-	outgoings[common.SignalTraffic] = m.options.AppOutTrafficQuery
-	outgoings[common.SignalErrors] = m.options.AppOutErrorsQuery
-	outgoings[common.SignalLatency] = m.options.AppOutLatencyQuery
+	outQueries := make(map[common.SignalKind]string)
+	outQueries[common.SignalTraffic] = m.options.AppOutTrafficQuery
+	outQueries[common.SignalErrors] = m.options.AppOutErrorsQuery
+	outQueries[common.SignalLatency] = m.options.AppOutLatencyQuery
 
-	_, err = m.gatherSignalsBySpan("apps outgoing", outgoings, appLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("apps outgoing", applications, hosts, outQueries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	apps := make(map[common.SignalKind]string)
-	apps[common.SignalSaturation] = m.options.AppSaturationQuery
+	appQueries := make(map[common.SignalKind]string)
+	appQueries[common.SignalSaturation] = m.options.AppSaturationQuery
 
-	_, err = m.gatherSignalsBySpan("apps", apps, appLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("apps", applications, hosts, appQueries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	hsts := make(map[common.SignalKind]string)
-	hsts[common.SignalSaturation] = m.options.HostSaturationQuery
+	hostQueries := make(map[common.SignalKind]string)
+	hostQueries[common.SignalSaturation] = m.options.HostSaturationQuery
 
-	_, err = m.gatherSignalsBySpan("hosts", hsts, hostLabels, from, to, span)
+	_, err = m.gatherSignalsBySpan("hosts", applications, hosts, hostQueries, hostLabels, from, to, span)
 	if err != nil {
 		return err
 	}

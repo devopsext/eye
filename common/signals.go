@@ -15,25 +15,36 @@ const (
 	SignalSaturation
 )
 
-type HostKind = int
+/*type HostKind = int
 
 const (
 	HostKindVM = iota
 	HostKindEC2
 	HostKindBaremetal
 	HostKindEsxi
+)*/
+
+const (
+	HostName = "name"
+	HostOn   = "server"
 )
 
 type Host struct {
-	Name string
-	Rack string // for bare metal, esxi
-	Kind HostKind
-	On   *Host
+	//Kind      HostKind
+	On     *Host
+	Labels map[string]string
 }
 
+type Hosts struct {
+	mu    sync.Mutex
+	items map[int64]map[string]*Host
+}
+
+const (
+	ApplicationName = "name"
+)
+
 type Application struct {
-	Name   string
-	Host   *Host
 	Labels map[string]string
 }
 
@@ -90,6 +101,7 @@ type OutgoingLatency struct {
 
 type ApplicationSignal struct {
 	Application *Application
+	Host        *Host
 
 	IncomingTraffic map[TrafficKind]*IncomingTraffic
 	IncomingErrors  *IncomingErrors
@@ -130,7 +142,158 @@ func SignalKindToString(kind SignalKind) string {
 	return ""
 }
 
+// Host
+
+func (h *Host) Name() string {
+
+	lbs := h.Labels
+	if lbs == nil {
+		return ""
+	}
+	return h.Labels[HostName]
+}
+
+func (h *Host) Same(host *Host) bool {
+
+	if host == nil {
+		return false
+	}
+
+	if h == host {
+		return true
+	}
+
+	if h.Name() != host.Name() {
+		return false
+	}
+	return true
+}
+
+func (h *Host) Copy(host *Host) {
+
+	if h.Same(host) {
+		return
+	}
+
+	if h.Labels == nil && len(host.Labels) > 0 {
+		h.Labels = make(map[string]string)
+	}
+
+	for k, v := range host.Labels {
+
+		v2 := h.Labels[k]
+		if utils.IsEmpty(v2) {
+			h.Labels[k] = v
+			continue
+		}
+
+		if v2 == v {
+			continue
+		}
+		h.Labels[k] = v
+	}
+}
+
+func NewHost(Labels map[string]string, on *Host) *Host {
+
+	return &Host{
+		Labels: Labels,
+		On:     on,
+	}
+}
+
+// Hosts
+
+func (hs *Hosts) AddOrUpdate(t int64, h *Host) {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	if h == nil {
+		return
+	}
+
+	n := h.Name()
+	if utils.IsEmpty(n) {
+		return
+	}
+
+	if hs.items == nil {
+		hs.items = make(map[int64]map[string]*Host)
+	}
+
+	m := hs.items[t]
+	if m == nil {
+		m = make(map[string]*Host)
+		hs.items[t] = m
+	}
+
+	old := m[n]
+	if old == nil {
+		m[n] = h
+	} else {
+		old.Copy(h)
+	}
+}
+
+func (hs *Hosts) Find(t int64, name string) *Host {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	tc := hs.items[t]
+	if tc == nil {
+		return nil
+	}
+	return tc[name]
+}
+
+func (hs *Hosts) Sizes() (int, int) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	r := 0
+	for _, v := range hs.items {
+		r += len(v)
+	}
+	return len(hs.items), r
+}
+
+func (hs *Hosts) Merge(hosts *Hosts) {
+
+	if hosts == nil {
+		return
+	}
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	hosts.mu.Lock()
+	defer hosts.mu.Unlock()
+
+	if hs.items == nil {
+		hs.items = make(map[int64]map[string]*Host)
+	}
+
+	for t, m := range hosts.items {
+
+		mOld := hs.items[t]
+		if mOld == nil {
+			hs.items[t] = m
+		}
+	}
+}
+
 // Application
+
+func (a *Application) Name() string {
+
+	lbs := a.Labels
+	if lbs == nil {
+		return ""
+	}
+	return a.Labels[ApplicationName]
+}
 
 func (a *Application) Same(app *Application) bool {
 
@@ -142,12 +305,7 @@ func (a *Application) Same(app *Application) bool {
 		return true
 	}
 
-	if a.Name != app.Name {
-		return false
-	}
-
-	if a.Host != nil && app.Host != nil &&
-		a.Host.Name != app.Host.Name {
+	if a.Name() != app.Name() {
 		return false
 	}
 	return true
@@ -159,7 +317,7 @@ func (a *Application) Copy(app *Application) {
 		return
 	}
 
-	if a.Labels == nil {
+	if a.Labels == nil && len(app.Labels) > 0 {
 		a.Labels = make(map[string]string)
 	}
 
@@ -178,9 +336,16 @@ func (a *Application) Copy(app *Application) {
 	}
 }
 
+func NewApplication(Labels map[string]string) *Application {
+
+	return &Application{
+		Labels: Labels,
+	}
+}
+
 // Applications
 
-func (as *Applications) Add(t int64, a *Application) {
+func (as *Applications) AddOrUpdate(t int64, a *Application) {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
@@ -189,7 +354,8 @@ func (as *Applications) Add(t int64, a *Application) {
 		return
 	}
 
-	if utils.IsEmpty(a.Name) {
+	n := a.Name()
+	if utils.IsEmpty(n) {
 		return
 	}
 
@@ -203,9 +369,9 @@ func (as *Applications) Add(t int64, a *Application) {
 		as.items[t] = m
 	}
 
-	old := m[a.Name]
+	old := m[n]
 	if old == nil {
-		m[a.Name] = a
+		m[n] = a
 	} else {
 		old.Copy(a)
 	}
@@ -235,16 +401,52 @@ func (as *Applications) Find(t int64, name string) *Application {
 	return tc[name]
 }
 
+func (as *Applications) Sizes() (int, int) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	r := 0
+	for _, v := range as.items {
+		r += len(v)
+	}
+	return len(as.items), r
+}
+
+func (as *Applications) Merge(apps *Applications) {
+
+	if apps == nil {
+		return
+	}
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	apps.mu.Lock()
+	defer apps.mu.Unlock()
+
+	if as.items == nil {
+		as.items = make(map[int64]map[string]*Application)
+	}
+
+	for t, m := range apps.items {
+
+		mOld := as.items[t]
+		if mOld == nil {
+			as.items[t] = m
+		}
+	}
+}
+
 // HostSignal
 
 func (hs *HostSignal) Name() string {
-	return hs.Host.Name
+	return hs.Host.Name()
 }
 
 // ApplicationSignal
 
 func (as *ApplicationSignal) Name() string {
-	return as.Application.Name
+	return as.Application.Name()
 }
 
 // Signals
