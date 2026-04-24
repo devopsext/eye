@@ -12,22 +12,21 @@ import (
 var v1ModelOptions = model.V1ModelOptions{
 	File: envGet("V1_MODEL_FILE", "").(string),
 
-	AppQuery:        envFileContentExpand("V1_MODEL_APP_QUERY", ""),
-	AppCommonLabels: envStringExpand("V1_MODEL_APP_COMMON_LABELS", ""),
+	AppQuery: envFileContentExpand("V1_MODEL_APP_QUERY", ""),
 
-	AppInTrafficQuery: envFileContentExpand("V1_MODEL_APP_IN_TRAFFIC_QUERY", ""),
-	AppInErrorsQuery:  envFileContentExpand("V1_MODEL_APP_IN_ERRORS_QUERY", ""),
-	AppInLatencyQuery: envFileContentExpand("V1_MODEL_APP_IN_LATENCY_QUERY", ""),
+	AppSignalCommonLabels:    envStringExpand("V1_MODEL_APP_SIGNAL_COMMON_LABELS", ""),
+	AppSignalInTrafficQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
+	AppSignalInErrorsQuery:   envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_ERRORS_QUERY", ""),
+	AppSignalInLatencyQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_LATENCY_QUERY", ""),
+	AppSignalOutTrafficQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_TRAFFIC_QUERY", ""),
+	AppSignalOutErrorsQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
+	AppSignalOutLatencyQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
+	AppSignalSaturationQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_SATURATION_QUERY", ""),
 
-	AppOutTrafficQuery: envFileContentExpand("V1_MODEL_APP_OUT_TRAFFIC_QUERY", ""),
-	AppOutErrorsQuery:  envFileContentExpand("V1_MODEL_APP_OUT_ERRORS_QUERY", ""),
-	AppOutLatencyQuery: envFileContentExpand("V1_MODEL_APP_OUT_LATENCY_QUERY", ""),
+	HostQuery: envFileContentExpand("V1_MODEL_HOST_QUERY", ""),
 
-	AppSaturationQuery: envFileContentExpand("V1_MODEL_APP_SATURATION_QUERY", ""),
-
-	HostQuery:           envFileContentExpand("V1_MODEL_HOST_QUERY", ""),
-	HostCommonLabels:    envStringExpand("V1_MODEL_HOST_COMMON_LABELS", ""),
-	HostSaturationQuery: envFileContentExpand("V1_MODEL_HOST_SATURATION_QUERY", ""),
+	HostSignalCommonLabels:    envStringExpand("V1_MODEL_HOST_SIGNAL_COMMON_LABELS", ""),
+	HostSignalSaturationQuery: envFileContentExpand("V1_MODEL_HOST_SIGNAL_SATURATION_QUERY", ""),
 
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("V1_MODEL_PROMETHEUS_URL", ""),
@@ -74,22 +73,18 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.File, "v1-model-file", v1ModelOptions.File, "V1 model file path")
 
 	flags.StringVar(&v1ModelOptions.AppQuery, "v1-model-app-query", v1ModelOptions.AppQuery, "V1 model prometheus app query")
-	flags.StringVar(&v1ModelOptions.AppCommonLabels, "v1-model-app-common-labels", v1ModelOptions.AppCommonLabels, "V1 model prometheus app common labels")
-
-	flags.StringVar(&v1ModelOptions.AppInTrafficQuery, "v1-model-app-in-traffic-query", v1ModelOptions.AppInTrafficQuery, "V1 model prometheus app incoming traffic query")
-	flags.StringVar(&v1ModelOptions.AppInErrorsQuery, "v1-model-app-in-errors-query", v1ModelOptions.AppInErrorsQuery, "V1 model prometheus app incoming errors query")
-	flags.StringVar(&v1ModelOptions.AppInLatencyQuery, "v1-model-app-in-latency-query", v1ModelOptions.AppInLatencyQuery, "V1 model prometheus app incoming latency query")
-
-	flags.StringVar(&v1ModelOptions.AppOutTrafficQuery, "v1-model-app-out-traffic-query", v1ModelOptions.AppOutTrafficQuery, "V1 model prometheus app outgoing traffic query")
-	flags.StringVar(&v1ModelOptions.AppOutErrorsQuery, "v1-model-app-out-errors-query", v1ModelOptions.AppOutErrorsQuery, "V1 model prometheus app outgoing errors query")
-	flags.StringVar(&v1ModelOptions.AppOutLatencyQuery, "v1-model-app-out-latency-query", v1ModelOptions.AppOutLatencyQuery, "V1 model prometheus app outgoing latency query")
-
-	flags.StringVar(&v1ModelOptions.AppSaturationQuery, "v1-model-app-saturation-query", v1ModelOptions.AppSaturationQuery, "V1 model prometheus app saturation query")
+	flags.StringVar(&v1ModelOptions.AppSignalCommonLabels, "v1-model-app-signal-common-labels", v1ModelOptions.AppSignalCommonLabels, "V1 model prometheus app common labels")
+	flags.StringVar(&v1ModelOptions.AppSignalInTrafficQuery, "v1-model-app-signal-in-traffic-query", v1ModelOptions.AppSignalInTrafficQuery, "V1 model prometheus app incoming traffic query")
+	flags.StringVar(&v1ModelOptions.AppSignalInErrorsQuery, "v1-model-app-signal-in-errors-query", v1ModelOptions.AppSignalInErrorsQuery, "V1 model prometheus app incoming errors query")
+	flags.StringVar(&v1ModelOptions.AppSignalInLatencyQuery, "v1-model-app-signal-in-latency-query", v1ModelOptions.AppSignalInLatencyQuery, "V1 model prometheus app incoming latency query")
+	flags.StringVar(&v1ModelOptions.AppSignalOutTrafficQuery, "v1-model-app-signal-out-traffic-query", v1ModelOptions.AppSignalOutTrafficQuery, "V1 model prometheus app outgoing traffic query")
+	flags.StringVar(&v1ModelOptions.AppSignalOutErrorsQuery, "v1-model-app-signal-out-errors-query", v1ModelOptions.AppSignalOutErrorsQuery, "V1 model prometheus app outgoing errors query")
+	flags.StringVar(&v1ModelOptions.AppSignalOutLatencyQuery, "v1-model-app-signal-out-latency-query", v1ModelOptions.AppSignalOutLatencyQuery, "V1 model prometheus app outgoing latency query")
+	flags.StringVar(&v1ModelOptions.AppSignalSaturationQuery, "v1-model-app-signal-saturation-query", v1ModelOptions.AppSignalSaturationQuery, "V1 model prometheus app saturation query")
 
 	flags.StringVar(&v1ModelOptions.HostQuery, "v1-model-host-query", v1ModelOptions.HostQuery, "V1 model prometheus host query")
-	flags.StringVar(&v1ModelOptions.HostCommonLabels, "v1-model-host-common-labels", v1ModelOptions.HostCommonLabels, "V1 model prometheus host common labels")
-
-	flags.StringVar(&v1ModelOptions.HostSaturationQuery, "v1-model-host-saturation-query", v1ModelOptions.HostSaturationQuery, "V1 model prometheus host saturation query")
+	flags.StringVar(&v1ModelOptions.HostSignalCommonLabels, "v1-model-host-signal-common-labels", v1ModelOptions.HostSignalCommonLabels, "V1 model prometheus host common labels")
+	flags.StringVar(&v1ModelOptions.HostSignalSaturationQuery, "v1-model-host-signal-saturation-query", v1ModelOptions.HostSignalSaturationQuery, "V1 model prometheus host saturation query")
 
 	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
 	flags.StringVar(&v1ModelOptions.Prometheus.User, "v1-model-prometheus-user", v1ModelOptions.Prometheus.User, "V1 model prometheus user")

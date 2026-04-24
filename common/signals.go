@@ -71,8 +71,12 @@ const (
 
 type Saturation = float64
 
+const (
+	HostSignalName = "name"
+)
+
 type HostSignal struct {
-	Host
+	Host       *Host
 	Saturation map[SaturationKind]*Saturation
 }
 
@@ -99,6 +103,11 @@ type OutgoingLatency struct {
 	Application
 }
 
+const (
+	ApplicationSignalName = "application"
+	ApplicationSignalHost = "host"
+)
+
 type ApplicationSignal struct {
 	Application *Application
 	Host        *Host
@@ -116,14 +125,16 @@ type ApplicationSignal struct {
 
 type Signal interface {
 	Name() string
+	Merge(s Signal)
 }
 
 type Signals struct {
 	items map[string]Signal
+	mu    sync.Mutex
 }
 
 type Measurements struct {
-	items map[int64]Signals
+	items map[int64]*Signals
 	mu    sync.Mutex
 }
 
@@ -284,6 +295,13 @@ func (hs *Hosts) Merge(hosts *Hosts) {
 	}
 }
 
+func NewHosts() *Hosts {
+
+	return &Hosts{
+		items: make(map[int64]map[string]*Host),
+	}
+}
+
 // Application
 
 func (a *Application) Name() string {
@@ -437,10 +455,21 @@ func (as *Applications) Merge(apps *Applications) {
 	}
 }
 
+func NewApplications() *Applications {
+
+	return &Applications{
+		items: make(map[int64]map[string]*Application),
+	}
+}
+
 // HostSignal
 
 func (hs *HostSignal) Name() string {
 	return hs.Host.Name()
+}
+
+func (hs *HostSignal) Merge(s Signal) {
+	// should check all fields of HostSignal
 }
 
 // ApplicationSignal
@@ -449,67 +478,73 @@ func (as *ApplicationSignal) Name() string {
 	return as.Application.Name()
 }
 
+func (as *ApplicationSignal) Merge(s Signal) {
+	// should check all fields of ApplicationSignal
+}
+
+func NewApplicationSignal(app *Application, host *Host) *ApplicationSignal {
+
+	return &ApplicationSignal{
+		Application: app,
+		Host:        host,
+	}
+}
+
 // Signals
 
-// Measurement
+func (ss *Signals) AddOrUpdate(s Signal) {
 
-func (ms *Measurements) Add(t int64, s Signal) {
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
 
 	if utils.IsEmpty(s) {
 		return
 	}
 
-	ss := ms.items[t]
-
-	if utils.IsEmpty(ss) {
-		ss = Signals{
-			items: make(map[string]Signal),
-		}
-		ms.items[t] = ss
+	n := s.Name()
+	if utils.IsEmpty(n) {
+		return
 	}
 
-	n := s.Name()
-	sn := ss.items[n]
-	if utils.IsEmpty(sn) {
+	sOld := ss.items[n]
+	if utils.IsEmpty(sOld) {
 		ss.items[n] = s
+		return
+	}
+	sOld.Merge(s)
+}
+
+func NewSignals() *Signals {
+
+	return &Signals{
+		items: make(map[string]Signal),
 	}
 }
 
-func (ms *Measurements) FindByApplication(t int64, app *Application) *ApplicationSignal {
+// Measurement
 
-	if utils.IsEmpty(app) {
-		return nil
-	}
+func (ms *Measurements) AddOrUpdate(t int64, s Signal) {
 
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	ss := ms.items[t]
-	for _, v := range ss.items {
-
-		as, ok := v.(*ApplicationSignal)
-		if !ok {
-			continue
-		}
-
-		if as.Application == nil {
-			continue
-		}
-
-		if !as.Application.Same(app) {
-			continue
-		}
-
-		return as
+	if s == nil {
+		return
 	}
-	return nil
+
+	ss := ms.items[t]
+	if ss == nil {
+		ss = NewSignals()
+		ms.items[t] = ss
+	}
+
+	ss.AddOrUpdate(s)
+	ms.items[t] = ss
 }
 
 func NewMeasurements() *Measurements {
+
 	return &Measurements{
-		items: make(map[int64]Signals),
+		items: make(map[int64]*Signals),
 	}
 }
