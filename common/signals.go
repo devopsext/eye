@@ -84,9 +84,20 @@ type Traffic = float64
 type Errors = float64
 type Latency = float64
 
-type IncomingTraffic = Traffic
-type IncomingErrors = Errors
-type IncomingLatency = Latency
+type IncomingTraffic struct {
+	Values map[TrafficKind]*Traffic
+	Labels map[string]string
+}
+
+type IncomingErrors struct {
+	Value  *Errors
+	Labels map[string]string
+}
+
+type IncomingLatency struct {
+	Value  *Latency
+	Labels map[string]string
+}
 
 type OutgoingTraffic struct {
 	Traffic
@@ -111,8 +122,9 @@ const (
 type ApplicationSignal struct {
 	Application *Application
 	Host        *Host
+	Labels      map[string]string
 
-	IncomingTraffic map[TrafficKind]*IncomingTraffic
+	IncomingTraffic *IncomingTraffic
 	IncomingErrors  *IncomingErrors
 	IncomingLatency *IncomingLatency
 
@@ -151,6 +163,36 @@ func SignalKindToString(kind SignalKind) string {
 		return "saturation"
 	}
 	return ""
+}
+
+// IncomingTraffic
+
+func NewIncomingTraffic(values map[TrafficKind]*Traffic, labels map[string]string) *IncomingTraffic {
+
+	return &IncomingTraffic{
+		Values: values,
+		Labels: labels,
+	}
+}
+
+// IncomingErrors
+
+func NewIncomingErrors(value *Errors, labels map[string]string) *IncomingErrors {
+
+	return &IncomingErrors{
+		Value:  value,
+		Labels: labels,
+	}
+}
+
+// IncomingLatency
+
+func NewIncomingLatency(value *Latency, labels map[string]string) *IncomingLatency {
+
+	return &IncomingLatency{
+		Value:  value,
+		Labels: labels,
+	}
 }
 
 // Host
@@ -205,10 +247,10 @@ func (h *Host) Copy(host *Host) {
 	}
 }
 
-func NewHost(Labels map[string]string, on *Host) *Host {
+func NewHost(labels map[string]string, on *Host) *Host {
 
 	return &Host{
-		Labels: Labels,
+		Labels: labels,
 		On:     on,
 	}
 }
@@ -247,14 +289,40 @@ func (hs *Hosts) AddOrUpdate(t int64, h *Host) {
 	}
 }
 
-func (hs *Hosts) Find(t int64, name string) *Host {
+func (hs *Hosts) unsafeLookBack(t int64, name string, tolerance int) *Host {
+
+	tb := t
+	for {
+		m := hs.items[tb]
+		if m == nil || tb < (t-int64(tolerance)) {
+			continue
+		}
+		a := m[name]
+		if a != nil {
+			return a
+		}
+		tb--
+	}
+}
+
+func (hs *Hosts) Find(t int64, name string, tolerance int) *Host {
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	tc := hs.items[t]
 	if tc == nil {
-		return nil
+
+		if tolerance == 0 {
+			return nil
+		}
+
+		if tolerance < 0 {
+			a := hs.unsafeLookBack(t, name, tolerance)
+			if a != nil {
+				return a
+			}
+		}
 	}
 	return tc[name]
 }
@@ -354,10 +422,10 @@ func (a *Application) Copy(app *Application) {
 	}
 }
 
-func NewApplication(Labels map[string]string) *Application {
+func NewApplication(labels map[string]string) *Application {
 
 	return &Application{
-		Labels: Labels,
+		Labels: labels,
 	}
 }
 
@@ -395,26 +463,40 @@ func (as *Applications) AddOrUpdate(t int64, a *Application) {
 	}
 }
 
-/*func (as *Applications) unsafeLookBack(t int64) (int64, map[string]*Application) {
+func (as *Applications) unsafeLookBack(t int64, name string, tolerance int) *Application {
 
-	tb := t - 1
+	tb := t
 	for {
 		m := as.items[tb]
-		if m != nil {
-      return
+		if m == nil || tb < (t-int64(tolerance)) {
+			continue
 		}
+		a := m[name]
+		if a != nil {
+			return a
+		}
+		tb--
 	}
-	return tb
-}*/
+}
 
-func (as *Applications) Find(t int64, name string) *Application {
+func (as *Applications) Find(t int64, name string, tolerance int) *Application {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	tc := as.items[t]
 	if tc == nil {
-		return nil
+
+		if tolerance == 0 {
+			return nil
+		}
+
+		if tolerance < 0 {
+			a := as.unsafeLookBack(t, name, tolerance)
+			if a != nil {
+				return a
+			}
+		}
 	}
 	return tc[name]
 }
@@ -487,6 +569,16 @@ func NewApplicationSignal(app *Application, host *Host) *ApplicationSignal {
 	return &ApplicationSignal{
 		Application: app,
 		Host:        host,
+
+		IncomingTraffic: nil,
+		IncomingErrors:  nil,
+		IncomingLatency: nil,
+
+		OutgoingTraffic: nil,
+		OutgoingErrors:  nil,
+		Outgoinglatency: nil,
+
+		Saturation: nil,
 	}
 }
 

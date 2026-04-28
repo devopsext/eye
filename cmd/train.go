@@ -12,8 +12,8 @@ import (
 var v1ModelOptions = model.V1ModelOptions{
 	File: envGet("V1_MODEL_FILE", "").(string),
 
-	AppQuery: envFileContentExpand("V1_MODEL_APP_QUERY", ""),
-
+	AppQuery:                 envFileContentExpand("V1_MODEL_APP_QUERY", ""),
+	AppTolerance:             envGet("V1_MODEL_APP_TOLERANCE", 0).(int),
 	AppSignalCommonLabels:    envStringExpand("V1_MODEL_APP_SIGNAL_COMMON_LABELS", ""),
 	AppSignalInTrafficQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
 	AppSignalInErrorsQuery:   envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_ERRORS_QUERY", ""),
@@ -23,8 +23,8 @@ var v1ModelOptions = model.V1ModelOptions{
 	AppSignalOutLatencyQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
 	AppSignalSaturationQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_SATURATION_QUERY", ""),
 
-	HostQuery: envFileContentExpand("V1_MODEL_HOST_QUERY", ""),
-
+	HostQuery:                 envFileContentExpand("V1_MODEL_HOST_QUERY", ""),
+	HostTolerance:             envGet("V1_MODEL_HOST_TOLERANCE", 0).(int),
 	HostSignalCommonLabels:    envStringExpand("V1_MODEL_HOST_SIGNAL_COMMON_LABELS", ""),
 	HostSignalSaturationQuery: envFileContentExpand("V1_MODEL_HOST_SIGNAL_SATURATION_QUERY", ""),
 
@@ -73,6 +73,7 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.File, "v1-model-file", v1ModelOptions.File, "V1 model file path")
 
 	flags.StringVar(&v1ModelOptions.AppQuery, "v1-model-app-query", v1ModelOptions.AppQuery, "V1 model prometheus app query")
+	flags.IntVar(&v1ModelOptions.AppTolerance, "v1-model-app-tolerance", v1ModelOptions.AppTolerance, "V1 model prometheus app tolerance")
 	flags.StringVar(&v1ModelOptions.AppSignalCommonLabels, "v1-model-app-signal-common-labels", v1ModelOptions.AppSignalCommonLabels, "V1 model prometheus app common labels")
 	flags.StringVar(&v1ModelOptions.AppSignalInTrafficQuery, "v1-model-app-signal-in-traffic-query", v1ModelOptions.AppSignalInTrafficQuery, "V1 model prometheus app incoming traffic query")
 	flags.StringVar(&v1ModelOptions.AppSignalInErrorsQuery, "v1-model-app-signal-in-errors-query", v1ModelOptions.AppSignalInErrorsQuery, "V1 model prometheus app incoming errors query")
@@ -83,6 +84,7 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&v1ModelOptions.AppSignalSaturationQuery, "v1-model-app-signal-saturation-query", v1ModelOptions.AppSignalSaturationQuery, "V1 model prometheus app saturation query")
 
 	flags.StringVar(&v1ModelOptions.HostQuery, "v1-model-host-query", v1ModelOptions.HostQuery, "V1 model prometheus host query")
+	flags.IntVar(&v1ModelOptions.HostTolerance, "v1-model-host-tolerance", v1ModelOptions.HostTolerance, "V1 model prometheus host tolerance")
 	flags.StringVar(&v1ModelOptions.HostSignalCommonLabels, "v1-model-host-signal-common-labels", v1ModelOptions.HostSignalCommonLabels, "V1 model prometheus host common labels")
 	flags.StringVar(&v1ModelOptions.HostSignalSaturationQuery, "v1-model-host-signal-saturation-query", v1ModelOptions.HostSignalSaturationQuery, "V1 model prometheus host saturation query")
 
