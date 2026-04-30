@@ -1,6 +1,9 @@
 package common
 
 import (
+	"fmt"
+	"math"
+	"reflect"
 	"sync"
 
 	"github.com/devopsext/utils"
@@ -56,9 +59,16 @@ type Applications struct {
 type TrafficKind = int
 
 const (
-	TrafficKindRps = iota // request per second
-	TrafficKindBps        // byte per second
-	TrafficKindQps        // query per second
+	TrafficKindUnknown = iota // unknown
+	TrafficKindRps            // request per second
+	TrafficKindBps            // byte per second
+	TrafficKindQps            // query per second
+)
+
+const (
+	TrafficKindRpsName = "rps"
+	TrafficKindBpsName = "bps"
+	TrafficKindQpsName = "qps"
 )
 
 type SaturationKind = int
@@ -115,8 +125,9 @@ type OutgoingLatency struct {
 }
 
 const (
-	ApplicationSignalName = "application"
-	ApplicationSignalHost = "host"
+	ApplicationSignalName        = "application"
+	ApplicationSignalHost        = "host"
+	ApplicationSignalTrafficKind = "kind"
 )
 
 type ApplicationSignal struct {
@@ -165,7 +176,40 @@ func SignalKindToString(kind SignalKind) string {
 	return ""
 }
 
+func TrafficKindByName(kind string) TrafficKind {
+
+	switch kind {
+	case TrafficKindRpsName:
+		return TrafficKindRps
+	case TrafficKindBpsName:
+		return TrafficKindBps
+	case TrafficKindQpsName:
+		return TrafficKindQps
+	}
+	return TrafficKindUnknown
+}
+
 // IncomingTraffic
+
+func (it *IncomingTraffic) Update(kind TrafficKind, value *Traffic, labels map[string]string) {
+
+	if value == nil {
+		return
+	}
+
+	if it.Values == nil {
+		it.Values = make(map[TrafficKind]*Traffic)
+	}
+
+	v := it.Values[kind]
+	if v == nil {
+		it.Values[kind] = value
+	} else {
+		// possible to make avg over labels
+		// ????
+	}
+
+}
 
 func NewIncomingTraffic(values map[TrafficKind]*Traffic, labels map[string]string) *IncomingTraffic {
 
@@ -177,6 +221,14 @@ func NewIncomingTraffic(values map[TrafficKind]*Traffic, labels map[string]strin
 
 // IncomingErrors
 
+func (ie *IncomingErrors) Update(value *Traffic, labels map[string]string) {
+
+	if value == nil {
+		return
+	}
+	ie.Value = value // group by if many ???
+}
+
 func NewIncomingErrors(value *Errors, labels map[string]string) *IncomingErrors {
 
 	return &IncomingErrors{
@@ -186,6 +238,14 @@ func NewIncomingErrors(value *Errors, labels map[string]string) *IncomingErrors 
 }
 
 // IncomingLatency
+
+func (il *IncomingLatency) Update(value *Traffic, labels map[string]string) {
+
+	if value == nil {
+		return
+	}
+	il.Value = value // group by if many ???
+}
 
 func NewIncomingLatency(value *Latency, labels map[string]string) *IncomingLatency {
 
@@ -292,39 +352,53 @@ func (hs *Hosts) AddOrUpdate(t int64, h *Host) {
 func (hs *Hosts) unsafeLookBack(t int64, name string, tolerance int) *Host {
 
 	tb := t
+	abs := math.Abs(float64(tolerance))
 	for {
+		tb--
 		m := hs.items[tb]
-		if m == nil || tb < (t-int64(tolerance)) {
+		diff := t - tb
+		if m == nil && diff < int64(abs) {
 			continue
+		}
+		if m == nil {
+			return nil
 		}
 		a := m[name]
 		if a != nil {
 			return a
 		}
-		tb--
+		return nil
 	}
 }
 
-func (hs *Hosts) Find(t int64, name string, tolerance int) *Host {
+func (hs *Hosts) FindWithTolerance(t int64, name string, tolerance int) *Host {
+
+	if utils.IsEmpty(name) {
+		return nil
+	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	tc := hs.items[t]
-	if tc == nil {
 
-		if tolerance == 0 {
-			return nil
-		}
+	if tolerance == 0 && tc == nil {
+		return nil
+	}
 
-		if tolerance < 0 {
-			a := hs.unsafeLookBack(t, name, tolerance)
-			if a != nil {
-				return a
-			}
+	if tolerance < 0 {
+		h := hs.unsafeLookBack(t, name, tolerance)
+		if h != nil {
+			return h
 		}
 	}
+
 	return tc[name]
+}
+
+func (hs *Hosts) Find(t int64, name string) *Host {
+
+	return hs.FindWithTolerance(t, name, 0)
 }
 
 func (hs *Hosts) Sizes() (int, int) {
@@ -466,39 +540,50 @@ func (as *Applications) AddOrUpdate(t int64, a *Application) {
 func (as *Applications) unsafeLookBack(t int64, name string, tolerance int) *Application {
 
 	tb := t
+	abs := math.Abs(float64(tolerance))
 	for {
+		tb--
 		m := as.items[tb]
-		if m == nil || tb < (t-int64(tolerance)) {
+		diff := t - tb
+		if m == nil && diff < int64(abs) {
 			continue
+		}
+		if m == nil {
+			return nil
 		}
 		a := m[name]
 		if a != nil {
 			return a
 		}
-		tb--
+		return nil
 	}
 }
 
-func (as *Applications) Find(t int64, name string, tolerance int) *Application {
+func (as *Applications) FindWithTolerance(t int64, name string, tolerance int) *Application {
+
+	if utils.IsEmpty(name) {
+		return nil
+	}
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	tc := as.items[t]
-	if tc == nil {
+	if tolerance == 0 && tc == nil {
+		return nil
+	}
 
-		if tolerance == 0 {
-			return nil
-		}
-
-		if tolerance < 0 {
-			a := as.unsafeLookBack(t, name, tolerance)
-			if a != nil {
-				return a
-			}
+	if tolerance < 0 {
+		a := as.unsafeLookBack(t, name, tolerance)
+		if a != nil {
+			return a
 		}
 	}
 	return tc[name]
+}
+
+func (as *Applications) Find(t int64, name string) *Application {
+	return as.FindWithTolerance(t, name, 0)
 }
 
 func (as *Applications) Sizes() (int, int) {
@@ -547,7 +632,12 @@ func NewApplications() *Applications {
 // HostSignal
 
 func (hs *HostSignal) Name() string {
-	return hs.Host.Name()
+
+	name := ""
+	if hs.Host != nil {
+		name = hs.Host.Name()
+	}
+	return name
 }
 
 func (hs *HostSignal) Merge(s Signal) {
@@ -556,8 +646,26 @@ func (hs *HostSignal) Merge(s Signal) {
 
 // ApplicationSignal
 
+func BuildApplicationSignalName(app, host string) string {
+
+	if utils.IsEmpty(app) {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", app, host)
+}
+
 func (as *ApplicationSignal) Name() string {
-	return as.Application.Name()
+
+	appName := ""
+	if as.Application != nil {
+		appName = as.Application.Name()
+	}
+
+	hostName := ""
+	if as.Host != nil {
+		hostName = as.Host.Name()
+	}
+	return BuildApplicationSignalName(appName, hostName)
 }
 
 func (as *ApplicationSignal) Merge(s Signal) {
@@ -606,6 +714,14 @@ func (ss *Signals) AddOrUpdate(s Signal) {
 	sOld.Merge(s)
 }
 
+func (ss *Signals) Find(name string) Signal {
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	return ss.items[name]
+}
+
 func NewSignals() *Signals {
 
 	return &Signals{
@@ -632,6 +748,75 @@ func (ms *Measurements) AddOrUpdate(t int64, s Signal) {
 
 	ss.AddOrUpdate(s)
 	ms.items[t] = ss
+}
+
+func (ms *Measurements) unsafeLookBackByType(t int64, name string, tolerance int, typ reflect.Type) Signal {
+
+	tb := t
+	abs := math.Abs(float64(tolerance))
+	for {
+		tb--
+		ss := ms.items[tb]
+		diff := t - tb
+		if ss == nil && diff < int64(abs) {
+			continue
+		}
+		if ss == nil {
+			return nil
+		}
+		s := ss.items[name]
+		if utils.IsEmpty(s) {
+			continue
+		}
+		ts := reflect.TypeOf(s)
+		if ts.ConvertibleTo(typ) {
+			return s
+		}
+		return nil
+	}
+}
+
+func (ms *Measurements) FindWithToleranceByType(t int64, name string, tolerance int, typ reflect.Type) Signal {
+
+	if utils.IsEmpty(name) {
+		return nil
+	}
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	ss := ms.items[t]
+
+	if ss == nil || ss.items == nil {
+		return nil
+	}
+
+	if tolerance < 0 {
+		s := ms.unsafeLookBackByType(t, name, tolerance, typ)
+		if utils.IsEmpty(s) {
+			return s
+		}
+	}
+
+	return ss.items[name]
+}
+
+func (ms *Measurements) FindApplicationSignalWithTolerance(t int64, name string, tolerance int) *ApplicationSignal {
+
+	typ := reflect.TypeFor[*ApplicationSignal]()
+	s := ms.FindWithToleranceByType(t, name, tolerance, typ)
+	if utils.IsEmpty(s) {
+		return nil
+	}
+	as, ok := s.(*ApplicationSignal)
+	if !ok {
+		return nil
+	}
+	return as
+}
+
+func (ms *Measurements) FindApplicationSignal(t int64, name string) *ApplicationSignal {
+	return ms.FindApplicationSignalWithTolerance(t, name, 0)
 }
 
 func NewMeasurements() *Measurements {

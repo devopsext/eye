@@ -37,6 +37,7 @@ type V1ModelOptions struct {
 	AppSignalOutErrorsQuery  string
 	AppSignalOutLatencyQuery string
 	AppSignalSaturationQuery string
+	AppSignalTolerance       int
 
 	HostQuery                 string
 	HostTolerance             int
@@ -220,7 +221,7 @@ func (m *V1Model) loadHosts(q string, from, to time.Time) (*common.Hosts, error)
 
 			var on *common.Host
 			if findOn {
-				on = hosts.Find(stamp, nameOn, 0)
+				on = hosts.Find(stamp, nameOn)
 				if on == nil {
 
 					lbs := maps.Clone(hostLbs)
@@ -239,7 +240,7 @@ func (m *V1Model) loadHosts(q string, from, to time.Time) (*common.Hosts, error)
 				}
 			}
 
-			host := hosts.Find(stamp, name, 0)
+			host := hosts.Find(stamp, name)
 			if host == nil {
 				host = common.NewHost(hostLbs, on)
 			}
@@ -345,7 +346,7 @@ func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applic
 				continue
 			}
 
-			app := apps.Find(stamp, name, 0)
+			app := apps.Find(stamp, name)
 			if app == nil {
 				app = common.NewApplication(dr.Labels)
 			}
@@ -721,32 +722,40 @@ func (m *V1Model) string2Time(ts string) time.Time {
 	return t
 }
 
-func (m *V1Model) getSignalApplicationHost(hosts *common.Hosts, applications *common.Applications,
-	stamp int64, labels map[string]string) (*common.Application, *common.Host) {
+func (m *V1Model) getSignalApplicationHost(measurements *common.Measurements,
+	hosts *common.Hosts, applications *common.Applications,
+	stamp int64, appName, hostName, appHost string, labels map[string]string) (*common.Application, *common.Host) {
 
-	appName := labels[common.ApplicationSignalName]
 	if utils.IsEmpty(appName) {
 		return nil, nil
 	}
 
-	app := applications.Find(stamp, appName, m.options.AppTolerance)
-	if app == nil {
-		lbs := make(map[string]string)
-		lbs[common.ApplicationName] = appName
-		app = common.NewApplication(lbs)
-		applications.AddOrUpdate(stamp, app)
+	// find application in the dictionary
+	app := applications.FindWithTolerance(stamp, appName, m.options.AppTolerance)
+
+	// find host in the dictionary if application exists
+	if app != nil {
+		host := hosts.FindWithTolerance(stamp, hostName, m.options.HostTolerance)
+		return app, host
 	}
 
-	var host *common.Host
-	hostName := labels[common.ApplicationSignalHost]
-	if !utils.IsEmpty(hostName) {
-		host = hosts.Find(stamp, hostName, m.options.HostTolerance)
-		if host == nil {
-			lbs := make(map[string]string)
-			lbs[common.HostName] = hostName
-			host = common.NewHost(lbs, nil)
-		}
+	// find application signal in measurements
+	signal := measurements.FindApplicationSignalWithTolerance(stamp, appHost, m.options.AppSignalTolerance)
+	if signal != nil {
+		return signal.Application, signal.Host
 	}
+
+	// create application & host if there are no
+	appLbs := make(map[string]string)
+	appLbs[common.ApplicationName] = appName
+	app = common.NewApplication(appLbs)
+	applications.AddOrUpdate(stamp, app)
+
+	hostLbs := make(map[string]string)
+	hostLbs[common.HostName] = hostName
+	host := common.NewHost(hostLbs, nil)
+	hosts.AddOrUpdate(stamp, host)
+
 	return app, host
 }
 
@@ -756,7 +765,7 @@ func (m *V1Model) createIncomingMeasurements(hosts *common.Hosts,
 
 	measurements := common.NewMeasurements()
 
-	for _, iv := range incomings {
+	for ik, iv := range incomings {
 		for stamp, data := range iv {
 			for _, v := range data {
 
@@ -766,27 +775,55 @@ func (m *V1Model) createIncomingMeasurements(hosts *common.Hosts,
 				}
 				mv := *mp
 
-				app, host := m.getSignalApplicationHost(hosts, applications, stamp, mv)
-				if app == nil {
-					continue
+				appName := mv[common.ApplicationSignalName]
+				hostName := mv[common.ApplicationSignalHost]
+				appHost := common.BuildApplicationSignalName(appName, hostName)
+
+				s := measurements.FindApplicationSignal(stamp, appHost)
+				if s == nil {
+					app, host := m.getSignalApplicationHost(measurements, hosts, applications, stamp, appName, hostName, appHost, mv)
+					if app == nil {
+						continue
+					}
+					s = common.NewApplicationSignal(app, host)
 				}
 
-				s := common.NewApplicationSignal(app, host)
 				measurements.AddOrUpdate(stamp, s)
 
-				/*switch ik {
-				case common.SignalTraffic:
-					// need to find out
-					tKind := common.TrafficKindRps
-					values := make(map[common.TrafficKind]*common.Traffic)
-					values[tKind] = &v.Value
+				lbs := maps.Clone(mv)
+				delete(lbs, common.ApplicationSignalName)
+				delete(lbs, common.ApplicationSignalHost)
 
-					s.IncomingTraffic = common.NewIncomingTraffic(values, mv)
-				case common.SignalLatency:
-					s.IncomingLatency = common.NewIncomingLatency(&v.Value, mv)
+				switch ik {
+				case common.SignalTraffic:
+
+					tKind := common.TrafficKindByName(lbs[common.ApplicationSignalTrafficKind])
+
+					if s.IncomingTraffic == nil {
+						values := make(map[common.TrafficKind]*common.Traffic)
+						values[tKind] = &v.Value
+
+						s.IncomingTraffic = common.NewIncomingTraffic(values, lbs)
+						continue
+					}
+					s.IncomingTraffic.Update(tKind, &v.Value, lbs)
+
 				case common.SignalErrors:
-					s.IncomingErrors = common.NewIncomingErrors(&v.Value, mv)
-				}*/
+
+					if s.IncomingErrors == nil {
+						s.IncomingErrors = common.NewIncomingErrors(&v.Value, lbs)
+						continue
+					}
+					s.IncomingErrors.Update(&v.Value, lbs)
+
+				case common.SignalLatency:
+
+					if s.IncomingLatency == nil {
+						s.IncomingLatency = common.NewIncomingLatency(&v.Value, lbs)
+						continue
+					}
+					s.IncomingLatency.Update(&v.Value, lbs)
+				}
 			}
 		}
 	}
