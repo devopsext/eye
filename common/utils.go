@@ -1,7 +1,12 @@
 package common
 
 import (
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
+	"hash/fnv"
 	"maps"
+	"sort"
 	"strings"
 
 	"github.com/devopsext/utils"
@@ -36,4 +41,46 @@ func MergeStringMaps(mm ...map[string]string) map[string]string {
 		maps.Copy(r, m)
 	}
 	return r
+}
+
+func MapToString(m map[string]string) string {
+
+	var builder strings.Builder
+
+	keys := []string{}
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		builder.WriteString(k)
+		builder.WriteString("=")
+		builder.WriteString(m[k])
+		builder.WriteString(";")
+	}
+
+	return builder.String()
+}
+
+func MapSha256(m map[string]string) string {
+
+	s := MapToString(m)
+	hash := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(hash[:])
+}
+
+func MapMD5(m map[string]string) string {
+
+	s := MapToString(m)
+	hash := md5.Sum([]byte(s))
+	return hex.EncodeToString(hash[:])
+}
+
+func MapFNV(m map[string]string) uint64 {
+
+	s := MapToString(m)
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return h.Sum64()
 }

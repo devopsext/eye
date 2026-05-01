@@ -90,23 +90,30 @@ type HostSignal struct {
 	Saturation map[SaturationKind]*Saturation
 }
 
-type Traffic = float64
-type Errors = float64
-type Latency = float64
+type Traffic struct {
+	Value  float64
+	Labels map[string]string
+}
+type Errors struct {
+	Value  float64
+	Labels map[string]string
+}
+
+type Latency struct {
+	Value  float64
+	Labels map[string]string
+}
 
 type IncomingTraffic struct {
-	Values map[TrafficKind]*Traffic
-	Labels map[string]string
+	Values map[TrafficKind]map[uint64]*Traffic
 }
 
 type IncomingErrors struct {
-	Value  *Errors
-	Labels map[string]string
+	Values map[uint64]*Errors
 }
 
 type IncomingLatency struct {
-	Value  *Latency
-	Labels map[string]string
+	Values map[uint64]*Latency
 }
 
 type OutgoingTraffic struct {
@@ -191,67 +198,97 @@ func TrafficKindByName(kind string) TrafficKind {
 
 // IncomingTraffic
 
-func (it *IncomingTraffic) Update(kind TrafficKind, value *Traffic, labels map[string]string) {
+func (it *IncomingTraffic) AddOrUpdate(kind TrafficKind, value float64, labels map[string]string) {
 
-	if value == nil {
-		return
-	}
+	hash := MapFNV(labels)
 
 	if it.Values == nil {
-		it.Values = make(map[TrafficKind]*Traffic)
+		it.Values = make(map[TrafficKind]map[uint64]*Traffic)
 	}
 
-	v := it.Values[kind]
-	if v == nil {
-		it.Values[kind] = value
+	values := it.Values[kind]
+	if values == nil {
+
+		values = make(map[uint64]*Traffic)
+		values[hash] = &Traffic{
+			Value:  value,
+			Labels: labels,
+		}
 	} else {
-		// possible to make avg over labels
-		// ????
-	}
 
+		traffic := values[hash]
+		if traffic == nil {
+			values[hash] = &Traffic{
+				Value:  value,
+				Labels: labels,
+			}
+		} else {
+			traffic.Value = (traffic.Value + value) / 2
+		}
+	}
+	it.Values[kind] = values
 }
 
-func NewIncomingTraffic(values map[TrafficKind]*Traffic, labels map[string]string) *IncomingTraffic {
+func NewIncomingTraffic() *IncomingTraffic {
 
 	return &IncomingTraffic{
-		Values: values,
-		Labels: labels,
+		Values: make(map[TrafficKind]map[uint64]*Traffic),
 	}
 }
 
 // IncomingErrors
 
-func (ie *IncomingErrors) Update(value *Traffic, labels map[string]string) {
+func (ie *IncomingErrors) AddOrUpdate(value float64, labels map[string]string) {
 
-	if value == nil {
-		return
+	hash := MapFNV(labels)
+
+	if ie.Values == nil {
+		ie.Values = make(map[uint64]*Errors)
 	}
-	ie.Value = value // group by if many ???
+
+	errors := ie.Values[hash]
+	if errors == nil {
+		ie.Values[hash] = &Errors{
+			Value:  value,
+			Labels: labels,
+		}
+	} else {
+		errors.Value = (errors.Value + value) / 2
+	}
 }
 
-func NewIncomingErrors(value *Errors, labels map[string]string) *IncomingErrors {
+func NewIncomingErrors() *IncomingErrors {
 
 	return &IncomingErrors{
-		Value:  value,
-		Labels: labels,
+		Values: make(map[uint64]*Errors),
 	}
 }
 
 // IncomingLatency
 
-func (il *IncomingLatency) Update(value *Traffic, labels map[string]string) {
+func (il *IncomingLatency) AddOrUpdate(value float64, labels map[string]string) {
 
-	if value == nil {
-		return
+	hash := MapFNV(labels)
+
+	if il.Values == nil {
+		il.Values = make(map[uint64]*Latency)
 	}
-	il.Value = value // group by if many ???
+
+	errors := il.Values[hash]
+	if errors == nil {
+		il.Values[hash] = &Latency{
+			Value:  value,
+			Labels: labels,
+		}
+	} else {
+		errors.Value = (errors.Value + value) / 2
+	}
 }
 
-func NewIncomingLatency(value *Latency, labels map[string]string) *IncomingLatency {
+func NewIncomingLatency() *IncomingLatency {
 
 	return &IncomingLatency{
-		Value:  value,
-		Labels: labels,
+		Values: make(map[uint64]*Latency),
 	}
 }
 
