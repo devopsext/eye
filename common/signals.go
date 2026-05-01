@@ -32,10 +32,15 @@ const (
 	HostOn   = "server"
 )
 
+type Hashes struct {
+	items map[uint64]map[string]string
+	mu    sync.Mutex
+}
+
 type Host struct {
-	//Kind      HostKind
-	On     *Host
-	Labels map[string]string
+	On         *Host
+	hashes     *Hashes
+	labelsHash uint64
 }
 
 type Hosts struct {
@@ -48,7 +53,8 @@ const (
 )
 
 type Application struct {
-	Labels map[string]string
+	hashes     *Hashes
+	labelsHash uint64
 }
 
 type Applications struct {
@@ -99,11 +105,6 @@ type Errors struct {
 	Labels map[string]string
 }
 
-type Latency struct {
-	Value  float64
-	Labels map[string]string
-}
-
 type IncomingTraffic struct {
 	Values map[TrafficKind]map[uint64]*Traffic
 }
@@ -113,7 +114,7 @@ type IncomingErrors struct {
 }
 
 type IncomingLatency struct {
-	Values map[uint64]*Latency
+	items map[uint64]float64
 }
 
 type OutgoingTraffic struct {
@@ -127,8 +128,6 @@ type OutgoingErrors struct {
 }
 
 type OutgoingLatency struct {
-	Latency
-	Application
 }
 
 const (
@@ -194,6 +193,51 @@ func TrafficKindByName(kind string) TrafficKind {
 		return TrafficKindQps
 	}
 	return TrafficKindUnknown
+}
+
+// Hashes
+
+func (hs *Hashes) Hash(labels map[string]string) uint64 {
+
+	if labels == nil {
+		return 0
+	}
+	return MapFNV(labels)
+}
+
+func (hs *Hashes) AddOrUpdate(labels map[string]string) {
+
+	hash := MapFNV(labels)
+	if hash == 0 {
+		return
+	}
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	if hs.items == nil {
+		hs.items = make(map[uint64]map[string]string)
+	}
+
+	lbs := hs.items[hash]
+	if lbs == nil {
+		hs.items[hash] = labels
+	}
+}
+
+func (hs *Hashes) Find(hash uint64) map[string]string {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	return hs.items[hash]
+}
+
+func NewHashes() *Hashes {
+
+	return &Hashes{
+		items: make(map[uint64]map[string]string),
+	}
 }
 
 // IncomingTraffic
@@ -270,37 +314,48 @@ func (il *IncomingLatency) AddOrUpdate(value float64, labels map[string]string) 
 
 	hash := MapFNV(labels)
 
-	if il.Values == nil {
-		il.Values = make(map[uint64]*Latency)
+	if il.items == nil {
+		il.items = make(map[uint64]float64)
 	}
 
-	errors := il.Values[hash]
-	if errors == nil {
-		il.Values[hash] = &Latency{
-			Value:  value,
-			Labels: labels,
-		}
+	l, ok := il.items[hash]
+	if !ok {
+		il.items[hash] = value
 	} else {
-		errors.Value = (errors.Value + value) / 2
+		l = (l + value) / 2
+		il.items[hash] = l
 	}
 }
 
 func NewIncomingLatency() *IncomingLatency {
 
 	return &IncomingLatency{
-		Values: make(map[uint64]*Latency),
+		items: make(map[uint64]float64),
 	}
 }
 
 // Host
 
+func (h *Host) Labels() map[string]string {
+
+	lhs := h.hashes
+	if lhs == nil {
+		return nil
+	}
+	lbs := lhs.Find(h.labelsHash)
+	if lbs == nil {
+		return nil
+	}
+	return lbs
+}
+
 func (h *Host) Name() string {
 
-	lbs := h.Labels
+	lbs := h.Labels()
 	if lbs == nil {
 		return ""
 	}
-	return h.Labels[HostName]
+	return lbs[HostName]
 }
 
 func (h *Host) Same(host *Host) bool {
@@ -325,11 +380,12 @@ func (h *Host) Copy(host *Host) {
 		return
 	}
 
-	if h.Labels == nil && len(host.Labels) > 0 {
+	/*labels := host.Labels()
+	if h.labels == nil && len(labels) > 0 {
 		h.Labels = make(map[string]string)
 	}
 
-	for k, v := range host.Labels {
+	for k, v := range labels {
 
 		v2 := h.Labels[k]
 		if utils.IsEmpty(v2) {
@@ -341,14 +397,18 @@ func (h *Host) Copy(host *Host) {
 			continue
 		}
 		h.Labels[k] = v
-	}
+	}*/
 }
 
-func NewHost(labels map[string]string, on *Host) *Host {
+func NewHost(hashes *Hashes, labels map[string]string, on *Host) *Host {
+
+	labelsHash := hashes.Hash(labels)
+	hashes.AddOrUpdate(labels)
 
 	return &Host{
-		Labels: labels,
-		On:     on,
+		hashes:     hashes,
+		labelsHash: labelsHash,
+		On:         on,
 	}
 }
 
@@ -483,13 +543,26 @@ func NewHosts() *Hosts {
 
 // Application
 
+func (a *Application) Labels() map[string]string {
+
+	lhs := a.hashes
+	if lhs == nil {
+		return nil
+	}
+	lbs := lhs.Find(a.labelsHash)
+	if lbs == nil {
+		return nil
+	}
+	return lbs
+}
+
 func (a *Application) Name() string {
 
-	lbs := a.Labels
+	lbs := a.Labels()
 	if lbs == nil {
 		return ""
 	}
-	return a.Labels[ApplicationName]
+	return lbs[ApplicationName]
 }
 
 func (a *Application) Same(app *Application) bool {
@@ -514,7 +587,7 @@ func (a *Application) Copy(app *Application) {
 		return
 	}
 
-	if a.Labels == nil && len(app.Labels) > 0 {
+	/*if a.Labels == nil && len(app.Labels) > 0 {
 		a.Labels = make(map[string]string)
 	}
 
@@ -530,13 +603,17 @@ func (a *Application) Copy(app *Application) {
 			continue
 		}
 		a.Labels[k] = v
-	}
+	}*/
 }
 
-func NewApplication(labels map[string]string) *Application {
+func NewApplication(hashes *Hashes, labels map[string]string) *Application {
+
+	labelsHash := hashes.Hash(labels)
+	hashes.AddOrUpdate(labels)
 
 	return &Application{
-		Labels: labels,
+		hashes:     hashes,
+		labelsHash: labelsHash,
 	}
 }
 

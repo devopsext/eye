@@ -192,7 +192,7 @@ func (m *V1Model) getStampedValue(values []any) (bool, int64, float64) {
 	return true, stamp, value
 }
 
-func (m *V1Model) loadHosts(q string, from, to time.Time) (*common.Hosts, error) {
+func (m *V1Model) loadHosts(hashes *common.Hashes, q string, from, to time.Time) (*common.Hosts, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
@@ -236,13 +236,14 @@ func (m *V1Model) loadHosts(q string, from, to time.Time) (*common.Hosts, error)
 						delete(hostLbs, k)
 					}
 
-					on = common.NewHost(lbs, nil)
+					on = common.NewHost(hashes, lbs, nil)
+					hosts.AddOrUpdate(stamp, on)
 				}
 			}
 
 			host := hosts.Find(stamp, name)
 			if host == nil {
-				host = common.NewHost(hostLbs, on)
+				host = common.NewHost(hashes, hostLbs, on)
 			}
 			if host.On == nil {
 				host.On = on
@@ -253,14 +254,14 @@ func (m *V1Model) loadHosts(q string, from, to time.Time) (*common.Hosts, error)
 	return hosts, nil
 }
 
-func (m *V1Model) gatherHostsByQuery(query string, from, to time.Time) (*common.Hosts, error) {
+func (m *V1Model) gatherHostsByQuery(hashes *common.Hashes, query string, from, to time.Time) (*common.Hosts, error) {
 
 	when := time.Now()
 
 	m.debug("Hosts gathering (%s / %s) ...", from, to)
 	m.debug("Hosts gathering started => %s", query)
 
-	hosts, err := m.loadHosts(query, from, to)
+	hosts, err := m.loadHosts(hashes, query, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +275,7 @@ func (m *V1Model) gatherHostsByQuery(query string, from, to time.Time) (*common.
 	return hosts, nil
 }
 
-func (m *V1Model) gatherHostsBySpan(query string, from, to time.Time, span time.Duration) (*common.Hosts, error) {
+func (m *V1Model) gatherHostsBySpan(hashes *common.Hashes, query string, from, to time.Time, span time.Duration) (*common.Hosts, error) {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -293,7 +294,7 @@ func (m *V1Model) gatherHostsBySpan(query string, from, to time.Time, span time.
 
 		gr.Go(func() error {
 
-			hosts, err := m.gatherHostsByQuery(query, t1, t2)
+			hosts, err := m.gatherHostsByQuery(hashes, query, t1, t2)
 			if err != nil {
 				return err
 			}
@@ -323,7 +324,7 @@ func (m *V1Model) gatherHostsBySpan(query string, from, to time.Time, span time.
 	return hosts, nil
 }
 
-func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applications, error) {
+func (m *V1Model) loadApplications(hashes *common.Hashes, q string, from, to time.Time) (*common.Applications, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
@@ -348,7 +349,7 @@ func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applic
 
 			app := apps.Find(stamp, name)
 			if app == nil {
-				app = common.NewApplication(dr.Labels)
+				app = common.NewApplication(hashes, dr.Labels)
 			}
 			apps.AddOrUpdate(stamp, app)
 		}
@@ -356,14 +357,14 @@ func (m *V1Model) loadApplications(q string, from, to time.Time) (*common.Applic
 	return apps, nil
 }
 
-func (m *V1Model) gatherApplicationsByQuery(query string, from, to time.Time) (*common.Applications, error) {
+func (m *V1Model) gatherApplicationsByQuery(hashes *common.Hashes, query string, from, to time.Time) (*common.Applications, error) {
 
 	when := time.Now()
 
 	m.debug("Applications gathering (%s / %s) ...", from, to)
 	m.debug("Applications gathering started => %s", query)
 
-	apps, err := m.loadApplications(query, from, to)
+	apps, err := m.loadApplications(hashes, query, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +378,7 @@ func (m *V1Model) gatherApplicationsByQuery(query string, from, to time.Time) (*
 	return apps, nil
 }
 
-func (m *V1Model) gatherApplicationsBySpan(query string, from, to time.Time, span time.Duration) (*common.Applications, error) {
+func (m *V1Model) gatherApplicationsBySpan(hashes *common.Hashes, query string, from, to time.Time, span time.Duration) (*common.Applications, error) {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -396,7 +397,7 @@ func (m *V1Model) gatherApplicationsBySpan(query string, from, to time.Time, spa
 
 		gr.Go(func() error {
 
-			apps, err := m.gatherApplicationsByQuery(query, t1, t2)
+			apps, err := m.gatherApplicationsByQuery(hashes, query, t1, t2)
 			if err != nil {
 				return err
 			}
@@ -722,7 +723,8 @@ func (m *V1Model) string2Time(ts string) time.Time {
 	return t
 }
 
-func (m *V1Model) getSignalApplicationHost(measurements *common.Measurements,
+func (m *V1Model) getSignalApplicationHost(
+	hashes *common.Hashes, measurements *common.Measurements,
 	hosts *common.Hosts, applications *common.Applications,
 	stamp int64, appName, hostName, appHost string) (*common.Application, *common.Host) {
 
@@ -749,7 +751,7 @@ func (m *V1Model) getSignalApplicationHost(measurements *common.Measurements,
 	if app == nil {
 		appLbs := make(map[string]string)
 		appLbs[common.ApplicationName] = appName
-		app = common.NewApplication(appLbs)
+		app = common.NewApplication(hashes, appLbs)
 		applications.AddOrUpdate(stamp, app)
 	}
 
@@ -757,15 +759,16 @@ func (m *V1Model) getSignalApplicationHost(measurements *common.Measurements,
 	if host == nil {
 		hostLbs := make(map[string]string)
 		hostLbs[common.HostName] = hostName
-		host = common.NewHost(hostLbs, nil)
+		host = common.NewHost(hashes, hostLbs, nil)
 		hosts.AddOrUpdate(stamp, host)
 	}
 
 	return app, host
 }
 
-func (m *V1Model) createIncomingMeasurements(hosts *common.Hosts,
-	applications *common.Applications,
+func (m *V1Model) createIncomingMeasurements(
+	hashes *common.Hashes,
+	hosts *common.Hosts, applications *common.Applications,
 	incomings map[common.SignalKind]V1ModelData) *common.Measurements {
 
 	measurements := common.NewMeasurements()
@@ -786,7 +789,7 @@ func (m *V1Model) createIncomingMeasurements(hosts *common.Hosts,
 
 				s := measurements.FindApplicationSignal(stamp, appHost)
 				if s == nil {
-					app, host := m.getSignalApplicationHost(measurements, hosts, applications, stamp, appName, hostName, appHost)
+					app, host := m.getSignalApplicationHost(hashes, measurements, hosts, applications, stamp, appName, hostName, appHost)
 					if app == nil {
 						continue
 					}
@@ -868,16 +871,18 @@ func (m *V1Model) train() error {
 		}
 	}
 
+	hashes := common.NewHashes()
+
 	m.info("Gathering hosts (%s / %s, span: %s)...", from, to, span)
 
-	hosts, err := m.gatherHostsBySpan(m.options.HostQuery, from, to, span)
+	hosts, err := m.gatherHostsBySpan(hashes, m.options.HostQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	m.info("Gathering applications (%s / %s, span: %s)...", from, to, span)
 
-	applications, err := m.gatherApplicationsBySpan(m.options.AppQuery, from, to, span)
+	applications, err := m.gatherApplicationsBySpan(hashes, m.options.AppQuery, from, to, span)
 	if err != nil {
 		return err
 	}
@@ -895,9 +900,7 @@ func (m *V1Model) train() error {
 	if err != nil {
 		return err
 	}
-
-	??? labels should be moved to separate map with hashes ???
-	measurements := m.createIncomingMeasurements(hosts, applications, ins)
+	measurements := m.createIncomingMeasurements(hashes, hosts, applications, ins)
 
 	outQueries := make(map[common.SignalKind]string)
 	outQueries[common.SignalTraffic] = m.options.AppSignalOutTrafficQuery
