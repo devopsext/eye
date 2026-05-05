@@ -29,6 +29,7 @@ var v1ModelOptions = model.V1ModelOptions{
 	HostTolerance:             envGet("V1_MODEL_HOST_TOLERANCE", 0).(int),
 	HostSignalCommonLabels:    envStringExpand("V1_MODEL_HOST_SIGNAL_COMMON_LABELS", ""),
 	HostSignalSaturationQuery: envFileContentExpand("V1_MODEL_HOST_SIGNAL_SATURATION_QUERY", ""),
+	HostSignalTolerance:       envGet("V1_MODEL_HOST_SIGNAL_TOLERANCE", 0).(int),
 
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("V1_MODEL_PROMETHEUS_URL", ""),
@@ -91,6 +92,7 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.IntVar(&v1ModelOptions.HostTolerance, "v1-model-host-tolerance", v1ModelOptions.HostTolerance, "V1 model prometheus host tolerance")
 	flags.StringVar(&v1ModelOptions.HostSignalCommonLabels, "v1-model-host-signal-common-labels", v1ModelOptions.HostSignalCommonLabels, "V1 model prometheus host common labels")
 	flags.StringVar(&v1ModelOptions.HostSignalSaturationQuery, "v1-model-host-signal-saturation-query", v1ModelOptions.HostSignalSaturationQuery, "V1 model prometheus host saturation query")
+	flags.IntVar(&v1ModelOptions.HostSignalTolerance, "v1-model-host-signal-tolerance", v1ModelOptions.HostSignalTolerance, "V1 model prometheus host signal tolerance")
 
 	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
 	flags.StringVar(&v1ModelOptions.Prometheus.User, "v1-model-prometheus-user", v1ModelOptions.Prometheus.User, "V1 model prometheus user")
