@@ -18,11 +18,11 @@ import (
 )
 
 type V1ModelDataValue struct {
-	Labels *map[string]string
-	Value  float64
+	Hash  common.Hash
+	Value float64
 }
 
-type V1ModelData = map[int64][]V1ModelDataValue
+type V1ModelData = map[common.Stamp][]V1ModelDataValue
 
 type V1ModelOptions struct {
 	File string
@@ -153,9 +153,9 @@ func (m *V1Model) loadData(q string, from, to time.Time) (*common.PrometheusResp
 	return res.Data, nil
 }
 
-func (m *V1Model) getStampedValue(values []any) (bool, int64, float64) {
+func (m *V1Model) getStampedValue(values []any) (bool, common.Stamp, float64) {
 
-	var stamp int64 = 0
+	var stamp common.Stamp = 0
 	var value float64 = 0.0
 
 	if len(values) < 2 {
@@ -170,13 +170,13 @@ func (m *V1Model) getStampedValue(values []any) (bool, int64, float64) {
 		if err != nil {
 			return false, stamp, value
 		}
-		stamp = i
+		stamp = common.Stamp(i)
 	} else if len(s) == 10 { // unix sec
 		i, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
 			return false, stamp, value
 		}
-		stamp = i * 1000 // unix millisec
+		stamp = common.Stamp(i * 1000) // unix millisec
 	}
 
 	// get value
@@ -187,7 +187,7 @@ func (m *V1Model) getStampedValue(values []any) (bool, int64, float64) {
 	}
 	value = f
 
-	if stamp <= 0 {
+	if stamp == 0 {
 		return false, stamp, value
 	}
 	return true, stamp, value
@@ -201,6 +201,9 @@ func (m *V1Model) loadHosts(hashes *common.Hashes, q string, from, to time.Time)
 	}
 
 	hosts := common.NewHosts()
+	if promData == nil {
+		return hosts, nil
+	}
 
 	for _, dr := range promData.Result {
 
@@ -237,14 +240,17 @@ func (m *V1Model) loadHosts(hashes *common.Hashes, q string, from, to time.Time)
 						delete(hostLbs, k)
 					}
 
-					on = common.NewHost(hashes, lbs, nil)
+					hash := hashes.AddOrUpdate(lbs)
+
+					on = common.NewHost(hashes, hash, nil)
 					hosts.AddOrUpdate(stamp, on)
 				}
 			}
 
 			host := hosts.Find(stamp, name)
 			if host == nil {
-				host = common.NewHost(hashes, hostLbs, on)
+				hash := hashes.AddOrUpdate(hostLbs)
+				host = common.NewHost(hashes, hash, on)
 			}
 			if host.On == nil {
 				host.On = on
@@ -333,6 +339,9 @@ func (m *V1Model) loadApplications(hashes *common.Hashes, q string, from, to tim
 	}
 
 	apps := common.NewApplications()
+	if promData == nil {
+		return apps, nil
+	}
 
 	for _, dr := range promData.Result {
 
@@ -340,6 +349,8 @@ func (m *V1Model) loadApplications(hashes *common.Hashes, q string, from, to tim
 		if utils.IsEmpty(name) {
 			continue
 		}
+
+		hash := hashes.AddOrUpdate(dr.Labels)
 
 		for _, v := range dr.Values {
 
@@ -350,7 +361,7 @@ func (m *V1Model) loadApplications(hashes *common.Hashes, q string, from, to tim
 
 			app := apps.Find(stamp, name)
 			if app == nil {
-				app = common.NewApplication(hashes, dr.Labels)
+				app = common.NewApplication(hashes, hash)
 			}
 			apps.AddOrUpdate(stamp, app)
 		}
@@ -428,7 +439,7 @@ func (m *V1Model) gatherApplicationsBySpan(hashes *common.Hashes, query string, 
 	return apps, nil
 }
 
-func (m *V1Model) loadModelData(q string, from, to time.Time) (V1ModelData, error) {
+func (m *V1Model) loadModelData(hashes *common.Hashes, q string, from, to time.Time) (V1ModelData, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
@@ -436,6 +447,9 @@ func (m *V1Model) loadModelData(q string, from, to time.Time) (V1ModelData, erro
 	}
 
 	modelData := V1ModelData{}
+	if promData == nil {
+		return modelData, nil
+	}
 
 	for _, dr := range promData.Result {
 
@@ -447,8 +461,8 @@ func (m *V1Model) loadModelData(q string, from, to time.Time) (V1ModelData, erro
 			}
 
 			v := V1ModelDataValue{
-				Labels: &dr.Labels,
-				Value:  value,
+				Hash:  hashes.AddOrUpdate(dr.Labels),
+				Value: value,
 			}
 			modelData[stamp] = append(modelData[stamp], v)
 		}
@@ -456,7 +470,7 @@ func (m *V1Model) loadModelData(q string, from, to time.Time) (V1ModelData, erro
 	return modelData, nil
 }
 
-func (m *V1Model) gatherSignals(queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]V1ModelData, error) {
+func (m *V1Model) gatherSignals(hashes *common.Hashes, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]V1ModelData, error) {
 
 	gr := &errgroup.Group{}
 	mp := &sync.Map{}
@@ -466,7 +480,7 @@ func (m *V1Model) gatherSignals(queries map[common.SignalKind]string, from, to t
 
 		gr.Go(func() error {
 
-			data, err := m.loadModelData(q, from, to)
+			data, err := m.loadModelData(hashes, q, from, to)
 			if err != nil {
 				return err
 			}
@@ -518,7 +532,7 @@ func (m *V1Model) prepareQueries(queries map[common.SignalKind]string, labels ma
 	return r
 }
 
-func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]V1ModelData, error) {
+func (m *V1Model) gatherSignalsByQueries(hashes *common.Hashes, name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]V1ModelData, error) {
 
 	when := time.Now()
 
@@ -541,7 +555,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 					m.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 				}
 
-				r, err := m.gatherSignals(qrs, from, to)
+				r, err := m.gatherSignals(hashes, qrs, from, to)
 				if err != nil {
 					return err
 				}
@@ -584,7 +598,7 @@ func (m *V1Model) gatherSignalsByQueries(name string, queries map[common.SignalK
 			m.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 		}
 
-		r, err := m.gatherSignals(queries, from, to)
+		r, err := m.gatherSignals(hashes, queries, from, to)
 		if err != nil {
 			return nil, err
 		}
@@ -634,7 +648,7 @@ func (m *V1Model) reduceSignals(arr []map[common.SignalKind]V1ModelData) map[com
 	return r
 }
 
-func (m *V1Model) gatherSignalsBySpan(name string,
+func (m *V1Model) gatherSignalsBySpan(name string, hashes *common.Hashes,
 	queries map[common.SignalKind]string, labels map[string]string,
 	from, to time.Time, span time.Duration) (map[common.SignalKind]V1ModelData, error) {
 
@@ -667,7 +681,7 @@ func (m *V1Model) gatherSignalsBySpan(name string,
 
 		gr.Go(func() error {
 
-			sqd, err := m.gatherSignalsByQueries(name, qs, labels, t1, t2)
+			sqd, err := m.gatherSignalsByQueries(hashes, name, qs, labels, t1, t2)
 			if err != nil {
 				return err
 			}
@@ -727,7 +741,7 @@ func (m *V1Model) string2Time(ts string) time.Time {
 func (m *V1Model) getApplicationHost(
 	hashes *common.Hashes, measurements *common.Measurements,
 	hosts *common.Hosts, applications *common.Applications,
-	stamp int64, appName, hostName, appHost string) (*common.Application, *common.Host) {
+	stamp common.Stamp, appName, hostName, appHost string) (*common.Application, *common.Host) {
 
 	if utils.IsEmpty(appName) {
 		return nil, nil
@@ -752,7 +766,7 @@ func (m *V1Model) getApplicationHost(
 	if app == nil {
 		appLbs := make(map[string]string)
 		appLbs[common.ApplicationName] = appName
-		app = common.NewApplication(hashes, appLbs)
+		app = common.NewApplication(hashes, hashes.AddOrUpdate(appLbs))
 		applications.AddOrUpdate(stamp, app)
 	}
 
@@ -760,14 +774,14 @@ func (m *V1Model) getApplicationHost(
 	if host == nil {
 		hostLbs := make(map[string]string)
 		hostLbs[common.HostName] = hostName
-		host = common.NewHost(hashes, hostLbs, nil)
+		host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
 		hosts.AddOrUpdate(stamp, host)
 	}
 
 	return app, host
 }
 
-type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, kind common.SignalKind, value float64, labels map[string]string)
+type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *V1Model) applicationSignalsOverData(
 	data map[common.SignalKind]V1ModelData,
@@ -780,11 +794,10 @@ func (m *V1Model) applicationSignalsOverData(
 		for stamp, data := range iv {
 			for _, v := range data {
 
-				mp := v.Labels
-				if m == nil {
+				lbs := hashes.Find(v.Hash)
+				if lbs == nil {
 					continue
 				}
-				lbs := *mp
 
 				appName := lbs[common.ApplicationSignalName]
 				hostName := lbs[common.ApplicationSignalHost]
@@ -796,10 +809,10 @@ func (m *V1Model) applicationSignalsOverData(
 					if app == nil {
 						continue
 					}
-					as = common.NewApplicationSignal(hashes, app, host)
+					as = common.NewApplicationSignal(hashes, applications, app, host)
 				}
 				measurements.AddOrUpdate(stamp, as)
-				callback(as, kind, v.Value, lbs)
+				callback(as, kind, v.Value, v.Hash)
 			}
 		}
 	}
@@ -807,7 +820,7 @@ func (m *V1Model) applicationSignalsOverData(
 
 func (m *V1Model) getHost(
 	hashes *common.Hashes, measurements *common.Measurements,
-	hosts *common.Hosts, stamp int64, hostName string) *common.Host {
+	hosts *common.Hosts, stamp common.Stamp, hostName string) *common.Host {
 
 	if utils.IsEmpty(hostName) {
 		return nil
@@ -819,7 +832,7 @@ func (m *V1Model) getHost(
 	// find host signal in measurements
 	if host == nil {
 		signal := measurements.FindHostSignalWithTolerance(stamp, hostName, m.options.HostSignalTolerance)
-		if host == nil && signal != nil {
+		if signal != nil {
 			host = signal.Host
 		}
 	}
@@ -828,14 +841,14 @@ func (m *V1Model) getHost(
 	if host == nil {
 		hostLbs := make(map[string]string)
 		hostLbs[common.HostName] = hostName
-		host = common.NewHost(hashes, hostLbs, nil)
+		host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
 		hosts.AddOrUpdate(stamp, host)
 	}
 
 	return host
 }
 
-type hostSignalsOverDataCallback = func(hs *common.HostSignal, kind common.SignalKind, value float64, labels map[string]string)
+type hostSignalsOverDataCallback = func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *V1Model) hostSignalsOverData(
 	data map[common.SignalKind]V1ModelData,
@@ -848,11 +861,10 @@ func (m *V1Model) hostSignalsOverData(
 		for stamp, data := range iv {
 			for _, v := range data {
 
-				mp := v.Labels
-				if m == nil {
+				lbs := hashes.Find(v.Hash)
+				if lbs == nil {
 					continue
 				}
-				lbs := *mp
 
 				host := lbs[common.HostSignalHost]
 
@@ -865,7 +877,7 @@ func (m *V1Model) hostSignalsOverData(
 					hs = common.NewHostSignal(hashes, host)
 				}
 				measurements.AddOrUpdate(stamp, hs)
-				callback(hs, kind, v.Value, lbs)
+				callback(hs, kind, v.Value, v.Hash)
 			}
 		}
 	}
@@ -879,7 +891,8 @@ func (m *V1Model) train() error {
 	// 3. gather saturation per application +++
 	// 4. make application signals (set application and host) based on incomings +++
 	// 5. add application signals (set application and host) based on outgoings & saturation +++
-	// 6. add saturation to host signals
+	// 6. add saturation to host signals +++
+	// 7. find outgoing dependecies ?
 
 	if utils.IsEmpty(m.options.Prometheus.From) {
 		return fmt.Errorf("Prometheus from time is not defined")
@@ -925,7 +938,7 @@ func (m *V1Model) train() error {
 	queries[common.SignalErrors] = m.options.AppSignalInErrorsQuery
 	queries[common.SignalLatency] = m.options.AppSignalInLatencyQuery
 
-	data, err := m.gatherSignalsBySpan("apps incoming", queries, appLabels, from, to, span)
+	data, err := m.gatherSignalsBySpan("apps incoming", hashes, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
@@ -934,19 +947,15 @@ func (m *V1Model) train() error {
 
 	// fill up app incomings
 	m.applicationSignalsOverData(data, measurements, hashes, hosts, applications,
-		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, labels map[string]string) {
+		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
 			case common.SignalTraffic:
-
-				tKind := common.TrafficKindByName(labels[common.ApplicationSignalTrafficKind])
-				as.IncomingTraffic.AddOrUpdate(tKind, value, labels)
-
+				as.IncomingTraffic.AddOrUpdate(value, hash)
 			case common.SignalErrors:
-				as.IncomingErrors.AddOrUpdate(value, labels)
-
+				as.IncomingErrors.AddOrUpdate(value, hash)
 			case common.SignalLatency:
-				as.IncomingLatency.AddOrUpdate(value, labels)
+				as.IncomingLatency.AddOrUpdate(value, hash)
 			}
 		})
 
@@ -956,31 +965,24 @@ func (m *V1Model) train() error {
 	queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
 	queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
 
-	data, err = m.gatherSignalsBySpan("apps outgoing & saturation", queries, appLabels, from, to, span)
+	data, err = m.gatherSignalsBySpan("apps outgoing & saturation", hashes, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	// fill up app outgoings and saturation
+	// fill up app outgoings and saturations
 	m.applicationSignalsOverData(data, measurements, hashes, hosts, applications,
-		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, labels map[string]string) {
+		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
 			case common.SignalTraffic:
-
-				tKind := common.TrafficKindByName(labels[common.ApplicationSignalTrafficKind])
-				as.OutgoingTraffic.AddOrUpdate(tKind, value, labels)
-
+				as.OutgoingTraffic.AddOrUpdate(value, hash)
 			case common.SignalErrors:
-				as.OutgoingErrors.AddOrUpdate(value, labels)
-
+				as.OutgoingErrors.AddOrUpdate(value, hash)
 			case common.SignalLatency:
-				as.OutgoingLatency.AddOrUpdate(value, labels)
-
+				as.OutgoingLatency.AddOrUpdate(value, hash)
 			case common.SignalSaturation:
-
-				sKind := common.TrafficKindByName(labels[common.ApplicationSignalSaturationKind])
-				as.Saturation.AddOrUpdate(sKind, value, labels)
+				as.Saturation.AddOrUpdate(value, hash)
 			}
 		})
 
@@ -989,22 +991,23 @@ func (m *V1Model) train() error {
 	queries = make(map[common.SignalKind]string)
 	queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
 
-	data, err = m.gatherSignalsBySpan("hosts", queries, hostLabels, from, to, span)
+	data, err = m.gatherSignalsBySpan("hosts", hashes, queries, hostLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	// fill up host saturation
+	// fill up host saturations
 	m.hostSignalsOverData(data, measurements, hashes, hosts,
-		func(hs *common.HostSignal, kind common.SignalKind, value float64, labels map[string]string) {
+		func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
 			case common.SignalSaturation:
-
-				sKind := common.HostSaturationKindByName(labels[common.HostSignalSaturationKind])
-				hs.Saturation.AddOrUpdate(sKind, value, labels)
+				hs.Saturation.AddOrUpdate(value, hash)
 			}
 		})
+
+	//??? Frontends check
+	//for k, m := range measurements.
 	return nil
 }
 
