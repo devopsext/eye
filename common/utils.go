@@ -43,6 +43,20 @@ func MergeStringMaps(mm ...map[string]string) map[string]string {
 	return r
 }
 
+//func Copy[M1 ~map[K]V, M2 ~map[K]V, K comparable, V any](dst M1, src M2) {
+
+func MergeMaps[M1 map[K]V, K comparable, V any](mm ...M1) M1 {
+
+	r := make(M1)
+	for _, m := range mm {
+		if len(m) == 0 {
+			continue
+		}
+		maps.Copy(r, m)
+	}
+	return r
+}
+
 func MapToString(m map[string]string) string {
 
 	var builder strings.Builder

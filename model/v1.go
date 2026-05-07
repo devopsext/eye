@@ -1006,8 +1006,36 @@ func (m *V1Model) train() error {
 			}
 		})
 
-	//??? Frontends check
-	//for k, m := range measurements.
+	last := measurements.LastStamp()
+	signals := measurements.ApplicationSignals(last)
+	if !utils.IsEmpty(signals) {
+
+		for n, s := range signals {
+
+			frontedns := s.Frontends(last)
+			for f := range frontedns {
+				m.debug("%s => %s", f, n)
+			}
+
+			backends := s.Backends(last)
+			for b := range backends {
+				m.debug("%s => %s", n, b)
+			}
+		}
+
+		/*
+			 		if last != nil {
+						for k, v := range last.Items() {
+							if utils.IsEmpty(v) {
+								continue
+							}
+
+							m.debug("%s", k)
+						}
+					}
+		*/
+	}
+
 	return nil
 }
 
