@@ -34,7 +34,7 @@ type Hashes struct {
 }
 
 type Host struct {
-	On         *Host
+	on         *Host
 	hashes     *Hashes
 	labelsHash Hash
 }
@@ -159,8 +159,8 @@ const (
 )
 
 type HostSignal struct {
-	Host       *Host
-	Saturation *HostSaturation
+	host       *Host
+	saturation *HostSaturation
 }
 
 const (
@@ -173,18 +173,19 @@ const (
 )
 
 type ApplicationSignal struct {
-	Application *Application
-	Host        *Host
+	measurement *Measurements
+	application *Application
+	host        *Host
 
-	IncomingTraffic *IncomingTraffic
-	IncomingErrors  *IncomingErrors
-	IncomingLatency *IncomingLatency
+	incomingTraffic *IncomingTraffic
+	incomingErrors  *IncomingErrors
+	incomingLatency *IncomingLatency
 
-	OutgoingTraffic *OutgoingTraffic
-	OutgoingErrors  *OutgoingErrors
-	OutgoingLatency *OutgoingLatency
+	outgoingTraffic *OutgoingTraffic
+	outgoingErrors  *OutgoingErrors
+	outgoingLatency *OutgoingLatency
 
-	Saturation *ApplicationSaturation
+	saturation *ApplicationSaturation
 }
 
 type Signal interface {
@@ -742,6 +743,10 @@ func (h *Host) Labels() Labels {
 	return lbs
 }
 
+func (h *Host) On() *Host {
+	return h.on
+}
+
 func (h *Host) Name() string {
 
 	lbs := h.Labels()
@@ -798,7 +803,7 @@ func NewHost(hashes *Hashes, hash Hash, on *Host) *Host {
 	return &Host{
 		hashes:     hashes,
 		labelsHash: hash,
-		On:         on,
+		on:         on,
 	}
 }
 
@@ -1135,8 +1140,8 @@ func NewApplications() *Applications {
 func (hs *HostSignal) Name() string {
 
 	name := ""
-	if hs.Host != nil {
-		name = hs.Host.Name()
+	if hs.host != nil {
+		name = hs.host.Name()
 	}
 	return name
 }
@@ -1145,12 +1150,20 @@ func (hs *HostSignal) Merge(s Signal) {
 	// should check all fields of HostSignal
 }
 
+func (hs *HostSignal) Host() *Host {
+	return hs.host
+}
+
+func (hs *HostSignal) Saturation() *HostSaturation {
+	return hs.saturation
+}
+
 func NewHostSignal(hashes *Hashes, host *Host) *HostSignal {
 
 	return &HostSignal{
 
-		Host:       host,
-		Saturation: NewHostSaturation(hashes),
+		host:       host,
+		saturation: NewHostSaturation(hashes),
 	}
 }
 
@@ -1164,20 +1177,56 @@ func BuildApplicationSignalName(app, host string) string {
 	return fmt.Sprintf("%s/%s", app, host)
 }
 
+func (as *ApplicationSignal) Application() *Application {
+	return as.application
+}
+
+func (as *ApplicationSignal) Host() *Host {
+	return as.host
+}
+
+func (as *ApplicationSignal) IncomingTraffic() *IncomingTraffic {
+	return as.incomingTraffic
+}
+
+func (as *ApplicationSignal) IncomingErrors() *IncomingErrors {
+	return as.incomingErrors
+}
+
+func (as *ApplicationSignal) IncomingLatency() *IncomingLatency {
+	return as.incomingLatency
+}
+
+func (as *ApplicationSignal) OutgoingTraffic() *OutgoingTraffic {
+	return as.outgoingTraffic
+}
+
+func (as *ApplicationSignal) OutgoingErrors() *OutgoingErrors {
+	return as.outgoingErrors
+}
+
+func (as *ApplicationSignal) OutgoingLatency() *OutgoingLatency {
+	return as.outgoingLatency
+}
+
+func (as *ApplicationSignal) Saturation() *ApplicationSaturation {
+	return as.saturation
+}
+
 func (as *ApplicationSignal) Frontends(stamp Stamp) map[string]*Application {
 
-	traffic := as.IncomingTraffic.Frontends(stamp, allTrafficKinds)
-	errors := as.IncomingErrors.Frontends(stamp)
-	latency := as.IncomingLatency.Frontends(stamp)
+	traffic := as.incomingTraffic.Frontends(stamp, allTrafficKinds)
+	errors := as.incomingErrors.Frontends(stamp)
+	latency := as.incomingLatency.Frontends(stamp)
 
 	return MergeMaps(traffic, errors, latency)
 }
 
 func (as *ApplicationSignal) Backends(stamp Stamp) map[string]*Application {
 
-	traffic := as.OutgoingTraffic.Backends(stamp, allTrafficKinds)
-	errors := as.OutgoingErrors.Backends(stamp)
-	latency := as.OutgoingLatency.Backends(stamp)
+	traffic := as.outgoingTraffic.Backends(stamp, allTrafficKinds)
+	errors := as.outgoingErrors.Backends(stamp)
+	latency := as.outgoingLatency.Backends(stamp)
 
 	return MergeMaps(traffic, errors, latency)
 }
@@ -1185,13 +1234,13 @@ func (as *ApplicationSignal) Backends(stamp Stamp) map[string]*Application {
 func (as *ApplicationSignal) Name() string {
 
 	appName := ""
-	if as.Application != nil {
-		appName = as.Application.Name()
+	if as.application != nil {
+		appName = as.application.Name()
 	}
 
 	hostName := ""
-	if as.Host != nil {
-		hostName = as.Host.Name()
+	if as.host != nil {
+		hostName = as.host.Name()
 	}
 	return BuildApplicationSignalName(appName, hostName)
 }
@@ -1204,18 +1253,18 @@ func NewApplicationSignal(hashes *Hashes, applications *Applications, app *Appli
 
 	return &ApplicationSignal{
 
-		Application: app,
-		Host:        host,
+		application: app,
+		host:        host,
 
-		IncomingTraffic: NewIncomingTraffic(hashes, applications),
-		IncomingErrors:  NewIncomingErrors(hashes, applications),
-		IncomingLatency: NewIncomingLatency(hashes, applications),
+		incomingTraffic: NewIncomingTraffic(hashes, applications),
+		incomingErrors:  NewIncomingErrors(hashes, applications),
+		incomingLatency: NewIncomingLatency(hashes, applications),
 
-		OutgoingTraffic: NewOutgoingTraffic(hashes, applications),
-		OutgoingErrors:  NewOutgoingErrors(hashes, applications),
-		OutgoingLatency: NewOutgoingLatency(hashes, applications),
+		outgoingTraffic: NewOutgoingTraffic(hashes, applications),
+		outgoingErrors:  NewOutgoingErrors(hashes, applications),
+		outgoingLatency: NewOutgoingLatency(hashes, applications),
 
-		Saturation: NewApplicationSaturation(hashes),
+		saturation: NewApplicationSaturation(hashes),
 	}
 }
 
@@ -1394,14 +1443,14 @@ func (ms *Measurements) LastStamp() Stamp {
 	return ms.last
 }
 
-func (ms *Measurements) LastApplicationSignal(name string) *ApplicationSignal {
+/*func (ms *Measurements) LastApplicationSignal(name string) *ApplicationSignal {
 
 	stamp := ms.LastStamp()
 	if stamp == 0 {
 		return nil
 	}
 	return ms.FindApplicationSignal(stamp, name)
-}
+}*/
 
 func (ms *Measurements) Items() map[Stamp]*Signals {
 
@@ -1430,6 +1479,114 @@ func (ms *Measurements) ApplicationSignals(stamp Stamp) map[string]*ApplicationS
 			continue
 		}
 		m[n] = as
+	}
+	return m
+}
+
+func (ms *Measurements) HostSignals(stamp Stamp) map[string]*HostSignal {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	m := make(map[string]*HostSignal)
+
+	signals := ms.items[stamp]
+	if signals == nil {
+		return m
+	}
+
+	for n, s := range signals.Items() {
+
+		as, ok := s.(*HostSignal)
+		if !ok {
+			continue
+		}
+		m[n] = as
+	}
+	return m
+}
+
+func (ms *Measurements) Applications(stamp Stamp, host *Host) map[string]*Application {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	m := make(map[string]*Application)
+	signals := ms.items[stamp]
+	if signals == nil {
+		return m
+	}
+
+	for _, s := range signals.Items() {
+
+		as, ok := s.(*ApplicationSignal)
+		if !ok {
+			continue
+		}
+		a := as.Application()
+		if a == nil {
+			continue
+		}
+		n := a.Name()
+		if (host == nil) || (as.host == host) {
+			m[n] = as.application
+		}
+	}
+	return m
+}
+
+func (ms *Measurements) Hosts(stamp Stamp, app *Application) map[string]*Host {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	m := make(map[string]*Host)
+	signals := ms.items[stamp]
+	if signals == nil {
+		return m
+	}
+
+	if app != nil {
+		for _, s := range signals.Items() {
+
+			as, ok := s.(*ApplicationSignal)
+			if !ok {
+				continue
+			}
+			h := as.Host()
+			if h == nil {
+				continue
+			}
+			n := h.Name()
+			if as.application == app {
+				m[n] = as.host
+			}
+		}
+		return m
+	}
+
+	for _, s := range signals.Items() {
+
+		hs, ok1 := s.(*HostSignal)
+		if ok1 {
+			h := hs.Host()
+			if h == nil {
+				continue
+			}
+			n := h.Name()
+			m[n] = h
+			continue
+		}
+
+		as, ok2 := s.(*ApplicationSignal)
+		if ok2 {
+			h := as.Host()
+			if h == nil {
+				continue
+			}
+			n := h.Name()
+			m[n] = h
+		}
 	}
 	return m
 }

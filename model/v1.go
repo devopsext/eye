@@ -239,7 +239,6 @@ func (m *V1Model) loadHosts(hashes *common.Hashes, q string, from, to time.Time)
 						}
 						delete(hostLbs, k)
 					}
-
 					hash := hashes.AddOrUpdate(lbs)
 
 					on = common.NewHost(hashes, hash, nil)
@@ -251,9 +250,6 @@ func (m *V1Model) loadHosts(hashes *common.Hashes, q string, from, to time.Time)
 			if host == nil {
 				hash := hashes.AddOrUpdate(hostLbs)
 				host = common.NewHost(hashes, hash, on)
-			}
-			if host.On == nil {
-				host.On = on
 			}
 			hosts.AddOrUpdate(stamp, host)
 		}
@@ -755,10 +751,10 @@ func (m *V1Model) getApplicationHost(
 	if app == nil || host == nil {
 		signal := measurements.FindApplicationSignalWithTolerance(stamp, appHost, m.options.AppSignalTolerance)
 		if app == nil && signal != nil {
-			app = signal.Application
+			app = signal.Application()
 		}
 		if host == nil && signal != nil {
-			host = signal.Host
+			host = signal.Host()
 		}
 	}
 
@@ -771,7 +767,7 @@ func (m *V1Model) getApplicationHost(
 	}
 
 	// create host if there are no
-	if host == nil {
+	if host == nil && !utils.IsEmpty(hostName) {
 		hostLbs := make(map[string]string)
 		hostLbs[common.HostName] = hostName
 		host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
@@ -833,7 +829,7 @@ func (m *V1Model) getHost(
 	if host == nil {
 		signal := measurements.FindHostSignalWithTolerance(stamp, hostName, m.options.HostSignalTolerance)
 		if signal != nil {
-			host = signal.Host
+			host = signal.Host()
 		}
 	}
 
@@ -892,7 +888,10 @@ func (m *V1Model) train() error {
 	// 4. make application signals (set application and host) based on incomings +++
 	// 5. add application signals (set application and host) based on outgoings & saturation +++
 	// 6. add saturation to host signals +++
-	// 7. find outgoing dependecies ?
+	// 7. add frontends & backends to application signals +++
+	// 8. add helper function to find application hosts ---
+	// 9. add helper function to find host applications ---
+	// x. find outgoing dependecies ?
 
 	if utils.IsEmpty(m.options.Prometheus.From) {
 		return fmt.Errorf("Prometheus from time is not defined")
@@ -951,11 +950,11 @@ func (m *V1Model) train() error {
 
 			switch kind {
 			case common.SignalTraffic:
-				as.IncomingTraffic.AddOrUpdate(value, hash)
+				as.IncomingTraffic().AddOrUpdate(value, hash)
 			case common.SignalErrors:
-				as.IncomingErrors.AddOrUpdate(value, hash)
+				as.IncomingErrors().AddOrUpdate(value, hash)
 			case common.SignalLatency:
-				as.IncomingLatency.AddOrUpdate(value, hash)
+				as.IncomingLatency().AddOrUpdate(value, hash)
 			}
 		})
 
@@ -976,13 +975,13 @@ func (m *V1Model) train() error {
 
 			switch kind {
 			case common.SignalTraffic:
-				as.OutgoingTraffic.AddOrUpdate(value, hash)
+				as.OutgoingTraffic().AddOrUpdate(value, hash)
 			case common.SignalErrors:
-				as.OutgoingErrors.AddOrUpdate(value, hash)
+				as.OutgoingErrors().AddOrUpdate(value, hash)
 			case common.SignalLatency:
-				as.OutgoingLatency.AddOrUpdate(value, hash)
+				as.OutgoingLatency().AddOrUpdate(value, hash)
 			case common.SignalSaturation:
-				as.Saturation.AddOrUpdate(value, hash)
+				as.Saturation().AddOrUpdate(value, hash)
 			}
 		})
 
@@ -1002,39 +1001,59 @@ func (m *V1Model) train() error {
 
 			switch kind {
 			case common.SignalSaturation:
-				hs.Saturation.AddOrUpdate(value, hash)
+				hs.Saturation().AddOrUpdate(value, hash)
 			}
 		})
 
 	last := measurements.LastStamp()
-	signals := measurements.ApplicationSignals(last)
-	if !utils.IsEmpty(signals) {
 
-		for n, s := range signals {
+	/*
+		// all last application signals
+		appSignals := measurements.ApplicationSignals(last)
+		if !utils.IsEmpty(appSignals) {
 
-			frontedns := s.Frontends(last)
-			for f := range frontedns {
-				m.debug("%s => %s", f, n)
+			for n, s := range appSignals {
+
+				// show frontends
+				frontedns := s.Frontends(last)
+				for f := range frontedns {
+					m.debug("Frontend %s => %s", f, n)
+				}
+
+				// show backends
+				backends := s.Backends(last)
+				for b := range backends {
+					m.debug("Backend %s => %s", n, b)
+				}
 			}
+		}*/
 
-			backends := s.Backends(last)
-			for b := range backends {
-				m.debug("%s => %s", n, b)
-			}
+	apps := measurements.Applications(last, nil)
+	if !utils.IsEmpty(apps) {
+
+		for n := range apps {
+			m.debug("Application %s", n)
 		}
-
-		/*
-			 		if last != nil {
-						for k, v := range last.Items() {
-							if utils.IsEmpty(v) {
-								continue
-							}
-
-							m.debug("%s", k)
-						}
-					}
-		*/
 	}
+
+	hsts := measurements.Hosts(last, nil)
+	if !utils.IsEmpty(hsts) {
+
+		for n := range hsts {
+			m.debug("Host %s", n)
+		}
+	}
+
+	// all last host signals
+	/*
+		hostSignals := measurements.HostSignals(last)
+		if !utils.IsEmpty(hostSignals) {
+
+			for n := range hostSignals {
+
+				m.debug(n)
+			}
+		}*/
 
 	return nil
 }
