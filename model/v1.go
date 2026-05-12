@@ -942,7 +942,7 @@ func (m *V1Model) train() error {
 		return err
 	}
 
-	measurements := common.NewMeasurements()
+	measurements := common.NewMeasurements(hosts, applications)
 
 	// fill up app incomings
 	m.applicationSignalsOverData(data, measurements, hashes, hosts, applications,
@@ -1007,53 +1007,62 @@ func (m *V1Model) train() error {
 
 	last := measurements.LastStamp()
 
-	/*
-		// all last application signals
-		appSignals := measurements.ApplicationSignals(last)
-		if !utils.IsEmpty(appSignals) {
+	// all last application signals
+	appSignals := measurements.ApplicationSignals(last, nil)
+	if !utils.IsEmpty(appSignals) {
 
-			for n, s := range appSignals {
+		for _, as := range appSignals {
 
-				// show frontends
-				frontedns := s.Frontends(last)
-				for f := range frontedns {
-					m.debug("Frontend %s => %s", f, n)
-				}
-
-				// show backends
-				backends := s.Backends(last)
-				for b := range backends {
-					m.debug("Backend %s => %s", n, b)
-				}
+			n := as.Name()
+			// show frontends
+			frontedns := as.Frontends(last)
+			for _, f := range frontedns {
+				m.debug("Frontend %s => %s", f.Name(), n)
 			}
-		}*/
 
-	apps := measurements.Applications(last, nil)
-	if !utils.IsEmpty(apps) {
+			// show backends
+			backends := as.Backends(last)
+			for _, b := range backends {
+				m.debug("Backend %s => %s", n, b.Name())
+			}
 
-		for n := range apps {
-			m.debug("Application %s", n)
-		}
-	}
-
-	hsts := measurements.Hosts(last, nil)
-	if !utils.IsEmpty(hsts) {
-
-		for n := range hsts {
-			m.debug("Host %s", n)
 		}
 	}
 
 	// all last host signals
-	/*
-		hostSignals := measurements.HostSignals(last)
-		if !utils.IsEmpty(hostSignals) {
+	hostSignals := measurements.HostSignals(last, nil)
+	if !utils.IsEmpty(hostSignals) {
 
-			for n := range hostSignals {
+		for _, hs := range hostSignals {
+			m.debug(hs.Name())
+		}
+	}
 
-				m.debug(n)
-			}
-		}*/
+	// all last applications
+	apps := measurements.Applications(last, []*common.Host{})
+	if !utils.IsEmpty(apps) {
+
+		for _, a := range apps {
+			m.debug("Application %s", a.Name())
+		}
+	}
+
+	// all last hosts
+	hsts := measurements.Hosts(last, []*common.Application{})
+	if !utils.IsEmpty(hsts) {
+
+		for _, h := range hsts {
+			m.debug("Host %s", h.Name())
+		}
+	}
+
+	deps := measurements.DependenciesByNames(last, []string{})
+	if !utils.IsEmpty(deps) {
+
+		for a, arr := range deps {
+			m.debug("Dependecy %s => %d", a.Name(), len(arr))
+		}
+	}
 
 	return nil
 }
