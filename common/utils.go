@@ -1,13 +1,16 @@
 package common
 
 import (
+	"cmp"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"hash/fnv"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
+	"unsafe"
 
 	"github.com/devopsext/utils"
 )
@@ -95,4 +98,25 @@ func MapFNV(m map[string]string) uint64 {
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	return h.Sum64()
+}
+
+func ApplicationsCompact(apps []*Application) []*Application {
+
+	slices.SortFunc(apps, func(a, b *Application) int {
+
+		if a == nil && b == nil {
+			return 0
+		}
+		if a == nil {
+			return 1
+		}
+		if b == nil {
+			return -1
+		}
+		aInt := uintptr(unsafe.Pointer(a))
+		bInt := uintptr(unsafe.Pointer(b))
+
+		return cmp.Compare(aInt, bInt)
+	})
+	return slices.Compact(apps)
 }

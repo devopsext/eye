@@ -1,13 +1,11 @@
 package common
 
 import (
-	"cmp"
 	"fmt"
 	"math"
 	"reflect"
 	"slices"
 	"sync"
-	"unsafe"
 
 	"github.com/devopsext/utils"
 )
@@ -189,6 +187,10 @@ type ApplicationSignal struct {
 	outgoingLatency *OutgoingLatency
 
 	saturation *ApplicationSaturation
+}
+
+type Dependencies struct {
+	items map[*Application]*Dependencies
 }
 
 type Signal interface {
@@ -1223,23 +1225,7 @@ func (as *ApplicationSignal) Frontends(stamp Stamp) []*Application {
 	arr = append(arr, errors...)
 	arr = append(arr, latency...)
 
-	slices.SortFunc(arr, func(a, b *Application) int {
-
-		if a == nil && b == nil {
-			return 0
-		}
-		if a == nil {
-			return 1
-		}
-		if b == nil {
-			return -1
-		}
-		aInt := uintptr(unsafe.Pointer(a))
-		bInt := uintptr(unsafe.Pointer(b))
-
-		return cmp.Compare(aInt, bInt)
-	})
-	return slices.Compact(arr)
+	return ApplicationsCompact(arr)
 }
 
 func (as *ApplicationSignal) Backends(stamp Stamp) []*Application {
@@ -1253,23 +1239,7 @@ func (as *ApplicationSignal) Backends(stamp Stamp) []*Application {
 	arr = append(arr, errors...)
 	arr = append(arr, latency...)
 
-	slices.SortFunc(arr, func(a, b *Application) int {
-
-		if a == nil && b == nil {
-			return 0
-		}
-		if a == nil {
-			return 1
-		}
-		if b == nil {
-			return -1
-		}
-		aInt := uintptr(unsafe.Pointer(a))
-		bInt := uintptr(unsafe.Pointer(b))
-
-		return cmp.Compare(aInt, bInt)
-	})
-	return slices.Compact(arr)
+	return ApplicationsCompact(arr)
 }
 
 func (as *ApplicationSignal) Name() string {
@@ -1306,6 +1276,19 @@ func NewApplicationSignal(hashes *Hashes, applications *Applications, app *Appli
 		outgoingLatency: NewOutgoingLatency(hashes, applications),
 
 		saturation: NewApplicationSaturation(hashes),
+	}
+}
+
+// Dependencies
+
+func (ds *Dependencies) Items() map[*Application]*Dependencies {
+	return ds.items
+}
+
+func NewDependencies() *Dependencies {
+
+	return &Dependencies{
+		items: make(map[*Application]*Dependencies),
 	}
 }
 
@@ -1501,10 +1484,7 @@ func (ms *Measurements) Items() map[Stamp]*Signals {
 	return ms.items
 }
 
-func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
+func (ms *Measurements) unsafeApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
 
 	m := []*ApplicationSignal{}
 
@@ -1526,6 +1506,28 @@ func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*
 		}
 	}
 	return m
+}
+
+func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	return ms.unsafeApplicationSignals(stamp, apps)
+}
+
+func (ms *Measurements) ApplicationSignalsByNames(stamp Stamp, names []string) []*ApplicationSignal {
+
+	apps := []*Application{}
+	for _, n := range names {
+		app := ms.applications.Find(stamp, n)
+		if app == nil {
+			continue
+		}
+		apps = append(apps, app)
+	}
+
+	return ms.unsafeApplicationSignals(stamp, apps)
 }
 
 func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
@@ -1553,6 +1555,20 @@ func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
 		}
 	}
 	return m
+}
+
+func (ms *Measurements) HostSignalsByNames(stamp Stamp, names []string) []*HostSignal {
+
+	hosts := []*Host{}
+	for _, n := range names {
+		app := ms.hosts.Find(stamp, n)
+		if app == nil {
+			continue
+		}
+		hosts = append(hosts, app)
+	}
+
+	return ms.HostSignals(stamp, hosts)
 }
 
 func (ms *Measurements) Applications(stamp Stamp, hosts []*Host) []*Application {
@@ -1644,48 +1660,69 @@ func (ms *Measurements) Hosts(stamp Stamp, apps []*Application) []*Host {
 	return m
 }
 
-func (ms *Measurements) dependencies(signals *Signals, app *Application) []*Application {
+func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []*Application, exclude []*Application) *Dependencies {
 
-	return nil
-}
+	m := NewDependencies()
 
-func (ms *Measurements) Dependencies(stamp Stamp, apps []*Application) map[*Application][]*Application {
+	arr := ms.unsafeApplicationSignals(stamp, parents)
+	for _, as := range arr {
 
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	m := make(map[*Application][]*Application)
-	signals := ms.items[stamp]
-	if signals == nil {
-		return m
-	}
-
-	for _, s := range signals.Items() {
-
-		as, ok := s.(*ApplicationSignal)
-		if !ok {
-			continue
-		}
 		a := as.application
 		if a == nil {
 			continue
 		}
-		if len(apps) == 0 || utils.Contains(apps, a) {
 
-			/*as.Backends()
-			arr, ok := m[a]
-			if !ok {
-				m[as.application] = ms.dependencies(signals, a)
-			} else {
+		var new *Dependencies = nil
 
-			}*/
+		backends := as.Backends(stamp)
+		if len(backends) > 0 {
 
+			newBackends := []*Application{}
+			for _, b := range backends {
+				if utils.Contains(exclude, b) {
+					continue
+				}
+				exclude = append(exclude, b)
+				newBackends = append(newBackends, b)
+			}
+
+			if len(newBackends) > 0 {
+				new = ms.unsafeDependencies(stamp, newBackends, exclude)
+			}
+		}
+
+		old, ok := m.items[a]
+		if !ok {
+			m.items[a] = new
+		} else {
+			if old != nil && new != nil {
+				deps := NewDependencies()
+				deps.items = MergeMaps(old.items, new.items)
+				m.items[a] = deps
+			} else if new != nil {
+				m.items[a] = new
+			}
 		}
 	}
-	return m
+
+	if len(m.items) > 0 {
+		return m
+	}
+
+	return nil
 }
 
-func (ms *Measurements) DependenciesByNames(stamp Stamp, names []string) map[*Application][]*Application {
+func (ms *Measurements) Dependencies(stamp Stamp, parents []*Application) *Dependencies {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	exclude := slices.Clone(parents)
+
+	return ms.unsafeDependencies(stamp, parents, exclude)
+}
+
+func (ms *Measurements) DependenciesByNames(stamp Stamp, names []string) *Dependencies {
 
 	apps := []*Application{}
 	for _, n := range names {

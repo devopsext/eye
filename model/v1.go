@@ -1008,7 +1008,7 @@ func (m *V1Model) train() error {
 	last := measurements.LastStamp()
 
 	// all last application signals
-	appSignals := measurements.ApplicationSignals(last, nil)
+	appSignals := measurements.ApplicationSignalsByNames(last, nil)
 	if !utils.IsEmpty(appSignals) {
 
 		for _, as := range appSignals {
@@ -1025,46 +1025,59 @@ func (m *V1Model) train() error {
 			for _, b := range backends {
 				m.debug("Backend %s => %s", n, b.Name())
 			}
-
 		}
 	}
 
-	// all last host signals
-	hostSignals := measurements.HostSignals(last, nil)
-	if !utils.IsEmpty(hostSignals) {
+	/*
+		// all last host signals
+		hostSignals := measurements.HostSignals(last, nil)
+		if !utils.IsEmpty(hostSignals) {
 
-		for _, hs := range hostSignals {
-			m.debug(hs.Name())
+			for _, hs := range hostSignals {
+				m.debug(hs.Name())
+			}
 		}
-	}
 
-	// all last applications
-	apps := measurements.Applications(last, []*common.Host{})
-	if !utils.IsEmpty(apps) {
+		// all last applications
+		apps := measurements.Applications(last, nil)
+		if !utils.IsEmpty(apps) {
 
-		for _, a := range apps {
-			m.debug("Application %s", a.Name())
+			for _, a := range apps {
+				m.debug("Application %s", a.Name())
+			}
 		}
-	}
 
-	// all last hosts
-	hsts := measurements.Hosts(last, []*common.Application{})
-	if !utils.IsEmpty(hsts) {
+		// all last hosts
+		hsts := measurements.Hosts(last, nil)
+		if !utils.IsEmpty(hsts) {
 
-		for _, h := range hsts {
-			m.debug("Host %s", h.Name())
+			for _, h := range hsts {
+				m.debug("Host %s", h.Name())
+			}
 		}
-	}
 
-	deps := measurements.DependenciesByNames(last, []string{})
+	*/
+
+	deps := measurements.DependenciesByNames(last, []string{"asdasd"})
 	if !utils.IsEmpty(deps) {
 
-		for a, arr := range deps {
-			m.debug("Dependecy %s => %d", a.Name(), len(arr))
+		for a, arr := range deps.Items() {
+			m.debugDependecies(a.Name(), "", arr)
 		}
 	}
 
 	return nil
+}
+
+func (m *V1Model) debugDependecies(name, parent string, deps *common.Dependencies) {
+
+	for a, arr := range deps.Items() {
+		if arr == nil {
+			m.debug("Dependency %s => %s", name, parent)
+		} else {
+			m.debugDependecies(name, fmt.Sprintf("%s/%s", parent, a.Name()), arr)
+		}
+	}
 }
 
 func (m *V1Model) Train(wg *sync.WaitGroup) {
