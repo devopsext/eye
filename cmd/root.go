@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 	"sync"
@@ -91,6 +93,13 @@ func Execute() {
 			}
 
 			logs.Info("Booting...")
+
+			if !utils.IsEmpty(rootOptions.Profiler) {
+				logs.Info("Profilig on %s", rootOptions.Profiler)
+				go func() {
+					logs.Debug(http.ListenAndServe(rootOptions.Profiler, nil))
+				}()
+			}
 
 			// Metrics
 			/*prometheusMetricsOptions.Version = version

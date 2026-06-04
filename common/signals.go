@@ -1,10 +1,8 @@
 package common
 
 import (
-	"fmt"
 	"math"
 	"reflect"
-	"slices"
 	"sync"
 
 	"github.com/devopsext/utils"
@@ -27,22 +25,22 @@ const (
 	HostOn   = "server"
 )
 
-type Hash = uint64
+type Hash = uint32
 
 type Hashes struct {
-	items map[Hash]Labels
 	mu    sync.Mutex
+	Items map[Hash]Labels
 }
 
 type Host struct {
-	on         *Host
-	hashes     *Hashes
-	labelsHash Hash
+	hashes *Hashes
+	On     *Host
+	Hash   Hash
 }
 
 type Hosts struct {
 	mu    sync.Mutex
-	items map[Stamp]map[string]*Host
+	Items map[Stamp]map[string]*Host
 }
 
 const (
@@ -50,13 +48,13 @@ const (
 )
 
 type Application struct {
-	hashes     *Hashes
-	labelsHash Hash
+	hashes *Hashes
+	Hash   Hash
 }
 
 type Applications struct {
 	mu    sync.Mutex
-	items map[Stamp]map[string]*Application
+	Items map[Stamp]map[string]*Application
 }
 
 type Traffic = float64
@@ -175,8 +173,9 @@ const (
 
 type ApplicationSignal struct {
 	measurement *Measurements
-	application *Application
-	host        *Host
+
+	Application *Application
+	Host        *Host
 
 	incomingTraffic *IncomingTraffic
 	incomingErrors  *IncomingErrors
@@ -200,7 +199,7 @@ type Signal interface {
 
 type Signals struct {
 	mu    sync.Mutex
-	items map[string]Signal
+	Items map[string]Signal
 }
 
 type Measurements struct {
@@ -209,7 +208,7 @@ type Measurements struct {
 	last         Stamp
 	hosts        *Hosts
 	applications *Applications
-	items        map[Stamp]*Signals
+	Items        map[Stamp]*Signals
 }
 
 func SignalKindToString(kind SignalKind) string {
@@ -264,12 +263,28 @@ func HostSaturationKindByName(kind string) HostSaturationKind {
 
 // Hashes
 
-func (hs *Hashes) Items() map[Hash]Labels {
+func (hs *Hashes) IsEmpty() bool {
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
-	return hs.items
+	return len(hs.Items) == 0
+}
+
+func (hs *Hashes) GetItems() map[Hash]Labels {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	return hs.Items
+}
+
+func (hs *Hashes) SetItems(items map[Hash]Labels) {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	hs.Items = items
 }
 
 func (hs *Hashes) Hash(labels Labels) Hash {
@@ -277,12 +292,12 @@ func (hs *Hashes) Hash(labels Labels) Hash {
 	if labels == nil {
 		return 0
 	}
-	return MapFNV(labels)
+	return Map2Hash32(labels)
 }
 
 func (hs *Hashes) AddOrUpdate(labels Labels) Hash {
 
-	hash := MapFNV(labels)
+	hash := Map2Hash32(labels)
 	if hash == 0 {
 		return hash
 	}
@@ -290,13 +305,13 @@ func (hs *Hashes) AddOrUpdate(labels Labels) Hash {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
-	if hs.items == nil {
-		hs.items = make(map[Hash]Labels)
+	if hs.Items == nil {
+		hs.Items = make(map[Hash]Labels)
 	}
 
-	lbs := hs.items[hash]
+	lbs := hs.Items[hash]
 	if lbs == nil {
-		hs.items[hash] = labels
+		hs.Items[hash] = labels
 	}
 	return hash
 }
@@ -306,13 +321,13 @@ func (hs *Hashes) Find(hash Hash) Labels {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
-	return hs.items[hash]
+	return hs.Items[hash]
 }
 
 func NewHashes() *Hashes {
 
 	return &Hashes{
-		items: make(map[Hash]Labels),
+		Items: make(map[Hash]Labels),
 	}
 }
 
@@ -755,15 +770,11 @@ func (h *Host) Labels() Labels {
 	if lhs == nil {
 		return nil
 	}
-	lbs := lhs.Find(h.labelsHash)
+	lbs := lhs.Find(h.Hash)
 	if lbs == nil {
 		return nil
 	}
 	return lbs
-}
-
-func (h *Host) On() *Host {
-	return h.on
 }
 
 func (h *Host) Name() string {
@@ -796,37 +807,34 @@ func (h *Host) Copy(host *Host) {
 	if h.Same(host) {
 		return
 	}
-
-	/*labels := host.Labels()
-	if h.labels == nil && len(labels) > 0 {
-		h.Labels = make(Labels)
-	}
-
-	for k, v := range labels {
-
-		v2 := h.Labels[k]
-		if utils.IsEmpty(v2) {
-			h.Labels[k] = v
-			continue
-		}
-
-		if v2 == v {
-			continue
-		}
-		h.Labels[k] = v
-	}*/
 }
 
 func NewHost(hashes *Hashes, hash Hash, on *Host) *Host {
 
 	return &Host{
-		hashes:     hashes,
-		labelsHash: hash,
-		on:         on,
+		hashes: hashes,
+		Hash:   hash,
+		On:     on,
 	}
 }
 
 // Hosts
+
+func (hs *Hosts) GetItems() map[Stamp]map[string]*Host {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	return hs.Items
+}
+
+func (hs *Hosts) SetItems(items map[Stamp]map[string]*Host) {
+
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	hs.Items = items
+}
 
 func (hs *Hosts) AddOrUpdate(stamp Stamp, h *Host) {
 
@@ -842,14 +850,14 @@ func (hs *Hosts) AddOrUpdate(stamp Stamp, h *Host) {
 		return
 	}
 
-	if hs.items == nil {
-		hs.items = make(map[Stamp]map[string]*Host)
+	if hs.Items == nil {
+		hs.Items = make(map[Stamp]map[string]*Host)
 	}
 
-	m := hs.items[stamp]
+	m := hs.Items[stamp]
 	if m == nil {
 		m = make(map[string]*Host)
-		hs.items[stamp] = m
+		hs.Items[stamp] = m
 	}
 
 	old := m[n]
@@ -866,7 +874,7 @@ func (hs *Hosts) unsafeLookBack(stamp Stamp, name string, tolerance int) *Host {
 	abs := math.Abs(float64(tolerance))
 	for {
 		tb--
-		m := hs.items[tb]
+		m := hs.Items[tb]
 		diff := stamp - tb
 		if m == nil && diff < Stamp(abs) {
 			continue
@@ -891,7 +899,7 @@ func (hs *Hosts) FindWithTolerance(stamp Stamp, name string, tolerance int) *Hos
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
-	tc := hs.items[stamp]
+	tc := hs.Items[stamp]
 
 	if tolerance == 0 && tc == nil {
 		return nil
@@ -917,10 +925,10 @@ func (hs *Hosts) Sizes() (int, int) {
 	defer hs.mu.Unlock()
 
 	r := 0
-	for _, v := range hs.items {
+	for _, v := range hs.Items {
 		r += len(v)
 	}
-	return len(hs.items), r
+	return len(hs.Items), r
 }
 
 func (hs *Hosts) Merge(hosts *Hosts) {
@@ -935,15 +943,15 @@ func (hs *Hosts) Merge(hosts *Hosts) {
 	hosts.mu.Lock()
 	defer hosts.mu.Unlock()
 
-	if hs.items == nil {
-		hs.items = make(map[Stamp]map[string]*Host)
+	if hs.Items == nil {
+		hs.Items = make(map[Stamp]map[string]*Host)
 	}
 
-	for t, m := range hosts.items {
+	for t, m := range hosts.Items {
 
-		mOld := hs.items[t]
+		mOld := hs.Items[t]
 		if mOld == nil {
-			hs.items[t] = m
+			hs.Items[t] = m
 		}
 	}
 }
@@ -951,7 +959,7 @@ func (hs *Hosts) Merge(hosts *Hosts) {
 func NewHosts() *Hosts {
 
 	return &Hosts{
-		items: make(map[Stamp]map[string]*Host),
+		Items: make(map[Stamp]map[string]*Host),
 	}
 }
 
@@ -963,7 +971,7 @@ func (a *Application) Labels() Labels {
 	if lhs == nil {
 		return nil
 	}
-	lbs := lhs.Find(a.labelsHash)
+	lbs := lhs.Find(a.Hash)
 	if lbs == nil {
 		return nil
 	}
@@ -1005,12 +1013,28 @@ func (a *Application) Copy(app *Application) {
 func NewApplication(hashes *Hashes, hash Hash) *Application {
 
 	return &Application{
-		hashes:     hashes,
-		labelsHash: hash,
+		hashes: hashes,
+		Hash:   hash,
 	}
 }
 
 // Applications
+
+func (as *Applications) GetItems() map[Stamp]map[string]*Application {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	return as.Items
+}
+
+func (as *Applications) SetItems(items map[Stamp]map[string]*Application) {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	as.Items = items
+}
 
 func (as *Applications) AddOrUpdate(stamp Stamp, a *Application) {
 
@@ -1026,14 +1050,14 @@ func (as *Applications) AddOrUpdate(stamp Stamp, a *Application) {
 		return
 	}
 
-	if as.items == nil {
-		as.items = make(map[Stamp]map[string]*Application)
+	if as.Items == nil {
+		as.Items = make(map[Stamp]map[string]*Application)
 	}
 
-	m := as.items[stamp]
+	m := as.Items[stamp]
 	if m == nil {
 		m = make(map[string]*Application)
-		as.items[stamp] = m
+		as.Items[stamp] = m
 	}
 
 	old := m[n]
@@ -1050,7 +1074,7 @@ func (as *Applications) unsafeLookBack(stamp Stamp, name string, tolerance int) 
 	abs := math.Abs(float64(tolerance))
 	for {
 		tb--
-		m := as.items[tb]
+		m := as.Items[tb]
 		diff := stamp - tb
 		if m == nil && diff < Stamp(abs) {
 			continue
@@ -1075,7 +1099,7 @@ func (as *Applications) FindWithTolerance(stamp Stamp, name string, tolerance in
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
-	tc := as.items[stamp]
+	tc := as.Items[stamp]
 	if tolerance == 0 && tc == nil {
 		return nil
 	}
@@ -1098,10 +1122,10 @@ func (as *Applications) Sizes() (int, int) {
 	defer as.mu.Unlock()
 
 	r := 0
-	for _, v := range as.items {
+	for _, v := range as.Items {
 		r += len(v)
 	}
-	return len(as.items), r
+	return len(as.Items), r
 }
 
 func (as *Applications) Merge(apps *Applications) {
@@ -1116,15 +1140,15 @@ func (as *Applications) Merge(apps *Applications) {
 	apps.mu.Lock()
 	defer apps.mu.Unlock()
 
-	if as.items == nil {
-		as.items = make(map[Stamp]map[string]*Application)
+	if as.Items == nil {
+		as.Items = make(map[Stamp]map[string]*Application)
 	}
 
-	for t, m := range apps.items {
+	for t, m := range apps.Items {
 
-		mOld := as.items[t]
+		mOld := as.Items[t]
 		if mOld == nil {
-			as.items[t] = m
+			as.Items[t] = m
 		}
 	}
 }
@@ -1132,7 +1156,7 @@ func (as *Applications) Merge(apps *Applications) {
 func NewApplications() *Applications {
 
 	return &Applications{
-		items: make(map[Stamp]map[string]*Application),
+		Items: make(map[Stamp]map[string]*Application),
 	}
 }
 
@@ -1172,18 +1196,10 @@ func NewHostSignal(hashes *Hashes, host *Host) *HostSignal {
 
 func BuildApplicationSignalName(app, host string) string {
 
-	if utils.IsEmpty(app) {
+	if app == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s", app, host)
-}
-
-func (as *ApplicationSignal) Application() *Application {
-	return as.application
-}
-
-func (as *ApplicationSignal) Host() *Host {
-	return as.host
+	return app + "/" + host
 }
 
 func (as *ApplicationSignal) IncomingTraffic() *IncomingTraffic {
@@ -1245,13 +1261,13 @@ func (as *ApplicationSignal) Backends(stamp Stamp) []*Application {
 func (as *ApplicationSignal) Name() string {
 
 	appName := ""
-	if as.application != nil {
-		appName = as.application.Name()
+	if as.Application != nil {
+		appName = as.Application.Name()
 	}
 
 	hostName := ""
-	if as.host != nil {
-		hostName = as.host.Name()
+	if as.Host != nil {
+		hostName = as.Host.Name()
 	}
 	return BuildApplicationSignalName(appName, hostName)
 }
@@ -1264,8 +1280,8 @@ func NewApplicationSignal(hashes *Hashes, applications *Applications, app *Appli
 
 	return &ApplicationSignal{
 
-		application: app,
-		host:        host,
+		Application: app,
+		Host:        host,
 
 		incomingTraffic: NewIncomingTraffic(hashes, applications),
 		incomingErrors:  NewIncomingErrors(hashes, applications),
@@ -1294,6 +1310,22 @@ func NewDependencies() *Dependencies {
 
 // Signals
 
+func (ss *Signals) GetItems() map[string]Signal {
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	return ss.Items
+}
+
+func (ss *Signals) SetItems(items map[string]Signal) {
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	ss.Items = items
+}
+
 func (ss *Signals) AddOrUpdate(s Signal) {
 
 	ss.mu.Lock()
@@ -1308,9 +1340,9 @@ func (ss *Signals) AddOrUpdate(s Signal) {
 		return
 	}
 
-	sOld := ss.items[n]
+	sOld := ss.Items[n]
 	if utils.IsEmpty(sOld) {
-		ss.items[n] = s
+		ss.Items[n] = s
 		return
 	}
 	sOld.Merge(s)
@@ -1321,25 +1353,33 @@ func (ss *Signals) Find(name string) Signal {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
-	return ss.items[name]
-}
-
-func (ss *Signals) Items() map[string]Signal {
-
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	return ss.items
+	return ss.Items[name]
 }
 
 func NewSignals() *Signals {
 
 	return &Signals{
-		items: make(map[string]Signal),
+		Items: make(map[string]Signal),
 	}
 }
 
-// Measurement
+// Measurements
+
+func (ms *Measurements) GetItems() map[Stamp]*Signals {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	return ms.Items
+}
+
+func (ms *Measurements) SetItems(items map[Stamp]*Signals) {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	ms.Items = items
+}
 
 func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 
@@ -1358,14 +1398,14 @@ func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 		ms.first = stamp
 	}
 
-	ss := ms.items[stamp]
+	ss := ms.Items[stamp]
 	if ss == nil {
 		ss = NewSignals()
-		ms.items[stamp] = ss
+		ms.Items[stamp] = ss
 	}
 
 	ss.AddOrUpdate(s)
-	ms.items[stamp] = ss
+	ms.Items[stamp] = ss
 }
 
 func (ms *Measurements) unsafeLookBackByType(stamp Stamp, name string, tolerance int, typ reflect.Type) Signal {
@@ -1374,7 +1414,7 @@ func (ms *Measurements) unsafeLookBackByType(stamp Stamp, name string, tolerance
 	abs := math.Abs(float64(tolerance))
 	for {
 		tb--
-		ss := ms.items[tb]
+		ss := ms.Items[tb]
 		diff := stamp - tb
 		if ss == nil && diff < Stamp(abs) {
 			continue
@@ -1382,7 +1422,7 @@ func (ms *Measurements) unsafeLookBackByType(stamp Stamp, name string, tolerance
 		if ss == nil {
 			return nil
 		}
-		s := ss.items[name]
+		s := ss.Items[name]
 		if utils.IsEmpty(s) {
 			continue
 		}
@@ -1403,9 +1443,9 @@ func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, name string, 
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	ss := ms.items[stamp]
+	ss := ms.Items[stamp]
 
-	if ss == nil || ss.items == nil {
+	if ss == nil || ss.Items == nil {
 		return nil
 	}
 
@@ -1416,7 +1456,7 @@ func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, name string, 
 		}
 	}
 
-	return ss.items[name]
+	return ss.Items[name]
 }
 
 func (ms *Measurements) FindApplicationSignalWithTolerance(stamp Stamp, name string, tolerance int) *ApplicationSignal {
@@ -1476,30 +1516,30 @@ func (ms *Measurements) LastStamp() Stamp {
 	return ms.FindApplicationSignal(stamp, name)
 }*/
 
-func (ms *Measurements) Items() map[Stamp]*Signals {
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	return ms.items
-}
-
 func (ms *Measurements) unsafeApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
 
 	m := []*ApplicationSignal{}
 
-	signals := ms.items[stamp]
+	signals := ms.Items[stamp]
 	if signals == nil {
 		return m
 	}
 
-	for _, s := range signals.Items() {
+	// improve performance
+	mm := make(map[*Application]struct{}, len(apps))
+	for _, a := range apps {
+		mm[a] = struct{}{}
+	}
+
+	for _, s := range signals.GetItems() {
 
 		as, ok := s.(*ApplicationSignal)
 		if !ok {
 			continue
 		}
-		if len(apps) == 0 || utils.Contains(apps, as.application) {
+
+		_, exists := mm[as.Application]
+		if len(apps) == 0 || exists {
 			if !utils.Contains(m, as) {
 				m = append(m, as)
 			}
@@ -1537,18 +1577,25 @@ func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
 
 	m := []*HostSignal{}
 
-	signals := ms.items[stamp]
+	signals := ms.Items[stamp]
 	if signals == nil {
 		return m
 	}
 
-	for _, s := range signals.Items() {
+	// improve performance
+	mm := make(map[*Host]struct{}, len(hosts))
+	for _, h := range hosts {
+		mm[h] = struct{}{}
+	}
+
+	for _, s := range signals.GetItems() {
 
 		hs, ok := s.(*HostSignal)
 		if !ok {
 			continue
 		}
-		if len(hosts) == 0 || utils.Contains(hosts, hs.host) {
+		_, exists := mm[hs.host]
+		if len(hosts) == 0 || exists {
 			if !utils.Contains(m, hs) {
 				m = append(m, hs)
 			}
@@ -1577,22 +1624,29 @@ func (ms *Measurements) Applications(stamp Stamp, hosts []*Host) []*Application 
 	defer ms.mu.Unlock()
 
 	m := []*Application{}
-	signals := ms.items[stamp]
+	signals := ms.Items[stamp]
 	if signals == nil {
 		return m
 	}
 
-	for _, s := range signals.Items() {
+	// improve performance
+	mm := make(map[*Host]struct{}, len(hosts))
+	for _, h := range hosts {
+		mm[h] = struct{}{}
+	}
+
+	for _, s := range signals.GetItems() {
 
 		as, ok := s.(*ApplicationSignal)
 		if !ok {
 			continue
 		}
-		a := as.application
+		a := as.Application
 		if a == nil {
 			continue
 		}
-		if len(hosts) == 0 || utils.Contains(hosts, as.host) {
+		_, exists := mm[as.Host]
+		if len(hosts) == 0 || exists {
 			if !utils.Contains(m, a) {
 				m = append(m, a)
 			}
@@ -1607,23 +1661,29 @@ func (ms *Measurements) Hosts(stamp Stamp, apps []*Application) []*Host {
 	defer ms.mu.Unlock()
 
 	m := []*Host{}
-	signals := ms.items[stamp]
+	signals := ms.Items[stamp]
 	if signals == nil {
 		return m
 	}
 
+	// improve performance
+	ma := make(map[*Application]struct{}, len(apps))
+	for _, a := range apps {
+		ma[a] = struct{}{}
+	}
+
 	if len(apps) > 0 {
-		for _, s := range signals.Items() {
+		for _, s := range signals.GetItems() {
 
 			as, ok := s.(*ApplicationSignal)
 			if !ok {
 				continue
 			}
-			h := as.host
+			h := as.Host
 			if h == nil {
 				continue
 			}
-			if utils.Contains(apps, as.application) {
+			if _, exists := ma[as.Application]; exists {
 				if !utils.Contains(m, h) {
 					m = append(m, h)
 				}
@@ -1632,7 +1692,7 @@ func (ms *Measurements) Hosts(stamp Stamp, apps []*Application) []*Host {
 		return m
 	}
 
-	for _, s := range signals.Items() {
+	for _, s := range signals.GetItems() {
 
 		hs, ok1 := s.(*HostSignal)
 		if ok1 {
@@ -1648,7 +1708,7 @@ func (ms *Measurements) Hosts(stamp Stamp, apps []*Application) []*Host {
 
 		as, ok2 := s.(*ApplicationSignal)
 		if ok2 {
-			h := as.host
+			h := as.Host
 			if h == nil {
 				continue
 			}
@@ -1664,10 +1724,18 @@ func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []*Application, 
 
 	m := NewDependencies()
 
+	// initialize parent dependencies
+	for _, a := range parents {
+		m.items[a] = nil
+		if !utils.Contains(exclude, a) {
+			exclude = append(exclude, a)
+		}
+	}
+
 	arr := ms.unsafeApplicationSignals(stamp, parents)
 	for _, as := range arr {
 
-		a := as.application
+		a := as.Application
 		if a == nil {
 			continue
 		}
@@ -1677,17 +1745,16 @@ func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []*Application, 
 		backends := as.Backends(stamp)
 		if len(backends) > 0 {
 
-			newBackends := []*Application{}
+			newbacks := []*Application{}
 			for _, b := range backends {
 				if utils.Contains(exclude, b) {
 					continue
 				}
-				exclude = append(exclude, b)
-				newBackends = append(newBackends, b)
+				newbacks = append(newbacks, b)
 			}
 
-			if len(newBackends) > 0 {
-				new = ms.unsafeDependencies(stamp, newBackends, exclude)
+			if len(newbacks) > 0 {
+				new = ms.unsafeDependencies(stamp, newbacks, exclude)
 			}
 		}
 
@@ -1717,8 +1784,7 @@ func (ms *Measurements) Dependencies(stamp Stamp, parents []*Application) *Depen
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	exclude := slices.Clone(parents)
-
+	exclude := []*Application{}
 	return ms.unsafeDependencies(stamp, parents, exclude)
 }
 
@@ -1742,6 +1808,6 @@ func NewMeasurements(hosts *Hosts, applications *Applications) *Measurements {
 		last:         0,
 		hosts:        hosts,
 		applications: applications,
-		items:        make(map[Stamp]*Signals),
+		Items:        make(map[Stamp]*Signals),
 	}
 }

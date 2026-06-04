@@ -60,13 +60,23 @@ func MergeMaps[M1 map[K]V, K comparable, V any](mm ...M1) M1 {
 
 func MapToString(m map[string]string) string {
 
-	var builder strings.Builder
+	// 1. Return early if the map is empty to save time
+	if len(m) == 0 {
+		return ""
+	}
 
-	keys := []string{}
+	// 2. Pre-allocate slice capacity to avoid re-allocations during append
+	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
 	}
+
+	// 3. Sort the keys
 	sort.Strings(keys)
+
+	// 4. Pre-size the builder's buffer if you want to go ultra-optimized.
+	// (Optional, but helps if the strings are exceptionally large)
+	var builder strings.Builder
 
 	for _, k := range keys {
 		builder.WriteString(k)
@@ -92,12 +102,37 @@ func MapMD5(m map[string]string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func MapFNV(m map[string]string) uint64 {
+func Map2Hash64(m map[string]string) uint64 {
 
 	s := MapToString(m)
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	return h.Sum64()
+}
+
+func Map2Hash32(m map[string]string) uint32 {
+
+	// 1. Return early if the map is empty to save time
+	if len(m) == 0 {
+		return 0
+	}
+
+	// 2. Pre-allocate slice capacity to avoid re-allocations during append
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	h := fnv.New32a()
+
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte("="))
+		h.Write([]byte(m[k]))
+		h.Write([]byte(";"))
+	}
+
+	return h.Sum32()
 }
 
 func ApplicationsCompact(apps []*Application) []*Application {

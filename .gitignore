@@ -24,3 +24,5 @@ docs/
 .junie/
 .idea/
 .readme
+cpu.pprof
+v1.data

@@ -1,9 +1,12 @@
 package model
 
 import (
-	"encoding/json"
+	"bufio"
+	"compress/gzip"
+	"encoding/gob"
 	"fmt"
 	"maps"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,15 +17,19 @@ import (
 	toolsVendors "github.com/devopsext/tools/vendors"
 	"github.com/devopsext/utils"
 	"github.com/jinzhu/copier"
+
+	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/sync/errgroup"
 )
 
-type V1ModelDataValue struct {
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+type V1ModelSeriesValue struct {
 	Hash  common.Hash
 	Value float64
 }
 
-type V1ModelData = map[common.Stamp][]V1ModelDataValue
+type V1ModelSeries = map[common.Stamp][]V1ModelSeriesValue
 
 type V1ModelOptions struct {
 	File string
@@ -54,6 +61,39 @@ type V1Model struct {
 	observability *common.Observability
 	logger        sreCommon.Logger
 }
+
+type V1ModelData struct {
+	Hashes       *common.Hashes
+	Hosts        *common.Hosts
+	Applications *common.Applications
+	Measurements *common.Measurements
+}
+
+type V1ModelFileHeader struct {
+	Model   string
+	Version uint32
+}
+
+type V1ModelFileHashes struct {
+	Items map[common.Hash]common.Labels
+}
+
+type V1ModelFileHosts struct {
+	Items map[common.Stamp]map[string]*common.Host
+}
+
+type V1ModelFileApplications struct {
+	Items map[common.Stamp]map[string]*common.Application
+}
+
+type V1ModelFileMeasurements struct {
+	Items map[common.Stamp]*common.Signals
+}
+
+const (
+	V1ModelFileVersion0 = iota
+	V1ModelFileVersion1
+)
 
 func (m *V1Model) Name() string {
 	return "V1Model"
@@ -278,7 +318,7 @@ func (m *V1Model) gatherHostsByQuery(hashes *common.Hashes, query string, from, 
 	return hosts, nil
 }
 
-func (m *V1Model) gatherHostsBySpan(hashes *common.Hashes, query string, from, to time.Time, span time.Duration) (*common.Hosts, error) {
+func (m *V1Model) gatherHostsBySpan(hashes *common.Hashes, hosts *common.Hosts, query string, from, to time.Time, span time.Duration) error {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -297,21 +337,19 @@ func (m *V1Model) gatherHostsBySpan(hashes *common.Hashes, query string, from, t
 
 		gr.Go(func() error {
 
-			hosts, err := m.gatherHostsByQuery(hashes, query, t1, t2)
+			hsts, err := m.gatherHostsByQuery(hashes, query, t1, t2)
 			if err != nil {
 				return err
 			}
-			mp.Store(t1, hosts)
+			mp.Store(t1, hsts)
 			return nil
 		})
 	}
 
 	err := gr.Wait()
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	hosts := &common.Hosts{}
 
 	for t1 := range tt {
 
@@ -324,7 +362,7 @@ func (m *V1Model) gatherHostsBySpan(hashes *common.Hashes, query string, from, t
 			hosts.Merge(d)
 		}
 	}
-	return hosts, nil
+	return nil
 }
 
 func (m *V1Model) loadApplications(hashes *common.Hashes, q string, from, to time.Time) (*common.Applications, error) {
@@ -386,7 +424,7 @@ func (m *V1Model) gatherApplicationsByQuery(hashes *common.Hashes, query string,
 	return apps, nil
 }
 
-func (m *V1Model) gatherApplicationsBySpan(hashes *common.Hashes, query string, from, to time.Time, span time.Duration) (*common.Applications, error) {
+func (m *V1Model) gatherApplicationsBySpan(hashes *common.Hashes, applications *common.Applications, query string, from, to time.Time, span time.Duration) error {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -416,10 +454,8 @@ func (m *V1Model) gatherApplicationsBySpan(hashes *common.Hashes, query string, 
 
 	err := gr.Wait()
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	apps := &common.Applications{}
 
 	for t1 := range tt {
 
@@ -429,20 +465,20 @@ func (m *V1Model) gatherApplicationsBySpan(hashes *common.Hashes, query string, 
 			if !ok {
 				continue
 			}
-			apps.Merge(d)
+			applications.Merge(d)
 		}
 	}
-	return apps, nil
+	return nil
 }
 
-func (m *V1Model) loadModelData(hashes *common.Hashes, q string, from, to time.Time) (V1ModelData, error) {
+func (m *V1Model) loadModelData(hashes *common.Hashes, q string, from, to time.Time) (V1ModelSeries, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	modelData := V1ModelData{}
+	modelData := V1ModelSeries{}
 	if promData == nil {
 		return modelData, nil
 	}
@@ -456,7 +492,7 @@ func (m *V1Model) loadModelData(hashes *common.Hashes, q string, from, to time.T
 				continue
 			}
 
-			v := V1ModelDataValue{
+			v := V1ModelSeriesValue{
 				Hash:  hashes.AddOrUpdate(dr.Labels),
 				Value: value,
 			}
@@ -466,7 +502,7 @@ func (m *V1Model) loadModelData(hashes *common.Hashes, q string, from, to time.T
 	return modelData, nil
 }
 
-func (m *V1Model) gatherSignals(hashes *common.Hashes, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]V1ModelData, error) {
+func (m *V1Model) gatherSignals(hashes *common.Hashes, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]V1ModelSeries, error) {
 
 	gr := &errgroup.Group{}
 	mp := &sync.Map{}
@@ -491,13 +527,13 @@ func (m *V1Model) gatherSignals(hashes *common.Hashes, queries map[common.Signal
 		return nil, err
 	}
 
-	r := make(map[common.SignalKind]V1ModelData)
+	r := make(map[common.SignalKind]V1ModelSeries)
 
 	for k := range queries {
 
 		v, ok := mp.Load(k)
 		if ok {
-			d, ok := v.(V1ModelData)
+			d, ok := v.(V1ModelSeries)
 			if ok {
 				r[k] = d
 			}
@@ -528,11 +564,11 @@ func (m *V1Model) prepareQueries(queries map[common.SignalKind]string, labels ma
 	return r
 }
 
-func (m *V1Model) gatherSignalsByQueries(hashes *common.Hashes, name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]V1ModelData, error) {
+func (m *V1Model) gatherSignalsByQueries(hashes *common.Hashes, name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]V1ModelSeries, error) {
 
 	when := time.Now()
 
-	signals := []map[common.SignalKind]V1ModelData{}
+	signals := []map[common.SignalKind]V1ModelSeries{}
 
 	m.debug("Signals gathering %s (%s / %s)...", name, from, to)
 
@@ -580,7 +616,7 @@ func (m *V1Model) gatherSignalsByQueries(hashes *common.Hashes, name string, que
 
 			v, ok := mp.Load(k)
 			if ok {
-				r, ok := v.(map[common.SignalKind]V1ModelData)
+				r, ok := v.(map[common.SignalKind]V1ModelSeries)
 				if ok {
 					signals = append(signals, r)
 				}
@@ -614,9 +650,9 @@ func (m *V1Model) gatherSignalsByQueries(hashes *common.Hashes, name string, que
 	return signals, nil
 }
 
-func (m *V1Model) reduceSignals(arr []map[common.SignalKind]V1ModelData) map[common.SignalKind]V1ModelData {
+func (m *V1Model) reduceSignals(arr []map[common.SignalKind]V1ModelSeries) map[common.SignalKind]V1ModelSeries {
 
-	r := make(map[common.SignalKind]V1ModelData)
+	r := make(map[common.SignalKind]V1ModelSeries)
 
 	for _, v := range arr {
 
@@ -646,7 +682,7 @@ func (m *V1Model) reduceSignals(arr []map[common.SignalKind]V1ModelData) map[com
 
 func (m *V1Model) gatherSignalsBySpan(name string, hashes *common.Hashes,
 	queries map[common.SignalKind]string, labels map[string]string,
-	from, to time.Time, span time.Duration) (map[common.SignalKind]V1ModelData, error) {
+	from, to time.Time, span time.Duration) (map[common.SignalKind]V1ModelSeries, error) {
 
 	qs := make(map[common.SignalKind]string)
 	for i, v := range queries {
@@ -692,13 +728,13 @@ func (m *V1Model) gatherSignalsBySpan(name string, hashes *common.Hashes,
 		return nil, err
 	}
 
-	dd := []map[common.SignalKind]V1ModelData{}
+	dd := []map[common.SignalKind]V1ModelSeries{}
 
 	for t1 := range tt {
 
 		v, ok := mp.Load(t1)
 		if ok {
-			d, ok := v.(map[common.SignalKind]V1ModelData)
+			d, ok := v.(map[common.SignalKind]V1ModelSeries)
 			if !ok {
 				continue
 			}
@@ -751,10 +787,10 @@ func (m *V1Model) getApplicationHost(
 	if app == nil || host == nil {
 		signal := measurements.FindApplicationSignalWithTolerance(stamp, appHost, m.options.AppSignalTolerance)
 		if app == nil && signal != nil {
-			app = signal.Application()
+			app = signal.Application
 		}
 		if host == nil && signal != nil {
-			host = signal.Host()
+			host = signal.Host
 		}
 	}
 
@@ -780,7 +816,7 @@ func (m *V1Model) getApplicationHost(
 type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *V1Model) applicationSignalsOverData(
-	data map[common.SignalKind]V1ModelData,
+	data map[common.SignalKind]V1ModelSeries,
 	measurements *common.Measurements,
 	hashes *common.Hashes,
 	hosts *common.Hosts, applications *common.Applications,
@@ -847,7 +883,7 @@ func (m *V1Model) getHost(
 type hostSignalsOverDataCallback = func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *V1Model) hostSignalsOverData(
-	data map[common.SignalKind]V1ModelData,
+	data map[common.SignalKind]V1ModelSeries,
 	measurements *common.Measurements,
 	hashes *common.Hashes,
 	hosts *common.Hosts,
@@ -879,7 +915,7 @@ func (m *V1Model) hostSignalsOverData(
 	}
 }
 
-func (m *V1Model) train() error {
+func (m *V1Model) train(data *V1ModelData) error {
 
 	// 0. gather application and host infos +++
 	// 1. gather incoming traffic, errors, latency per application +++
@@ -889,12 +925,9 @@ func (m *V1Model) train() error {
 	// 5. add application signals (set application and host) based on outgoings & saturation +++
 	// 6. add saturation to host signals +++
 	// 7. add frontends & backends to application signals +++
-	// 8. add helper function to find application hosts ---
-	// 9. add helper function to find host applications ---
-	// x. find outgoing dependecies ?
 
 	if utils.IsEmpty(m.options.Prometheus.From) {
-		return fmt.Errorf("Prometheus from time is not defined")
+		return fmt.Errorf("Cannot train due to from time is not defined")
 	}
 
 	from := m.string2Time(m.options.Prometheus.From)
@@ -912,18 +945,16 @@ func (m *V1Model) train() error {
 		}
 	}
 
-	hashes := common.NewHashes()
-
 	m.info("Gathering hosts (%s / %s, span: %s)...", from, to, span)
 
-	hosts, err := m.gatherHostsBySpan(hashes, m.options.HostQuery, from, to, span)
+	err := m.gatherHostsBySpan(data.Hashes, data.Hosts, m.options.HostQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	m.info("Gathering applications (%s / %s, span: %s)...", from, to, span)
 
-	applications, err := m.gatherApplicationsBySpan(hashes, m.options.AppQuery, from, to, span)
+	err = m.gatherApplicationsBySpan(data.Hashes, data.Applications, m.options.AppQuery, from, to, span)
 	if err != nil {
 		return err
 	}
@@ -937,15 +968,13 @@ func (m *V1Model) train() error {
 	queries[common.SignalErrors] = m.options.AppSignalInErrorsQuery
 	queries[common.SignalLatency] = m.options.AppSignalInLatencyQuery
 
-	data, err := m.gatherSignalsBySpan("apps incoming", hashes, queries, appLabels, from, to, span)
+	mData, err := m.gatherSignalsBySpan("apps incoming", data.Hashes, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	measurements := common.NewMeasurements(hosts, applications)
-
 	// fill up app incomings
-	m.applicationSignalsOverData(data, measurements, hashes, hosts, applications,
+	m.applicationSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts, data.Applications,
 		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
@@ -964,13 +993,13 @@ func (m *V1Model) train() error {
 	queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
 	queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
 
-	data, err = m.gatherSignalsBySpan("apps outgoing & saturation", hashes, queries, appLabels, from, to, span)
+	mData, err = m.gatherSignalsBySpan("apps outgoing & saturation", data.Hashes, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	// fill up app outgoings and saturations
-	m.applicationSignalsOverData(data, measurements, hashes, hosts, applications,
+	m.applicationSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts, data.Applications,
 		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
@@ -990,13 +1019,13 @@ func (m *V1Model) train() error {
 	queries = make(map[common.SignalKind]string)
 	queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
 
-	data, err = m.gatherSignalsBySpan("hosts", hashes, queries, hostLabels, from, to, span)
+	mData, err = m.gatherSignalsBySpan("hosts", data.Hashes, queries, hostLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	// fill up host saturations
-	m.hostSignalsOverData(data, measurements, hashes, hosts,
+	m.hostSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts,
 		func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
@@ -1005,79 +1034,237 @@ func (m *V1Model) train() error {
 			}
 		})
 
-	last := measurements.LastStamp()
-
-	// all last application signals
-	appSignals := measurements.ApplicationSignalsByNames(last, nil)
-	if !utils.IsEmpty(appSignals) {
-
-		for _, as := range appSignals {
-
-			n := as.Name()
-			// show frontends
-			frontedns := as.Frontends(last)
-			for _, f := range frontedns {
-				m.debug("Frontend %s => %s", f.Name(), n)
-			}
-
-			// show backends
-			backends := as.Backends(last)
-			for _, b := range backends {
-				m.debug("Backend %s => %s", n, b.Name())
-			}
-		}
-	}
+	//last := measurements.LastStamp()
 
 	/*
-		// all last host signals
-		hostSignals := measurements.HostSignals(last, nil)
-		if !utils.IsEmpty(hostSignals) {
+		// all last application signals
+		appSignals := measurements.ApplicationSignalsByNames(last, nil)
+		if !utils.IsEmpty(appSignals) {
 
-			for _, hs := range hostSignals {
-				m.debug(hs.Name())
+			for _, as := range appSignals {
+
+				n := as.Name()
+				// show frontends
+				frontedns := as.Frontends(last)
+				for _, f := range frontedns {
+					m.debug("Frontend %s => %s", f.Name(), n)
+				}
+
+				// show backends
+				backends := as.Backends(last)
+				for _, b := range backends {
+					m.debug("Backend %s => %s", n, b.Name())
+				}
 			}
 		}
-
-		// all last applications
-		apps := measurements.Applications(last, nil)
-		if !utils.IsEmpty(apps) {
-
-			for _, a := range apps {
-				m.debug("Application %s", a.Name())
-			}
-		}
-
-		// all last hosts
-		hsts := measurements.Hosts(last, nil)
-		if !utils.IsEmpty(hsts) {
-
-			for _, h := range hsts {
-				m.debug("Host %s", h.Name())
-			}
-		}
-
 	*/
 
-	deps := measurements.DependenciesByNames(last, []string{"asdasd"})
-	if !utils.IsEmpty(deps) {
+	/*
+			// all last host signals
+			hostSignals := measurements.HostSignals(last, nil)
+			if !utils.IsEmpty(hostSignals) {
 
-		for a, arr := range deps.Items() {
-			m.debugDependecies(a.Name(), "", arr)
+				for _, hs := range hostSignals {
+					m.debug(hs.Name())
+				}
+			}
+
+			// all last applications
+			apps := measurements.Applications(last, nil)
+			if !utils.IsEmpty(apps) {
+
+				for _, a := range apps {
+					m.debug("Application %s", a.Name())
+				}
+			}
+
+			// all last hosts
+			hsts := measurements.Hosts(last, nil)
+			if !utils.IsEmpty(hsts) {
+
+				for _, h := range hsts {
+					m.debug("Host %s", h.Name())
+				}
+			}
+
+
+
+		deps := measurements.DependenciesByNames(last, []string{"other"})
+		if !utils.IsEmpty(deps) {
+
+			for a, arr := range deps.Items() {
+				hosts := m.hostNames(measurements, last, a)
+				m.debugDependecies(measurements, last, a.Name(), "", arr, hosts)
+			}
+		}*/
+
+	return nil
+}
+
+func (m *V1Model) hostNames(measurements *common.Measurements, stamp common.Stamp, app *common.Application) []string {
+
+	hosts := measurements.Hosts(stamp, []*common.Application{app})
+
+	arr := []string{}
+	for _, h := range hosts {
+		hName := h.Name()
+		if !utils.Contains(arr, hName) {
+			arr = append(arr, hName)
 		}
+	}
+	if len(arr) > 0 {
+		return arr
+	}
+
+	return []string{}
+}
+
+func (m *V1Model) debugDependecies(measurements *common.Measurements, stamp common.Stamp, name, parent string, deps *common.Dependencies, hosts []string) {
+
+	if deps == nil {
+		m.debug("Dependency graph %s => %s (%s)", name, parent, strings.Join(hosts, ","))
+		return
+	}
+	for a, arr := range deps.Items() {
+
+		aName := a.Name()
+		if parent != "" {
+			aName = fmt.Sprintf("%s/%s", parent, aName)
+		}
+		hosts := m.hostNames(measurements, stamp, a)
+		m.debugDependecies(measurements, stamp, name, aName, arr, hosts)
+	}
+}
+
+func (m *V1Model) LoadFromFile(path string, data *V1ModelData) error {
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+
+	gr, err := gzip.NewReader(br)
+	if err != nil {
+		return err
+	}
+	defer gr.Close()
+
+	decoder := gob.NewDecoder(gr)
+
+	// read header
+	header := V1ModelFileHeader{}
+	err = decoder.Decode(&header)
+	if err != nil {
+		return err
+	}
+
+	if header.Model != m.Name() {
+		return fmt.Errorf("Load from file doesn't support model %s", header.Model)
+	}
+
+	switch header.Version {
+	case V1ModelFileVersion1:
+
+		// read hashes
+		hashes := V1ModelFileHashes{}
+		err = decoder.Decode(&hashes)
+		if err != nil {
+			return err
+		}
+		data.Hashes.SetItems(hashes.Items)
+
+		// read hosts
+		hosts := V1ModelFileHosts{}
+		err = decoder.Decode(&hosts)
+		if err != nil {
+			return err
+		}
+		data.Hosts.SetItems(hosts.Items)
+
+		// read applications
+		apps := V1ModelFileApplications{}
+		err = decoder.Decode(&apps)
+		if err != nil {
+			return err
+		}
+		data.Applications.SetItems(apps.Items)
+
+		// read measurements
+		measurements := V1ModelFileMeasurements{}
+		err = decoder.Decode(&measurements)
+		if err != nil {
+			return err
+		}
+		data.Measurements.SetItems(measurements.Items)
+
+	default:
+		return fmt.Errorf("Load from file doesn't support version %d", header.Version)
 	}
 
 	return nil
 }
 
-func (m *V1Model) debugDependecies(name, parent string, deps *common.Dependencies) {
+func (m *V1Model) SaveToFile(path string, data *V1ModelData) error {
 
-	for a, arr := range deps.Items() {
-		if arr == nil {
-			m.debug("Dependency %s => %s", name, parent)
-		} else {
-			m.debugDependecies(name, fmt.Sprintf("%s/%s", parent, a.Name()), arr)
-		}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
 	}
+	defer f.Close()
+
+	bw := bufio.NewWriter(f)
+	defer bw.Flush()
+
+	gw := gzip.NewWriter(bw)
+	defer gw.Close()
+
+	encoder := gob.NewEncoder(gw)
+
+	// write header
+	err = encoder.Encode(V1ModelFileHeader{
+		Model:   m.Name(),
+		Version: V1ModelFileVersion1,
+	})
+	if err != nil {
+		return err
+	}
+
+	// write hashes
+	err = encoder.Encode(V1ModelFileHashes{
+		Items: data.Hashes.GetItems(),
+	})
+	if err != nil {
+		return err
+	}
+
+	// write hosts
+	err = encoder.Encode(V1ModelFileHosts{
+		Items: data.Hosts.GetItems(),
+	})
+	if err != nil {
+		return err
+	}
+
+	// write applications
+	err = encoder.Encode(V1ModelFileApplications{
+		Items: data.Applications.GetItems(),
+	})
+	if err != nil {
+		return err
+	}
+
+	// write measurements
+	err = encoder.Encode(V1ModelFileMeasurements{
+		Items: data.Measurements.GetItems(),
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (m *V1Model) Train(wg *sync.WaitGroup) {
@@ -1087,17 +1274,50 @@ func (m *V1Model) Train(wg *sync.WaitGroup) {
 
 		defer swg.Done()
 
-		m.debug("Training...")
+		m.info("Training...")
+
+		hosts := common.NewHosts()
+		apps := common.NewApplications()
+
+		data := &V1ModelData{
+			Hashes:       common.NewHashes(),
+			Hosts:        hosts,
+			Applications: apps,
+			Measurements: common.NewMeasurements(hosts, apps),
+		}
+
+		// load from file if there is file
+		if utils.FileExists(m.options.File) {
+			m.info("Loading from file %s...", m.options.File)
+			when := time.Now()
+			err := m.LoadFromFile(m.options.File, data)
+			if err != nil {
+				m.error("Loading from file has error: %s", err)
+			} else {
+				m.info("Loading from file finished in %s", time.Since(when))
+			}
+		}
 
 		when := time.Now()
-
-		err := m.train()
+		err := m.train(data)
 		if err != nil {
 			m.error("Training finished with error: %s", err)
 			return
 		}
+		m.info("Training finished in %s", time.Since(when))
 
-		m.debug("Training successfully finished in %s", time.Since(when))
+		// save to file if it's needed
+		if !utils.IsEmpty(m.options.File) {
+			m.info("Saving to file %s...", m.options.File)
+			when := time.Now()
+			err := m.SaveToFile(m.options.File, data)
+			if err != nil {
+				m.error("Saving to file has error: %s", err)
+			} else {
+				m.info("Saving to file finished in %s", time.Since(when))
+			}
+		}
+
 	}(wg)
 }
 
@@ -1108,4 +1328,9 @@ func NewV1Model(options V1ModelOptions, observability *common.Observability) *V1
 		observability: observability,
 		logger:        observability.Logs(),
 	}
+}
+
+func init() {
+	//gob.Register(common.ApplicationSignal{})
+	gob.RegisterName("common.Signal", &common.ApplicationSignal{})
 }
