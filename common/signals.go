@@ -39,8 +39,9 @@ type Host struct {
 }
 
 type Hosts struct {
-	mu    sync.Mutex
-	Items map[Stamp]map[string]*Host
+	mu     sync.Mutex
+	hashes *Hashes
+	Items  map[Stamp]map[string]*Host
 }
 
 const (
@@ -53,8 +54,9 @@ type Application struct {
 }
 
 type Applications struct {
-	mu    sync.Mutex
-	Items map[Stamp]map[string]*Application
+	mu     sync.Mutex
+	hashes *Hashes
+	Items  map[Stamp]map[string]*Application
 }
 
 type Traffic = float64
@@ -172,7 +174,7 @@ const (
 )
 
 type ApplicationSignal struct {
-	measurement *Measurements
+	//measurement *Measurements
 
 	Application *Application
 	Host        *Host
@@ -834,6 +836,16 @@ func (hs *Hosts) SetItems(items map[Stamp]map[string]*Host) {
 	defer hs.mu.Unlock()
 
 	hs.Items = items
+
+	// set hanshes for each
+	for _, s := range hs.Items {
+		for _, h := range s {
+			h.hashes = hs.hashes
+			if h.On != nil {
+				h.On.hashes = hs.hashes
+			}
+		}
+	}
 }
 
 func (hs *Hosts) AddOrUpdate(stamp Stamp, h *Host) {
@@ -956,10 +968,11 @@ func (hs *Hosts) Merge(hosts *Hosts) {
 	}
 }
 
-func NewHosts() *Hosts {
+func NewHosts(hashes *Hashes) *Hosts {
 
 	return &Hosts{
-		Items: make(map[Stamp]map[string]*Host),
+		hashes: hashes,
+		Items:  make(map[Stamp]map[string]*Host),
 	}
 }
 
@@ -1034,6 +1047,13 @@ func (as *Applications) SetItems(items map[Stamp]map[string]*Application) {
 	defer as.mu.Unlock()
 
 	as.Items = items
+
+	// set hanshes for each
+	for _, s := range as.Items {
+		for _, a := range s {
+			a.hashes = as.hashes
+		}
+	}
 }
 
 func (as *Applications) AddOrUpdate(stamp Stamp, a *Application) {
@@ -1153,10 +1173,11 @@ func (as *Applications) Merge(apps *Applications) {
 	}
 }
 
-func NewApplications() *Applications {
+func NewApplications(hashes *Hashes) *Applications {
 
 	return &Applications{
-		Items: make(map[Stamp]map[string]*Application),
+		hashes: hashes,
+		Items:  make(map[Stamp]map[string]*Application),
 	}
 }
 

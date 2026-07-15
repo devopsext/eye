@@ -9,41 +9,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var v1ModelOptions = model.V1ModelOptions{
-	File: envGet("V1_MODEL_FILE", "").(string),
+var alphaModelOptions = model.AlphaModelOptions{
+	File: envGet("ALPHA_MODEL_FILE", "").(string),
 
-	AppQuery:     envFileContentExpand("V1_MODEL_APP_QUERY", ""),
-	AppTolerance: envGet("V1_MODEL_APP_TOLERANCE", 0).(int),
+	AppQuery:     envFileContentExpand("ALPHA_MODEL_APP_QUERY", ""),
+	AppTolerance: envGet("ALPHA_MODEL_APP_TOLERANCE", 0).(int),
 
-	AppSignalCommonLabels:    envStringExpand("V1_MODEL_APP_SIGNAL_COMMON_LABELS", ""),
-	AppSignalInTrafficQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
-	AppSignalInErrorsQuery:   envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_ERRORS_QUERY", ""),
-	AppSignalInLatencyQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_IN_LATENCY_QUERY", ""),
-	AppSignalOutTrafficQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_TRAFFIC_QUERY", ""),
-	AppSignalOutErrorsQuery:  envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
-	AppSignalOutLatencyQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
-	AppSignalSaturationQuery: envFileContentExpand("V1_MODEL_APP_SIGNAL_SATURATION_QUERY", ""),
-	AppSignalTolerance:       envGet("V1_MODEL_APP_SIGNAL_TOLERANCE", 0).(int),
+	AppSignalCommonLabels:    envStringExpand("ALPHA_MODEL_APP_SIGNAL_COMMON_LABELS", ""),
+	AppSignalInTrafficQuery:  envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
+	AppSignalInErrorsQuery:   envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_IN_ERRORS_QUERY", ""),
+	AppSignalInLatencyQuery:  envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_IN_LATENCY_QUERY", ""),
+	AppSignalOutTrafficQuery: envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_OUT_TRAFFIC_QUERY", ""),
+	AppSignalOutErrorsQuery:  envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
+	AppSignalOutLatencyQuery: envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
+	AppSignalSaturationQuery: envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_SATURATION_QUERY", ""),
+	AppSignalTolerance:       envGet("ALPHA_MODEL_APP_SIGNAL_TOLERANCE", 0).(int),
 
-	HostQuery:                 envFileContentExpand("V1_MODEL_HOST_QUERY", ""),
-	HostTolerance:             envGet("V1_MODEL_HOST_TOLERANCE", 0).(int),
-	HostSignalCommonLabels:    envStringExpand("V1_MODEL_HOST_SIGNAL_COMMON_LABELS", ""),
-	HostSignalSaturationQuery: envFileContentExpand("V1_MODEL_HOST_SIGNAL_SATURATION_QUERY", ""),
-	HostSignalTolerance:       envGet("V1_MODEL_HOST_SIGNAL_TOLERANCE", 0).(int),
+	HostQuery:                 envFileContentExpand("ALPHA_MODEL_HOST_QUERY", ""),
+	HostTolerance:             envGet("ALPHA_MODEL_HOST_TOLERANCE", 0).(int),
+	HostSignalCommonLabels:    envStringExpand("ALPHA_MODEL_HOST_SIGNAL_COMMON_LABELS", ""),
+	HostSignalSaturationQuery: envFileContentExpand("ALPHA_MODEL_HOST_SIGNAL_SATURATION_QUERY", ""),
+	HostSignalTolerance:       envGet("ALPHA_MODEL_HOST_SIGNAL_TOLERANCE", 0).(int),
 
 	Prometheus: toolsVendors.PrometheusOptions{
-		URL:      envStringExpand("V1_MODEL_PROMETHEUS_URL", ""),
-		User:     envStringExpand("V1_MODEL_PROMETHEUS_USER", ""),
-		Password: envStringExpand("V1_MODEL_PROMETHEUS_PASSWORD", ""),
-		Timeout:  envGet("V1_MODEL_PROMETHEUS_TIMEOUT", 30).(int),
-		Insecure: envGet("V1_MODEL_PROMETHEUS_INSECURE", false).(bool),
-		From:     envGet("V1_MODEL_PROMETHEUS_FROM", "-1h").(string),
-		To:       envGet("V1_MODEL_PROMETHEUS_TO", "").(string),
-		Step:     envGet("V1_MODEL_PROMETHEUS_STEP", "60s").(string),
-		Params:   envGet("V1_MODEL_PROMETHEUS_PARAMS", "").(string),
+		URL:      envStringExpand("ALPHA_MODEL_PROMETHEUS_URL", ""),
+		User:     envStringExpand("ALPHA_MODEL_PROMETHEUS_USER", ""),
+		Password: envStringExpand("ALPHA_MODEL_PROMETHEUS_PASSWORD", ""),
+		Timeout:  envGet("ALPHA_MODEL_PROMETHEUS_TIMEOUT", 30).(int),
+		Insecure: envGet("ALPHA_MODEL_PROMETHEUS_INSECURE", false).(bool),
+		From:     envGet("ALPHA_MODEL_PROMETHEUS_FROM", "-1h").(string),
+		To:       envGet("ALPHA_MODEL_PROMETHEUS_TO", "").(string),
+		Step:     envGet("ALPHA_MODEL_PROMETHEUS_STEP", "60s").(string),
+		Params:   envGet("ALPHA_MODEL_PROMETHEUS_PARAMS", "").(string),
 	},
 
-	Span: envGet("V1_MODEL_PROMETHEUS_SPAN", "").(string),
+	Span: envGet("ALPHA_MODEL_PROMETHEUS_SPAN", "").(string),
 }
 
 func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
@@ -55,56 +55,56 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 
 	trainV1ModelCmd := cobra.Command{
 		Use:   "v1",
-		Short: "Train V1 model",
+		Short: "Train Alpha model",
 		Run: func(cmd *cobra.Command, args []string) {
 
 			obs := common.NewObservability(logs, metrics)
 			logger := obs.Logs()
 
-			logger.Info("Begin training V1 model...")
+			logger.Info("Begin training Alpha model...")
 
-			v1 := model.NewV1Model(v1ModelOptions, obs)
+			v1 := model.NewAlphaModel(alphaModelOptions, obs)
 			v1.Train(wg)
 
 			wg.Wait()
 
-			logger.Info("End training V1 model")
+			logger.Info("End training Alpha model")
 		},
 	}
 
 	flags := trainV1ModelCmd.PersistentFlags()
-	flags.StringVar(&v1ModelOptions.File, "v1-model-file", v1ModelOptions.File, "V1 model file path")
+	flags.StringVar(&alphaModelOptions.File, "alpha-model-file", alphaModelOptions.File, "Alpha model file path")
 
-	flags.StringVar(&v1ModelOptions.AppQuery, "v1-model-app-query", v1ModelOptions.AppQuery, "V1 model prometheus app query")
-	flags.IntVar(&v1ModelOptions.AppTolerance, "v1-model-app-tolerance", v1ModelOptions.AppTolerance, "V1 model prometheus app tolerance")
+	flags.StringVar(&alphaModelOptions.AppQuery, "alpha-model-app-query", alphaModelOptions.AppQuery, "Alpha model prometheus app query")
+	flags.IntVar(&alphaModelOptions.AppTolerance, "alpha-model-app-tolerance", alphaModelOptions.AppTolerance, "Alpha model prometheus app tolerance")
 
-	flags.StringVar(&v1ModelOptions.AppSignalCommonLabels, "v1-model-app-signal-common-labels", v1ModelOptions.AppSignalCommonLabels, "V1 model prometheus app common labels")
-	flags.StringVar(&v1ModelOptions.AppSignalInTrafficQuery, "v1-model-app-signal-in-traffic-query", v1ModelOptions.AppSignalInTrafficQuery, "V1 model prometheus app incoming traffic query")
-	flags.StringVar(&v1ModelOptions.AppSignalInErrorsQuery, "v1-model-app-signal-in-errors-query", v1ModelOptions.AppSignalInErrorsQuery, "V1 model prometheus app incoming errors query")
-	flags.StringVar(&v1ModelOptions.AppSignalInLatencyQuery, "v1-model-app-signal-in-latency-query", v1ModelOptions.AppSignalInLatencyQuery, "V1 model prometheus app incoming latency query")
-	flags.StringVar(&v1ModelOptions.AppSignalOutTrafficQuery, "v1-model-app-signal-out-traffic-query", v1ModelOptions.AppSignalOutTrafficQuery, "V1 model prometheus app outgoing traffic query")
-	flags.StringVar(&v1ModelOptions.AppSignalOutErrorsQuery, "v1-model-app-signal-out-errors-query", v1ModelOptions.AppSignalOutErrorsQuery, "V1 model prometheus app outgoing errors query")
-	flags.StringVar(&v1ModelOptions.AppSignalOutLatencyQuery, "v1-model-app-signal-out-latency-query", v1ModelOptions.AppSignalOutLatencyQuery, "V1 model prometheus app outgoing latency query")
-	flags.StringVar(&v1ModelOptions.AppSignalSaturationQuery, "v1-model-app-signal-saturation-query", v1ModelOptions.AppSignalSaturationQuery, "V1 model prometheus app saturation query")
-	flags.IntVar(&v1ModelOptions.AppSignalTolerance, "v1-model-app-signal-tolerance", v1ModelOptions.AppSignalTolerance, "V1 model prometheus app signal tolerance")
+	flags.StringVar(&alphaModelOptions.AppSignalCommonLabels, "alpha-model-app-signal-common-labels", alphaModelOptions.AppSignalCommonLabels, "Alpha model prometheus app common labels")
+	flags.StringVar(&alphaModelOptions.AppSignalInTrafficQuery, "alpha-model-app-signal-in-traffic-query", alphaModelOptions.AppSignalInTrafficQuery, "Alpha model prometheus app incoming traffic query")
+	flags.StringVar(&alphaModelOptions.AppSignalInErrorsQuery, "alpha-model-app-signal-in-errors-query", alphaModelOptions.AppSignalInErrorsQuery, "Alpha model prometheus app incoming errors query")
+	flags.StringVar(&alphaModelOptions.AppSignalInLatencyQuery, "alpha-model-app-signal-in-latency-query", alphaModelOptions.AppSignalInLatencyQuery, "Alpha model prometheus app incoming latency query")
+	flags.StringVar(&alphaModelOptions.AppSignalOutTrafficQuery, "alpha-model-app-signal-out-traffic-query", alphaModelOptions.AppSignalOutTrafficQuery, "Alpha model prometheus app outgoing traffic query")
+	flags.StringVar(&alphaModelOptions.AppSignalOutErrorsQuery, "alpha-model-app-signal-out-errors-query", alphaModelOptions.AppSignalOutErrorsQuery, "Alpha model prometheus app outgoing errors query")
+	flags.StringVar(&alphaModelOptions.AppSignalOutLatencyQuery, "alpha-model-app-signal-out-latency-query", alphaModelOptions.AppSignalOutLatencyQuery, "Alpha model prometheus app outgoing latency query")
+	flags.StringVar(&alphaModelOptions.AppSignalSaturationQuery, "alpha-model-app-signal-saturation-query", alphaModelOptions.AppSignalSaturationQuery, "Alpha model prometheus app saturation query")
+	flags.IntVar(&alphaModelOptions.AppSignalTolerance, "alpha-model-app-signal-tolerance", alphaModelOptions.AppSignalTolerance, "Alpha model prometheus app signal tolerance")
 
-	flags.StringVar(&v1ModelOptions.HostQuery, "v1-model-host-query", v1ModelOptions.HostQuery, "V1 model prometheus host query")
-	flags.IntVar(&v1ModelOptions.HostTolerance, "v1-model-host-tolerance", v1ModelOptions.HostTolerance, "V1 model prometheus host tolerance")
-	flags.StringVar(&v1ModelOptions.HostSignalCommonLabels, "v1-model-host-signal-common-labels", v1ModelOptions.HostSignalCommonLabels, "V1 model prometheus host common labels")
-	flags.StringVar(&v1ModelOptions.HostSignalSaturationQuery, "v1-model-host-signal-saturation-query", v1ModelOptions.HostSignalSaturationQuery, "V1 model prometheus host saturation query")
-	flags.IntVar(&v1ModelOptions.HostSignalTolerance, "v1-model-host-signal-tolerance", v1ModelOptions.HostSignalTolerance, "V1 model prometheus host signal tolerance")
+	flags.StringVar(&alphaModelOptions.HostQuery, "alpha-model-host-query", alphaModelOptions.HostQuery, "Alpha model prometheus host query")
+	flags.IntVar(&alphaModelOptions.HostTolerance, "alpha-model-host-tolerance", alphaModelOptions.HostTolerance, "Alpha model prometheus host tolerance")
+	flags.StringVar(&alphaModelOptions.HostSignalCommonLabels, "alpha-model-host-signal-common-labels", alphaModelOptions.HostSignalCommonLabels, "Alpha model prometheus host common labels")
+	flags.StringVar(&alphaModelOptions.HostSignalSaturationQuery, "alpha-model-host-signal-saturation-query", alphaModelOptions.HostSignalSaturationQuery, "Alpha model prometheus host saturation query")
+	flags.IntVar(&alphaModelOptions.HostSignalTolerance, "alpha-model-host-signal-tolerance", alphaModelOptions.HostSignalTolerance, "Alpha model prometheus host signal tolerance")
 
-	flags.StringVar(&v1ModelOptions.Prometheus.URL, "v1-model-prometheus-url", v1ModelOptions.Prometheus.URL, "V1 model prometheus url")
-	flags.StringVar(&v1ModelOptions.Prometheus.User, "v1-model-prometheus-user", v1ModelOptions.Prometheus.User, "V1 model prometheus user")
-	flags.StringVar(&v1ModelOptions.Prometheus.Password, "v1-model-prometheus-password", v1ModelOptions.Prometheus.Password, "V1 model prometheus password")
-	flags.IntVar(&v1ModelOptions.Prometheus.Timeout, "v1-model-prometheus-timeout", v1ModelOptions.Prometheus.Timeout, "V1 model prometheus timeout")
-	flags.BoolVar(&v1ModelOptions.Prometheus.Insecure, "v1-model-prometheus-insecure", v1ModelOptions.Prometheus.Insecure, "V1 model prometheus insecure")
-	flags.StringVar(&v1ModelOptions.Prometheus.From, "v1-model-prometheus-from", v1ModelOptions.Prometheus.From, "V1 model prometheus from")
-	flags.StringVar(&v1ModelOptions.Prometheus.To, "v1-model-prometheus-to", v1ModelOptions.Prometheus.To, "V1 model prometheus to")
-	flags.StringVar(&v1ModelOptions.Prometheus.Step, "v1-model-prometheus-step", v1ModelOptions.Prometheus.Step, "V1 model prometheus step")
-	flags.StringVar(&v1ModelOptions.Prometheus.Params, "v1-model-prometheus-params", v1ModelOptions.Prometheus.Params, "V1 model prometheus params")
+	flags.StringVar(&alphaModelOptions.Prometheus.URL, "alpha-model-prometheus-url", alphaModelOptions.Prometheus.URL, "Alpha model prometheus url")
+	flags.StringVar(&alphaModelOptions.Prometheus.User, "alpha-model-prometheus-user", alphaModelOptions.Prometheus.User, "Alpha model prometheus user")
+	flags.StringVar(&alphaModelOptions.Prometheus.Password, "alpha-model-prometheus-password", alphaModelOptions.Prometheus.Password, "Alpha model prometheus password")
+	flags.IntVar(&alphaModelOptions.Prometheus.Timeout, "alpha-model-prometheus-timeout", alphaModelOptions.Prometheus.Timeout, "Alpha model prometheus timeout")
+	flags.BoolVar(&alphaModelOptions.Prometheus.Insecure, "alpha-model-prometheus-insecure", alphaModelOptions.Prometheus.Insecure, "Alpha model prometheus insecure")
+	flags.StringVar(&alphaModelOptions.Prometheus.From, "alpha-model-prometheus-from", alphaModelOptions.Prometheus.From, "Alpha model prometheus from")
+	flags.StringVar(&alphaModelOptions.Prometheus.To, "alpha-model-prometheus-to", alphaModelOptions.Prometheus.To, "Alpha model prometheus to")
+	flags.StringVar(&alphaModelOptions.Prometheus.Step, "alpha-model-prometheus-step", alphaModelOptions.Prometheus.Step, "Alpha model prometheus step")
+	flags.StringVar(&alphaModelOptions.Prometheus.Params, "alpha-model-prometheus-params", alphaModelOptions.Prometheus.Params, "Alpha model prometheus params")
 
-	flags.StringVar(&v1ModelOptions.Span, "v1-model-prometheus-span", v1ModelOptions.Span, "V1 model prometheus span")
+	flags.StringVar(&alphaModelOptions.Span, "alpha-model-prometheus-span", alphaModelOptions.Span, "Alpha model prometheus span")
 
 	trainCmd.AddCommand(&trainV1ModelCmd)
 
