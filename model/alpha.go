@@ -63,35 +63,38 @@ type AlphaModel struct {
 }
 
 type AlphaModelData struct {
-	Hashes       *common.Hashes
-	Hosts        *common.Hosts
-	Applications *common.Applications
-	Measurements *common.Measurements
+	names        *common.Names
+	attributes   *common.Attributes
+	hosts        *common.Hosts
+	applications *common.Applications
+	measurements *common.Measurements
 }
 
 type AlphaModelFileHeader struct {
 	Version uint16
 }
 
-type AlphaModelFileHash = common.Hash
-type AlphaModelFileLabels = common.Labels
-type AlphaModelFileStamp = common.Stamp
-type AlphaModelFileHost = common.Host
-
 type AlphaModelFileHashes struct {
-	Items map[AlphaModelFileHash]AlphaModelFileLabels
+	Items map[common.Hash]common.Labels
 }
 
 type AlphaModelFileHosts struct {
-	Items map[AlphaModelFileStamp]map[string]*AlphaModelFileHost
+	Items map[common.Stamp]map[string]*common.Host
 }
 
 type AlphaModelFileApplications struct {
-	Items map[AlphaModelFileStamp]map[string]*common.Application
+	Items map[common.Stamp]map[string]*common.Application
+}
+
+type AlphaModelFileSignal struct {
+	Application common.Hash
+	Host        common.Hash
 }
 
 type AlphaModelFileMeasurements struct {
-	Items map[AlphaModelFileStamp]*common.Signals
+	First common.Stamp
+	Last  common.Stamp
+	Items map[common.Stamp]map[string]*AlphaModelFileSignal
 }
 
 type AlphaModelFile struct {
@@ -116,60 +119,57 @@ func (mf *AlphaModelFile) IsSupported(version uint16) bool {
 	return false
 }
 
-/*
-func (m *AlphaModel) LoadFromFile(path string, data *AlphaModelData) error {
+func (mf *AlphaModelFile) makeMeasurementsItemsV1(measurements AlphaModelFileMeasurements) map[common.Stamp]*common.Signals {
+
+	/*for sp, mp := range measurements.Items {
 
 
+		mp
+	}*/
 
-			// read applications
-			apps := AlphaModelFileApplications{}
-			err = decoder.Decode(&apps)
-			if err != nil {
-				return err
-			}
-			data.Applications.SetItems(apps.Items)
-
-			// read measurements
-			measurements := AlphaModelFileMeasurements{}
-			err = decoder.Decode(&measurements)
-			if err != nil {
-				return err
-			}
-			data.Measurements.SetItems(measurements.Items)
-
-
+	return nil
 }
 
-*/
-
 func (mf *AlphaModelFile) DecodeV1(decoder *gob.Decoder) error {
+	/*
+		// read hashes
+		hashes := AlphaModelFileHashes{}
+		err := decoder.Decode(&hashes)
+		if err != nil {
+			return err
+		}
+		mf.data.Hashes.SetItems(hashes.Items)
 
-	// read hashes
-	hashes := AlphaModelFileHashes{}
-	err := decoder.Decode(&hashes)
-	if err != nil {
-		return err
-	}
-	mf.data.Hashes.SetItems(hashes.Items)
+		// read hosts
+		hosts := AlphaModelFileHosts{}
+		err = decoder.Decode(&hosts)
+		if err != nil {
+			return err
+		}
+		mf.data.Hosts.SetItems(hosts.Items)
+		mf.data.Hosts.LinkHashes()
 
-	// read hosts
-	hosts := AlphaModelFileHosts{}
-	err = decoder.Decode(&hosts)
-	if err != nil {
-		return err
-	}
-	mf.data.Hosts.SetItems(hosts.Items)
+		// read applications
+		applications := AlphaModelFileApplications{}
+		err = decoder.Decode(&applications)
+		if err != nil {
+			return err
+		}
+		mf.data.Applications.SetItems(applications.Items)
+		mf.data.Applications.LinkHashes()
 
-	// read applications
-	apps := AlphaModelFileApplications{}
-	err = decoder.Decode(&apps)
-	if err != nil {
-		return err
-	}
-	mf.data.Applications.SetItems(apps.Items)
-
-	// read measurements
-
+		// read measurements
+		measurements := AlphaModelFileMeasurements{}
+		err = decoder.Decode(&measurements)
+		if err != nil {
+			return err
+		}
+		dms := mf.data.Measurements
+		dms.SetFirst(measurements.First)
+		dms.SetLast(measurements.Last)
+		dms.SetItems(mf.makeMeasurementsItemsV1(measurements))
+		dms.LinkHashes()
+	*/
 	return nil
 }
 
@@ -206,49 +206,79 @@ func (mf *AlphaModelFile) Load() error {
 	case AlphaModelFileVersionV1:
 		return mf.DecodeV1(decoder)
 	}
-
 	return nil
 }
 
+/*
+func (mf *AlphaModelFile) makeFileMeasurementsItemsV1() map[common.Stamp]map[string]*AlphaModelFileSignal {
+
+		r := make(map[common.Stamp]map[string]*AlphaModelFileSignal)
+		for sp, ss := range mf.data.Measurements.GetItems() {
+
+			mfs := make(map[string]*AlphaModelFileSignal)
+			for n, s := range ss.GetItems() {
+
+				fs := &AlphaModelFileSignal{}
+
+				as, ok := s.(*common.ApplicationSignal)
+				if ok {
+					fs.Application = as.GetApplicationHash()
+					fs.Host = as.GetHostHash()
+					mfs[n] = fs
+					continue
+				}
+
+				hs, ok := s.(*common.HostSignal)
+				if ok {
+					fs.Host = hs.GetHostHash()
+					mfs[n] = fs
+					continue
+				}
+			}
+			r[sp] = mfs
+		}
+		return r
+	}
+*/
 func (mf *AlphaModelFile) EncodeV1(encoder *gob.Encoder) error {
-
-	// write hashes
-	err := encoder.Encode(AlphaModelFileHashes{
-		Items: mf.data.Hashes.GetItems(),
-	})
-	if err != nil {
-		return err
-	}
-
-	// write hosts
-	err = encoder.Encode(AlphaModelFileHosts{
-		Items: mf.data.Hosts.GetItems(),
-	})
-	if err != nil {
-		return err
-	}
-
-	// write applications
-	err = encoder.Encode(AlphaModelFileApplications{
-		Items: mf.data.Applications.GetItems(),
-	})
-	if err != nil {
-		return err
-	}
-
 	/*
-
-
-
-		// write measurements
-		err = encoder.Encode(AlphaModelFileMeasurements{
-			Items: data.Measurements.GetItems(),
-		})
+		// write hashes
+		hashes := AlphaModelFileHashes{
+			Items: mf.data.Hashes.GetItems(),
+		}
+		err := encoder.Encode(&hashes)
 		if err != nil {
 			return err
 		}
 
-	*/
+		// write hosts
+		hosts := AlphaModelFileHosts{
+			Items: mf.data.Hosts.GetItems(),
+		}
+		err = encoder.Encode(&hosts)
+		if err != nil {
+			return err
+		}
+
+		// write applications
+		applications := AlphaModelFileApplications{
+			Items: mf.data.Applications.GetItems(),
+		}
+		err = encoder.Encode(&applications)
+		if err != nil {
+			return err
+		}
+
+		// write measurements
+		measurements := AlphaModelFileMeasurements{
+			First: mf.data.Measurements.GetFirst(),
+			Last:  mf.data.Measurements.GetLast(),
+			//		Items: mf.makeFileMeasurementsItemsV1(),
+		}
+		err = encoder.Encode(&measurements)
+		if err != nil {
+			return err
+		}*/
 	return nil
 }
 
@@ -429,14 +459,14 @@ func (m *AlphaModel) getStampedValue(values []any) (bool, common.Stamp, float64)
 	return true, stamp, value
 }
 
-func (m *AlphaModel) loadHosts(hashes *common.Hashes, q string, from, to time.Time) (*common.Hosts, error) {
+func (m *AlphaModel) loadHosts(data *AlphaModelData, q string, from, to time.Time) (*common.Hosts, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	hosts := common.NewHosts(hashes)
+	hosts := common.NewHosts()
 	if promData == nil {
 		return hosts, nil
 	}
@@ -461,7 +491,8 @@ func (m *AlphaModel) loadHosts(hashes *common.Hashes, q string, from, to time.Ti
 
 			var on *common.Host
 			if findOn {
-				on = hosts.Find(stamp, nameOn)
+				nameHash := data.names.AddOrUpdate(nameOn)
+				on = hosts.Find(stamp, nameHash)
 				if on == nil {
 
 					lbs := maps.Clone(hostLbs)
@@ -475,17 +506,18 @@ func (m *AlphaModel) loadHosts(hashes *common.Hashes, q string, from, to time.Ti
 						}
 						delete(hostLbs, k)
 					}
-					hash := hashes.AddOrUpdate(lbs)
+					labelsHash := data.attributes.AddOrUpdate(lbs)
 
-					on = common.NewHost(hashes, hash, nil)
+					on = common.NewHost(nameHash, labelsHash, nil)
 					hosts.AddOrUpdate(stamp, on)
 				}
 			}
 
-			host := hosts.Find(stamp, name)
+			namehash := data.names.AddOrUpdate(name)
+			host := hosts.Find(stamp, namehash)
 			if host == nil {
-				hash := hashes.AddOrUpdate(hostLbs)
-				host = common.NewHost(hashes, hash, on)
+				labelsHash := data.attributes.AddOrUpdate(hostLbs)
+				host = common.NewHost(namehash, labelsHash, on)
 			}
 			hosts.AddOrUpdate(stamp, host)
 		}
@@ -493,14 +525,14 @@ func (m *AlphaModel) loadHosts(hashes *common.Hashes, q string, from, to time.Ti
 	return hosts, nil
 }
 
-func (m *AlphaModel) gatherHostsByQuery(hashes *common.Hashes, query string, from, to time.Time) (*common.Hosts, error) {
+func (m *AlphaModel) gatherHostsByQuery(data *AlphaModelData, query string, from, to time.Time) (*common.Hosts, error) {
 
 	when := time.Now()
 
 	m.debug("Hosts gathering (%s / %s) ...", from, to)
 	m.debug("Hosts gathering started => %s", query)
 
-	hosts, err := m.loadHosts(hashes, query, from, to)
+	hosts, err := m.loadHosts(data, query, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -514,7 +546,7 @@ func (m *AlphaModel) gatherHostsByQuery(hashes *common.Hashes, query string, fro
 	return hosts, nil
 }
 
-func (m *AlphaModel) gatherHostsBySpan(hashes *common.Hashes, hosts *common.Hosts, query string, from, to time.Time, span time.Duration) error {
+func (m *AlphaModel) gatherHostsBySpan(data *AlphaModelData, query string, from, to time.Time, span time.Duration) error {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -533,7 +565,7 @@ func (m *AlphaModel) gatherHostsBySpan(hashes *common.Hashes, hosts *common.Host
 
 		gr.Go(func() error {
 
-			hsts, err := m.gatherHostsByQuery(hashes, query, t1, t2)
+			hsts, err := m.gatherHostsByQuery(data, query, t1, t2)
 			if err != nil {
 				return err
 			}
@@ -555,20 +587,20 @@ func (m *AlphaModel) gatherHostsBySpan(hashes *common.Hashes, hosts *common.Host
 			if !ok {
 				continue
 			}
-			hosts.Merge(d)
+			data.hosts.Merge(d)
 		}
 	}
 	return nil
 }
 
-func (m *AlphaModel) loadApplications(hashes *common.Hashes, q string, from, to time.Time) (*common.Applications, error) {
+func (m *AlphaModel) loadApplications(data *AlphaModelData, q string, from, to time.Time) (*common.Applications, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	apps := common.NewApplications(hashes)
+	apps := common.NewApplications()
 	if promData == nil {
 		return apps, nil
 	}
@@ -580,7 +612,7 @@ func (m *AlphaModel) loadApplications(hashes *common.Hashes, q string, from, to 
 			continue
 		}
 
-		hash := hashes.AddOrUpdate(dr.Labels)
+		labelsHash := data.attributes.AddOrUpdate(dr.Labels)
 
 		for _, v := range dr.Values {
 
@@ -589,9 +621,10 @@ func (m *AlphaModel) loadApplications(hashes *common.Hashes, q string, from, to 
 				continue
 			}
 
-			app := apps.Find(stamp, name)
+			nameHash := data.names.AddOrUpdate(name)
+			app := apps.Find(stamp, nameHash)
 			if app == nil {
-				app = common.NewApplication(hashes, hash)
+				app = common.NewApplication(nameHash, labelsHash)
 			}
 			apps.AddOrUpdate(stamp, app)
 		}
@@ -599,14 +632,14 @@ func (m *AlphaModel) loadApplications(hashes *common.Hashes, q string, from, to 
 	return apps, nil
 }
 
-func (m *AlphaModel) gatherApplicationsByQuery(hashes *common.Hashes, query string, from, to time.Time) (*common.Applications, error) {
+func (m *AlphaModel) gatherApplicationsByQuery(data *AlphaModelData, query string, from, to time.Time) (*common.Applications, error) {
 
 	when := time.Now()
 
 	m.debug("Applications gathering (%s / %s) ...", from, to)
 	m.debug("Applications gathering started => %s", query)
 
-	apps, err := m.loadApplications(hashes, query, from, to)
+	apps, err := m.loadApplications(data, query, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -620,7 +653,7 @@ func (m *AlphaModel) gatherApplicationsByQuery(hashes *common.Hashes, query stri
 	return apps, nil
 }
 
-func (m *AlphaModel) gatherApplicationsBySpan(hashes *common.Hashes, applications *common.Applications, query string, from, to time.Time, span time.Duration) error {
+func (m *AlphaModel) gatherApplicationsBySpan(data *AlphaModelData, query string, from, to time.Time, span time.Duration) error {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -639,7 +672,7 @@ func (m *AlphaModel) gatherApplicationsBySpan(hashes *common.Hashes, application
 
 		gr.Go(func() error {
 
-			apps, err := m.gatherApplicationsByQuery(hashes, query, t1, t2)
+			apps, err := m.gatherApplicationsByQuery(data, query, t1, t2)
 			if err != nil {
 				return err
 			}
@@ -661,13 +694,13 @@ func (m *AlphaModel) gatherApplicationsBySpan(hashes *common.Hashes, application
 			if !ok {
 				continue
 			}
-			applications.Merge(d)
+			data.applications.Merge(d)
 		}
 	}
 	return nil
 }
 
-func (m *AlphaModel) loadModelData(hashes *common.Hashes, q string, from, to time.Time) (AlphaModelSeries, error) {
+func (m *AlphaModel) loadModelData(data *AlphaModelData, q string, from, to time.Time) (AlphaModelSeries, error) {
 
 	promData, err := m.loadData(q, from, to)
 	if err != nil {
@@ -689,7 +722,7 @@ func (m *AlphaModel) loadModelData(hashes *common.Hashes, q string, from, to tim
 			}
 
 			v := AlphaModelSeriesValue{
-				Hash:  hashes.AddOrUpdate(dr.Labels),
+				Hash:  data.attributes.AddOrUpdate(dr.Labels),
 				Value: value,
 			}
 			modelData[stamp] = append(modelData[stamp], v)
@@ -698,7 +731,7 @@ func (m *AlphaModel) loadModelData(hashes *common.Hashes, q string, from, to tim
 	return modelData, nil
 }
 
-func (m *AlphaModel) gatherSignals(hashes *common.Hashes, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]AlphaModelSeries, error) {
+func (m *AlphaModel) gatherSignals(data *AlphaModelData, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]AlphaModelSeries, error) {
 
 	gr := &errgroup.Group{}
 	mp := &sync.Map{}
@@ -708,7 +741,7 @@ func (m *AlphaModel) gatherSignals(hashes *common.Hashes, queries map[common.Sig
 
 		gr.Go(func() error {
 
-			data, err := m.loadModelData(hashes, q, from, to)
+			data, err := m.loadModelData(data, q, from, to)
 			if err != nil {
 				return err
 			}
@@ -760,7 +793,7 @@ func (m *AlphaModel) prepareQueries(queries map[common.SignalKind]string, labels
 	return r
 }
 
-func (m *AlphaModel) gatherSignalsByQueries(hashes *common.Hashes, name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]AlphaModelSeries, error) {
+func (m *AlphaModel) gatherSignalsByQueries(data *AlphaModelData, name string, queries map[common.SignalKind]string, labels map[string]string, from, to time.Time) ([]map[common.SignalKind]AlphaModelSeries, error) {
 
 	when := time.Now()
 
@@ -783,7 +816,7 @@ func (m *AlphaModel) gatherSignalsByQueries(hashes *common.Hashes, name string, 
 					m.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 				}
 
-				r, err := m.gatherSignals(hashes, qrs, from, to)
+				r, err := m.gatherSignals(data, qrs, from, to)
 				if err != nil {
 					return err
 				}
@@ -826,7 +859,7 @@ func (m *AlphaModel) gatherSignalsByQueries(hashes *common.Hashes, name string, 
 			m.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
 		}
 
-		r, err := m.gatherSignals(hashes, queries, from, to)
+		r, err := m.gatherSignals(data, queries, from, to)
 		if err != nil {
 			return nil, err
 		}
@@ -876,7 +909,7 @@ func (m *AlphaModel) reduceSignals(arr []map[common.SignalKind]AlphaModelSeries)
 	return r
 }
 
-func (m *AlphaModel) gatherSignalsBySpan(name string, hashes *common.Hashes,
+func (m *AlphaModel) gatherSignalsBySpan(name string, data *AlphaModelData,
 	queries map[common.SignalKind]string, labels map[string]string,
 	from, to time.Time, span time.Duration) (map[common.SignalKind]AlphaModelSeries, error) {
 
@@ -909,7 +942,7 @@ func (m *AlphaModel) gatherSignalsBySpan(name string, hashes *common.Hashes,
 
 		gr.Go(func() error {
 
-			sqd, err := m.gatherSignalsByQueries(hashes, name, qs, labels, t1, t2)
+			sqd, err := m.gatherSignalsByQueries(data, name, qs, labels, t1, t2)
 			if err != nil {
 				return err
 			}
@@ -967,148 +1000,150 @@ func (m *AlphaModel) string2Time(ts string) time.Time {
 }
 
 func (m *AlphaModel) getApplicationHost(
-	hashes *common.Hashes, measurements *common.Measurements,
-	hosts *common.Hosts, applications *common.Applications,
-	stamp common.Stamp, appName, hostName, appHost string) (*common.Application, *common.Host) {
+	data *AlphaModelData, stamp common.Stamp,
+	appName, hostName string, appHostHash common.Hash) (*common.Application, *common.Host) {
 
 	if utils.IsEmpty(appName) {
 		return nil, nil
 	}
 
 	// find application & hosts in the dictionaries
-	app := applications.FindWithTolerance(stamp, appName, m.options.AppTolerance)
-	host := hosts.FindWithTolerance(stamp, hostName, m.options.HostTolerance)
+	appHash := data.names.AddOrUpdate(appName)
+	app := data.applications.FindWithTolerance(stamp, appHash, m.options.AppTolerance)
 
-	// find application signal in measurements
-	if app == nil || host == nil {
-		signal := measurements.FindApplicationSignalWithTolerance(stamp, appHost, m.options.AppSignalTolerance)
-		if app == nil && signal != nil {
-			app = signal.Application
+	hostHash := data.names.AddOrUpdate(hostName)
+	host := data.hosts.FindWithTolerance(stamp, hostHash, m.options.HostTolerance)
+	/*
+		// find application signal in measurements
+		if app == nil || host == nil {
+			signal := data.measurements.FindApplicationSignalWithTolerance(stamp, appHostHash, m.options.AppSignalTolerance)
+			if app == nil && signal != nil {
+				app = signal.GetApplication()
+			}
+			if host == nil && signal != nil {
+				host = signal.GetHost()
+			}
 		}
-		if host == nil && signal != nil {
-			host = signal.Host
+
+		// create application if there are no
+		if app == nil {
+			appLbs := make(map[string]string)
+			appLbs[common.ApplicationName] = appName
+			app = common.NewApplication(hashes, hashes.AddOrUpdate(appLbs))
+			applications.AddOrUpdate(stamp, app)
 		}
-	}
 
-	// create application if there are no
-	if app == nil {
-		appLbs := make(map[string]string)
-		appLbs[common.ApplicationName] = appName
-		app = common.NewApplication(hashes, hashes.AddOrUpdate(appLbs))
-		applications.AddOrUpdate(stamp, app)
-	}
-
-	// create host if there are no
-	if host == nil && !utils.IsEmpty(hostName) {
-		hostLbs := make(map[string]string)
-		hostLbs[common.HostName] = hostName
-		host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
-		hosts.AddOrUpdate(stamp, host)
-	}
-
+		// create host if there are no
+		if host == nil && !utils.IsEmpty(hostName) {
+			hostLbs := make(map[string]string)
+			hostLbs[common.HostName] = hostName
+			host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
+			hosts.AddOrUpdate(stamp, host)
+		}
+	*/
 	return app, host
 }
 
 type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *AlphaModel) applicationSignalsOverData(
-	data map[common.SignalKind]AlphaModelSeries,
-	measurements *common.Measurements,
-	hashes *common.Hashes,
-	hosts *common.Hosts, applications *common.Applications,
+	in map[common.SignalKind]AlphaModelSeries,
+	out *AlphaModelData,
 	callback applicationSignalsOverDataCallback) {
+	/*
+		for kind, iv := range in {
+			for stamp, data := range iv {
+				for _, v := range data {
 
-	for kind, iv := range data {
-		for stamp, data := range iv {
-			for _, v := range data {
-
-				lbs := hashes.Find(v.Hash)
-				if lbs == nil {
-					continue
-				}
-
-				appName := lbs[common.ApplicationSignalName]
-				hostName := lbs[common.ApplicationSignalHost]
-				appHost := common.BuildApplicationSignalName(appName, hostName)
-
-				as := measurements.FindApplicationSignal(stamp, appHost)
-				if as == nil {
-					app, host := m.getApplicationHost(hashes, measurements, hosts, applications, stamp, appName, hostName, appHost)
-					if app == nil {
+					lbs := out.attributes.Find(v.Hash)
+					if lbs == nil {
 						continue
 					}
-					as = common.NewApplicationSignal(hashes, applications, app, host)
+
+					appName := lbs[common.ApplicationSignalName]
+					hostName := lbs[common.ApplicationSignalHost]
+
+					as := out.measurements.FindApplicationSignal(stamp, v.Hash)
+					if as == nil {
+						app, host := m.getApplicationHost(out, stamp, appName, hostName, v.Hash)
+						if app == nil {
+							continue
+						}
+						as = common.NewApplicationSignal(hashes, applications, app, host)
+					}
+					out.measurements.AddOrUpdate(stamp, as)
+					callback(as, kind, v.Value, v.Hash)
 				}
-				measurements.AddOrUpdate(stamp, as)
-				callback(as, kind, v.Value, v.Hash)
 			}
 		}
-	}
+	*/
 }
 
 func (m *AlphaModel) getHost(
-	hashes *common.Hashes, measurements *common.Measurements,
-	hosts *common.Hosts, stamp common.Stamp, hostName string) *common.Host {
+	data *AlphaModelData, stamp common.Stamp, hostName string) *common.Host {
 
 	if utils.IsEmpty(hostName) {
 		return nil
 	}
 
 	// find hosts in the dictionaries
-	host := hosts.FindWithTolerance(stamp, hostName, m.options.HostTolerance)
+	hostHash := data.names.AddOrUpdate(hostName)
+	host := data.hosts.FindWithTolerance(stamp, hostHash, m.options.HostTolerance)
+	/*
+	   // find host signal in measurements
 
-	// find host signal in measurements
-	if host == nil {
-		signal := measurements.FindHostSignalWithTolerance(stamp, hostName, m.options.HostSignalTolerance)
-		if signal != nil {
-			host = signal.Host()
-		}
-	}
+	   	if host == nil {
+	   		signal := measurements.FindHostSignalWithTolerance(stamp, hostName, m.options.HostSignalTolerance)
+	   		if signal != nil {
+	   			host = signal.GetHost()
+	   		}
+	   	}
 
-	// create host if there are no
-	if host == nil {
-		hostLbs := make(map[string]string)
-		hostLbs[common.HostName] = hostName
-		host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
-		hosts.AddOrUpdate(stamp, host)
-	}
+	   // create host if there are no
 
+	   	if host == nil {
+	   		hostLbs := make(map[string]string)
+	   		hostLbs[common.HostName] = hostName
+	   		host = common.NewHost(hashes, hashes.AddOrUpdate(hostLbs), nil)
+	   		hosts.AddOrUpdate(stamp, host)
+	   	}
+	*/
 	return host
+
 }
 
 type hostSignalsOverDataCallback = func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *AlphaModel) hostSignalsOverData(
-	data map[common.SignalKind]AlphaModelSeries,
-	measurements *common.Measurements,
-	hashes *common.Hashes,
-	hosts *common.Hosts,
+	in map[common.SignalKind]AlphaModelSeries,
+	out *AlphaModelData,
 	callback hostSignalsOverDataCallback) {
+	/*
+		for kind, iv := range data {
+			for stamp, data := range iv {
+				for _, v := range data {
 
-	for kind, iv := range data {
-		for stamp, data := range iv {
-			for _, v := range data {
-
-				lbs := hashes.Find(v.Hash)
-				if lbs == nil {
-					continue
-				}
-
-				host := lbs[common.HostSignalHost]
-
-				hs := measurements.FindHostSignal(stamp, host)
-				if hs == nil {
-					host := m.getHost(hashes, measurements, hosts, stamp, host)
-					if host == nil {
+					lbs := hashes.Find(v.Hash)
+					if lbs == nil {
 						continue
 					}
-					hs = common.NewHostSignal(hashes, host)
+
+					host := lbs[common.HostSignalHost]
+
+					hs := measurements.FindHostSignal(stamp, host)
+					if hs == nil {
+						host := m.getHost(hashes, measurements, hosts, stamp, host)
+						if host == nil {
+							continue
+						}
+						hs = common.NewHostSignal(hashes, host)
+					}
+					measurements.AddOrUpdate(stamp, hs)
+					callback(hs, kind, v.Value, v.Hash)
 				}
-				measurements.AddOrUpdate(stamp, hs)
-				callback(hs, kind, v.Value, v.Hash)
 			}
 		}
-	}
+	*/
 }
 
 func (m *AlphaModel) train(data *AlphaModelData) error {
@@ -1143,14 +1178,14 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 
 	m.info("Gathering hosts (%s / %s, span: %s)...", from, to, span)
 
-	err := m.gatherHostsBySpan(data.Hashes, data.Hosts, m.options.HostQuery, from, to, span)
+	err := m.gatherHostsBySpan(data, m.options.HostQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	m.info("Gathering applications (%s / %s, span: %s)...", from, to, span)
 
-	err = m.gatherApplicationsBySpan(data.Hashes, data.Applications, m.options.AppQuery, from, to, span)
+	err = m.gatherApplicationsBySpan(data, m.options.AppQuery, from, to, span)
 	if err != nil {
 		return err
 	}
@@ -1164,91 +1199,93 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	queries[common.SignalErrors] = m.options.AppSignalInErrorsQuery
 	queries[common.SignalLatency] = m.options.AppSignalInLatencyQuery
 
-	mData, err := m.gatherSignalsBySpan("apps incoming", data.Hashes, queries, appLabels, from, to, span)
+	mData, err := m.gatherSignalsBySpan("apps incoming", data, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	// fill up app incomings
-	m.applicationSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts, data.Applications,
+	m.applicationSignalsOverData(mData, data,
 		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
 			case common.SignalTraffic:
-				as.IncomingTraffic().AddOrUpdate(value, hash)
+				it := as.GetIncomingTraffic()
+				if it != nil {
+					it.AddOrUpdate(value, hash)
+				}
 			case common.SignalErrors:
-				as.IncomingErrors().AddOrUpdate(value, hash)
+				ie := as.GetIncomingErrors()
+				if ie != nil {
+					ie.AddOrUpdate(value, hash)
+				}
 			case common.SignalLatency:
-				as.IncomingLatency().AddOrUpdate(value, hash)
-			}
-		})
-
-	queries = make(map[common.SignalKind]string)
-	queries[common.SignalTraffic] = m.options.AppSignalOutTrafficQuery
-	queries[common.SignalErrors] = m.options.AppSignalOutErrorsQuery
-	queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
-	queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
-
-	mData, err = m.gatherSignalsBySpan("apps outgoing & saturation", data.Hashes, queries, appLabels, from, to, span)
-	if err != nil {
-		return err
-	}
-
-	// fill up app outgoings and saturations
-	m.applicationSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts, data.Applications,
-		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
-
-			switch kind {
-			case common.SignalTraffic:
-
-				ot := as.OutgoingTraffic()
-				if ot != nil {
-					ot.AddOrUpdate(value, hash)
-				}
-
-			case common.SignalErrors:
-
-				oe := as.OutgoingErrors()
-				if oe != nil {
-					oe.AddOrUpdate(value, hash)
-				}
-
-			case common.SignalLatency:
-
-				ol := as.OutgoingLatency()
-				if ol != nil {
-					ol.AddOrUpdate(value, hash)
-				}
-
-			case common.SignalSaturation:
-
-				st := as.Saturation()
-				if st != nil {
-					st.AddOrUpdate(value, hash)
+				il := as.GetIncomingLatency()
+				if il != nil {
+					il.AddOrUpdate(value, hash)
 				}
 			}
 		})
+	/*
+		queries = make(map[common.SignalKind]string)
+		queries[common.SignalTraffic] = m.options.AppSignalOutTrafficQuery
+		queries[common.SignalErrors] = m.options.AppSignalOutErrorsQuery
+		queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
+		queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
 
-	hostLabels := utils.MapGetKeyValuesEx(m.options.HostSignalCommonLabels, ";", "=")
+		mData, err = m.gatherSignalsBySpan("apps outgoing & saturation", data.Hashes, queries, appLabels, from, to, span)
+		if err != nil {
+			return err
+		}
 
-	queries = make(map[common.SignalKind]string)
-	queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
+		// fill up app outgoings and saturations
+		m.applicationSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts, data.Applications,
+			func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
-	mData, err = m.gatherSignalsBySpan("hosts", data.Hashes, queries, hostLabels, from, to, span)
-	if err != nil {
-		return err
-	}
+				switch kind {
+				case common.SignalTraffic:
+					ot := as.GetOutgoingTraffic()
+					if ot != nil {
+						ot.AddOrUpdate(value, hash)
+					}
+				case common.SignalErrors:
+					oe := as.GetOutgoingErrors()
+					if oe != nil {
+						oe.AddOrUpdate(value, hash)
+					}
+				case common.SignalLatency:
+					ol := as.GetOutgoingLatency()
+					if ol != nil {
+						ol.AddOrUpdate(value, hash)
+					}
+				case common.SignalSaturation:
+					st := as.GetSaturation()
+					if st != nil {
+						st.AddOrUpdate(value, hash)
+					}
+				}
+			})
 
-	// fill up host saturations
-	m.hostSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts,
-		func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
+		hostLabels := utils.MapGetKeyValuesEx(m.options.HostSignalCommonLabels, ";", "=")
 
-			switch kind {
-			case common.SignalSaturation:
-				hs.Saturation().AddOrUpdate(value, hash)
-			}
-		})
+		queries = make(map[common.SignalKind]string)
+		queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
 
+		mData, err = m.gatherSignalsBySpan("hosts", data.Hashes, queries, hostLabels, from, to, span)
+		if err != nil {
+			return err
+		}
+
+		// fill up host saturations
+		m.hostSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts,
+			func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
+
+				switch kind {
+				case common.SignalSaturation:
+					hs.Saturation().AddOrUpdate(value, hash)
+				}
+			})
+	*/
 	//last := measurements.LastStamp()
 
 	/*
@@ -1316,41 +1353,42 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	return nil
 }
 
+/*
 func (m *AlphaModel) hostNames(measurements *common.Measurements, stamp common.Stamp, app *common.Application) []string {
 
-	hosts := measurements.Hosts(stamp, []*common.Application{app})
+		hosts := measurements.Hosts(stamp, []*common.Application{app})
 
-	arr := []string{}
-	for _, h := range hosts {
-		hName := h.Name()
-		if !utils.Contains(arr, hName) {
-			arr = append(arr, hName)
+		arr := []string{}
+		for _, h := range hosts {
+			hName := h.Name()
+			if !utils.Contains(arr, hName) {
+				arr = append(arr, hName)
+			}
 		}
-	}
-	if len(arr) > 0 {
-		return arr
-	}
+		if len(arr) > 0 {
+			return arr
+		}
 
-	return []string{}
-}
+		return []string{}
+	}
 
 func (m *AlphaModel) debugDependecies(measurements *common.Measurements, stamp common.Stamp, name, parent string, deps *common.Dependencies, hosts []string) {
 
-	if deps == nil {
-		m.debug("Dependency graph %s => %s (%s)", name, parent, strings.Join(hosts, ","))
-		return
-	}
-	for a, arr := range deps.Items() {
-
-		aName := a.Name()
-		if parent != "" {
-			aName = fmt.Sprintf("%s/%s", parent, aName)
+		if deps == nil {
+			m.debug("Dependency graph %s => %s (%s)", name, parent, strings.Join(hosts, ","))
+			return
 		}
-		hosts := m.hostNames(measurements, stamp, a)
-		m.debugDependecies(measurements, stamp, name, aName, arr, hosts)
-	}
-}
+		for a, arr := range deps.Items() {
 
+			aName := a.Name()
+			if parent != "" {
+				aName = fmt.Sprintf("%s/%s", parent, aName)
+			}
+			hosts := m.hostNames(measurements, stamp, a)
+			m.debugDependecies(measurements, stamp, name, aName, arr, hosts)
+		}
+	}
+*/
 func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 
 	wg.Add(1)
@@ -1360,15 +1398,12 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 
 		m.info("Training...")
 
-		hashes := common.NewHashes()
-		hosts := common.NewHosts(hashes)
-		apps := common.NewApplications(hashes)
-
 		data := &AlphaModelData{
-			Hashes:       hashes,
-			Hosts:        hosts,
-			Applications: apps,
-			Measurements: common.NewMeasurements(hosts, apps),
+			attributes:   common.NewAttributes(),
+			names:        common.NewNames(),
+			hosts:        common.NewHosts(),
+			applications: common.NewApplications(),
+			measurements: common.NewMeasurements(),
 		}
 
 		file := &AlphaModelFile{

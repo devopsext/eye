@@ -135,6 +135,13 @@ func Map2Hash32(m map[string]string) uint32 {
 	return h.Sum32()
 }
 
+func String2Hash32(s string) uint32 {
+
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
+
 func ApplicationsCompact(apps []*Application) []*Application {
 
 	slices.SortFunc(apps, func(a, b *Application) int {
@@ -154,4 +161,15 @@ func ApplicationsCompact(apps []*Application) []*Application {
 		return cmp.Compare(aInt, bInt)
 	})
 	return slices.Compact(apps)
+}
+
+func packTo64(h1, h2 uint32) uint64 {
+	return (uint64(h1) << 32) | uint64(h2)
+}
+
+// Unpack is optional, but helpful if you ever need the original hashes back
+func unpackFrom64(packed uint64) (uint32, uint32) {
+	h1 := uint32(packed >> 32)
+	h2 := uint32(packed) // Truncates the upper 32 bits automatically
+	return h1, h2
 }
