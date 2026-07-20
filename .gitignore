@@ -25,4 +25,6 @@ docs/
 .idea/
 .readme
 cpu.pprof
+heap.pprof
 alpha-v1.data
+pprof.sh

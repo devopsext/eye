@@ -1,11 +1,13 @@
 package common
 
 import (
+	"encoding/gob"
 	"math"
 	"reflect"
 	"sync"
 
 	"github.com/devopsext/utils"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 type Labels = map[string]string
@@ -27,10 +29,15 @@ const (
 
 type Hash = uint32
 
-type NamesItems = map[Hash]string
+/*type NamesItems = map[Hash]string
 type Names struct {
 	mu    sync.Mutex
 	items NamesItems
+}*/
+
+type NamesItems = *xsync.Map[Hash, string]
+type Names struct {
+	items *xsync.Map[Hash, string]
 }
 
 type AttributesItems = map[Hash]Labels
@@ -162,7 +169,6 @@ const (
 
 type HostSignal struct {
 	Name       Hash
-	host       *Host
 	Saturation HostSaturation
 }
 
@@ -315,6 +321,10 @@ func (hs *Attributes) AddOrUpdate(labels Labels) Hash {
 
 	lbs := hs.items[hash]
 	if lbs == nil {
+
+		hs.mu.Lock()
+		defer hs.mu.Unlock()
+
 		hs.items[hash] = labels
 	}
 	return hash
@@ -337,6 +347,7 @@ func NewAttributes() *Attributes {
 
 // Names
 
+/*
 func (ns *Names) IsEmpty() bool {
 
 	ns.mu.Lock()
@@ -403,6 +414,63 @@ func NewNames() *Names {
 	return &Names{
 		items: make(NamesItems),
 	}
+}*/
+
+func (ns *Names) IsEmpty() bool {
+
+	return ns.items.Size() == 0
+}
+
+func (ns *Names) GetItems() NamesItems {
+
+	return ns.items
+}
+
+func (ns *Names) SetItems(items NamesItems) {
+
+	ns.items = items
+}
+
+func (ns *Names) NameHash(name string) Hash {
+
+	if utils.IsEmpty(name) {
+		return 0
+	}
+	return String2Hash32(name)
+}
+
+func (ns *Names) AddOrUpdate(name string) Hash {
+
+	hash := ns.NameHash(name)
+	if hash == 0 {
+		return hash
+	}
+
+	if ns.items == nil {
+		ns.items = xsync.NewMap[Hash, string]()
+	}
+
+	_, ok := ns.items.Load(hash)
+	if !ok {
+		ns.items.Store(hash, name)
+	}
+	return hash
+}
+
+func (ns *Names) Find(hash Hash) string {
+
+	v, ok := ns.items.Load(hash)
+	if !ok {
+		return ""
+	}
+	return v
+}
+
+func NewNames() *Names {
+
+	return &Names{
+		items: xsync.NewMap[Hash, string](),
+	}
 }
 
 // IncomingTraffic
@@ -442,36 +510,34 @@ func (it *IncomingTraffic) Value(kind TrafficKind) map[Hash]Traffic {
 	return it.Items[kind]
 }
 
-func (it *IncomingTraffic) AddOrUpdate(value float64, hash Hash) {
+func (it *IncomingTraffic) AddOrUpdate(value float64, labels Hash, attributes *Attributes) {
 
 	if it.Items == nil {
 		it.Items = make(map[TrafficKind]map[Hash]Traffic)
 	}
-	/*
-	   kind := TrafficKindUnknown
-	   lbs := it.Attributes.Find(hash)
 
-	   	if lbs != nil {
-	   		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
-	   	}
+	kind := TrafficKindUnknown
+	lbs := attributes.Find(labels)
 
-	   values := it.items[kind]
+	if lbs != nil {
+		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
+	}
 
-	   	if values == nil {
-	   		values = make(map[Hash]Traffic)
-	   		values[hash] = value
-	   	} else {
+	values := it.Items[kind]
 
-	   		traffic, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (traffic + value) / 2
-	   		}
-	   	}
+	if values == nil {
+		values = make(map[Hash]Traffic)
+		values[labels] = value
+	} else {
 
-	   it.items[kind] = values
-	*/
+		traffic, ok := values[labels]
+		if !ok {
+			values[labels] = value
+		} else {
+			values[labels] = (traffic + value) / 2
+		}
+	}
+	it.Items[kind] = values
 }
 
 // IncomingErrors
@@ -594,36 +660,34 @@ func (ot *OutgoingTraffic) Backends(stamp Stamp, kinds []TrafficKind) []*Applica
 	return apps
 }
 
-func (ot *OutgoingTraffic) AddOrUpdate(value float64, hash Hash) {
+func (ot *OutgoingTraffic) AddOrUpdate(value float64, labels Hash, attributes *Attributes) {
 
 	if ot.Items == nil {
 		ot.Items = make(map[TrafficKind]map[Hash]Traffic)
 	}
-	/*
-	   kind := TrafficKindUnknown
-	   lbs := ot.Attributes.Find(hash)
 
-	   	if lbs != nil {
-	   		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
-	   	}
+	kind := TrafficKindUnknown
+	lbs := attributes.Find(labels)
 
-	   values := ot.items[kind]
+	if lbs != nil {
+		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
+	}
 
-	   	if values == nil {
-	   		values = make(map[Hash]Traffic)
-	   		values[hash] = value
-	   	} else {
+	values := ot.Items[kind]
 
-	   		traffic, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (traffic + value) / 2
-	   		}
-	   	}
+	if values == nil {
+		values = make(map[Hash]Traffic)
+		values[labels] = value
+	} else {
 
-	   ot.items[kind] = values
-	*/
+		traffic, ok := values[labels]
+		if !ok {
+			values[labels] = value
+		} else {
+			values[labels] = (traffic + value) / 2
+		}
+	}
+	ot.Items[kind] = values
 }
 
 // OutgoingErrors
@@ -716,70 +780,66 @@ func (ol *OutgoingLatency) AddOrUpdate(value float64, hash Hash) {
 
 // ApplicationSaturation
 
-func (as *ApplicationSaturation) AddOrUpdate(value float64, hash Hash) {
+func (as *ApplicationSaturation) AddOrUpdate(value float64, labels Hash, attributes *Attributes) {
 
 	if as.Items == nil {
 		as.Items = make(map[ApplicationSaturationKind]map[Hash]Saturation)
 	}
-	/*
-	   kind := ApplicationSaturationKindUnknown
-	   lbs := as.Attributes.Find(hash)
 
-	   	if lbs != nil {
-	   		kind = ApplicationSaturationKindByName(lbs[ApplicationSignalSaturationKind])
-	   	}
+	kind := ApplicationSaturationKindUnknown
+	lbs := attributes.Find(labels)
 
-	   values := as.items[kind]
+	if lbs != nil {
+		kind = ApplicationSaturationKindByName(lbs[ApplicationSignalSaturationKind])
+	}
 
-	   	if values == nil {
-	   		values = make(map[Hash]Saturation)
-	   		values[hash] = value
-	   	} else {
+	values := as.Items[kind]
 
-	   		saturation, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (saturation + value) / 2
-	   		}
-	   	}
+	if values == nil {
+		values = make(map[Hash]Saturation)
+		values[labels] = value
+	} else {
 
-	   as.items[kind] = values
-	*/
+		saturation, ok := values[labels]
+		if !ok {
+			values[labels] = value
+		} else {
+			values[labels] = (saturation + value) / 2
+		}
+	}
+	as.Items[kind] = values
 }
 
 // HostSaturation
 
-func (hs *HostSaturation) AddOrUpdate(value float64, hash Hash) {
+func (hs *HostSaturation) AddOrUpdate(value float64, labels Hash, attributes *Attributes) {
 
 	if hs.Items == nil {
 		hs.Items = make(map[HostSaturationKind]map[Hash]Saturation)
 	}
-	/*
-	   kind := HostSaturationKindUnknown
-	   lbs := hs.Attributes.Find(hash)
 
-	   	if lbs != nil {
-	   		kind = HostSaturationKindByName(lbs[HostSignalSaturationKind])
-	   	}
+	kind := HostSaturationKindUnknown
+	lbs := attributes.Find(labels)
 
-	   values := hs.items[kind]
+	if lbs != nil {
+		kind = HostSaturationKindByName(lbs[HostSignalSaturationKind])
+	}
 
-	   	if values == nil {
-	   		values = make(map[Hash]Saturation)
-	   		values[hash] = value
-	   	} else {
+	values := hs.Items[kind]
 
-	   		saturation, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (saturation + value) / 2
-	   		}
-	   	}
+	if values == nil {
+		values = make(map[Hash]Saturation)
+		values[labels] = value
+	} else {
 
-	   hs.items[kind] = values
-	*/
+		saturation, ok := values[labels]
+		if !ok {
+			values[labels] = value
+		} else {
+			values[labels] = (saturation + value) / 2
+		}
+	}
+	hs.Items[kind] = values
 }
 
 // Host
@@ -1186,12 +1246,15 @@ func (hs *HostSignal) GetName() Hash {
 	return hs.Name
 }
 
-func (hs *HostSignal) GetHost() *Host {
-	return hs.host
-}
-
 func (hs *HostSignal) Merge(s Signal) {
 	// should check all fields of HostSignal
+}
+
+func NewHostSignal(name Hash) *HostSignal {
+
+	return &HostSignal{
+		Name: name,
+	}
 }
 
 // ApplicationSignal
@@ -1546,6 +1609,7 @@ func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*
 	return ms.unsafeApplicationSignals(stamp, apps)
 }*/
 
+/*
 func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
 
 	ms.mu.Lock()
@@ -1793,4 +1857,10 @@ func NewMeasurements() *Measurements {
 		last:  0,
 		items: make(MeasurementsItems),
 	}
+}
+
+func init() {
+
+	gob.RegisterName("ApplicationSignal", &ApplicationSignal{})
+	gob.RegisterName("HostSignal", &HostSignal{})
 }
