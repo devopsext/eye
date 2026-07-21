@@ -5,13 +5,12 @@ go 1.26
 //replace github.com/devopsext/tools => ../../devopsext/tools
 
 require (
+	github.com/bytedance/sonic v1.15.1
 	github.com/devopsext/sre v0.7.0
 	github.com/devopsext/tools v0.21.0
 	github.com/devopsext/utils v0.4.8
 	github.com/go-playground/form v3.1.4+incompatible
 	github.com/jinzhu/copier v0.4.0
-	github.com/json-iterator/go v1.1.12
-	github.com/puzpuzpuz/xsync/v4 v4.5.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.16.0
 )
@@ -25,8 +24,11 @@ require (
 	github.com/VictoriaMetrics/metrics v1.40.0 // indirect
 	github.com/beevik/etree v1.5.0 // indirect
 	github.com/blues/jsonata-go v1.5.4 // indirect
+	github.com/bytedance/gopkg v0.1.3 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/charlievieth/strcase v0.0.5 // indirect
+	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
@@ -54,6 +56,8 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -69,6 +73,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect
+	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
 	github.com/valyala/fastrand v1.1.0 // indirect
@@ -85,6 +90,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
+	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
