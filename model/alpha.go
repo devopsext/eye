@@ -1388,10 +1388,6 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 		}
 		m.info("Training finished in %s", time.Since(when))
 
-		// for optimization reasons
-		d, _ := time.ParseDuration("45s")
-		time.Sleep(d)
-
 		// save to file if it's needed
 		if !utils.IsEmpty(file.path) {
 			m.info("Saving to file %s...", file.path)

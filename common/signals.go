@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/devopsext/utils"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 type Labels = map[string]string
@@ -29,15 +28,10 @@ const (
 
 type Hash = uint32
 
-/*type NamesItems = map[Hash]string
+type NamesItems = map[Hash]string
 type Names struct {
 	mu    sync.Mutex
 	items NamesItems
-}*/
-
-type NamesItems = *xsync.Map[Hash, string]
-type Names struct {
-	items *xsync.Map[Hash, string]
 }
 
 type AttributesItems = map[Hash]Labels
@@ -321,10 +315,6 @@ func (hs *Attributes) AddOrUpdate(labels Labels) Hash {
 
 	lbs := hs.items[hash]
 	if lbs == nil {
-
-		hs.mu.Lock()
-		defer hs.mu.Unlock()
-
 		hs.items[hash] = labels
 	}
 	return hash
@@ -347,7 +337,6 @@ func NewAttributes() *Attributes {
 
 // Names
 
-/*
 func (ns *Names) IsEmpty() bool {
 
 	ns.mu.Lock()
@@ -413,63 +402,6 @@ func NewNames() *Names {
 
 	return &Names{
 		items: make(NamesItems),
-	}
-}*/
-
-func (ns *Names) IsEmpty() bool {
-
-	return ns.items.Size() == 0
-}
-
-func (ns *Names) GetItems() NamesItems {
-
-	return ns.items
-}
-
-func (ns *Names) SetItems(items NamesItems) {
-
-	ns.items = items
-}
-
-func (ns *Names) NameHash(name string) Hash {
-
-	if utils.IsEmpty(name) {
-		return 0
-	}
-	return String2Hash32(name)
-}
-
-func (ns *Names) AddOrUpdate(name string) Hash {
-
-	hash := ns.NameHash(name)
-	if hash == 0 {
-		return hash
-	}
-
-	if ns.items == nil {
-		ns.items = xsync.NewMap[Hash, string]()
-	}
-
-	_, ok := ns.items.Load(hash)
-	if !ok {
-		ns.items.Store(hash, name)
-	}
-	return hash
-}
-
-func (ns *Names) Find(hash Hash) string {
-
-	v, ok := ns.items.Load(hash)
-	if !ok {
-		return ""
-	}
-	return v
-}
-
-func NewNames() *Names {
-
-	return &Names{
-		items: xsync.NewMap[Hash, string](),
 	}
 }
 
@@ -1001,6 +933,7 @@ func (hs *Hosts) Find(stamp Stamp, hash Hash) *Host {
 }
 
 func (hs *Hosts) Sizes() (int, int) {
+
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
