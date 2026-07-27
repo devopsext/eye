@@ -13,7 +13,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/puzpuzpuz/xsync/v4 v4.5.0
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/sync v0.16.0
+	golang.org/x/sync v0.22.0
 )
 
 require (
@@ -61,6 +61,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/newrelic/newrelic-telemetry-sdk-go v0.8.1 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
+	github.com/panjf2000/ants/v2 v2.12.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect

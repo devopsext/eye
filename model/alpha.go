@@ -2,7 +2,7 @@ package model
 
 import (
 	"bufio"
-	"compress/gzip"
+	"bytes"
 	"encoding/gob"
 	"fmt"
 	"maps"
@@ -17,6 +17,7 @@ import (
 	toolsVendors "github.com/devopsext/tools/vendors"
 	"github.com/devopsext/utils"
 	"github.com/jinzhu/copier"
+	"github.com/puzpuzpuz/xsync/v4"
 
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/sync/errgroup"
@@ -32,7 +33,8 @@ type AlphaModelSeriesValue struct {
 type AlphaModelSeries = map[common.Stamp][]AlphaModelSeriesValue
 
 type AlphaModelOptions struct {
-	File string
+	File        string
+	FileRewrite bool
 
 	AppQuery                 string
 	AppTolerance             int
@@ -52,8 +54,9 @@ type AlphaModelOptions struct {
 	HostSignalSaturationQuery string
 	HostSignalTolerance       int
 
-	Prometheus toolsVendors.PrometheusOptions
-	Span       string
+	Prometheus  toolsVendors.PrometheusOptions
+	Span        string
+	Concurrency int
 }
 
 type AlphaModel struct {
@@ -106,6 +109,86 @@ const (
 	AlphaModelFileVersionV0 = iota
 	AlphaModelFileVersionV1
 )
+
+// AlphaModelFileNames
+
+func (as *AlphaModelFileNames) GobEncode() ([]byte, error) {
+	// We use an intermediate struct that holds a standard map
+	type intermediate struct {
+		Items map[common.Hash]string
+	}
+
+	temp := intermediate{
+		Items: make(map[common.Hash]string),
+	}
+
+	as.Items.Range(func(k common.Hash, v string) bool {
+		temp.Items[k] = v
+		return true
+	})
+
+	var buf bytes.Buffer
+	err := gob.NewEncoder(&buf).Encode(temp)
+	return buf.Bytes(), err
+}
+
+func (as *AlphaModelFileNames) GobDecode(data []byte) error {
+
+	type intermediate struct {
+		Items map[common.Hash]string
+	}
+
+	var temp intermediate
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&temp); err != nil {
+		return err
+	}
+
+	as.Items = xsync.NewMap[common.Hash, string]()
+	for k, v := range temp.Items {
+		as.Items.Store(k, v)
+	}
+	return nil
+}
+
+// AlphaModelFileAttributes
+
+func (as *AlphaModelFileAttributes) GobEncode() ([]byte, error) {
+	// We use an intermediate struct that holds a standard map
+	type intermediate struct {
+		Items map[common.Hash]common.Labels
+	}
+
+	temp := intermediate{
+		Items: make(map[common.Hash]common.Labels),
+	}
+
+	as.Items.Range(func(k common.Hash, v common.Labels) bool {
+		temp.Items[k] = v
+		return true
+	})
+
+	var buf bytes.Buffer
+	err := gob.NewEncoder(&buf).Encode(temp)
+	return buf.Bytes(), err
+}
+
+func (as *AlphaModelFileAttributes) GobDecode(data []byte) error {
+
+	type intermediate struct {
+		Items map[common.Hash]common.Labels
+	}
+
+	var temp intermediate
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&temp); err != nil {
+		return err
+	}
+
+	as.Items = xsync.NewMap[common.Hash, common.Labels]()
+	for k, v := range temp.Items {
+		as.Items.Store(k, v)
+	}
+	return nil
+}
 
 // AlphaModelFile
 
@@ -176,13 +259,13 @@ func (mf *AlphaModelFile) Load() error {
 
 	br := bufio.NewReader(f)
 
-	gr, err := gzip.NewReader(br)
+	/*gr, err := zlib.NewReader(br)
 	if err != nil {
 		return err
 	}
-	defer gr.Close()
+	defer gr.Close()*/
 
-	decoder := gob.NewDecoder(gr)
+	decoder := gob.NewDecoder(br)
 
 	// read header
 	header := AlphaModelFileHeader{}
@@ -270,10 +353,10 @@ func (mf *AlphaModelFile) Save(version uint16) error {
 	bw := bufio.NewWriter(f)
 	defer bw.Flush()
 
-	gw := gzip.NewWriter(bw)
-	defer gw.Close()
+	/*gw := zlib.NewWriter(bw)
+	defer gw.Close()*/
 
-	encoder := gob.NewEncoder(gw)
+	encoder := gob.NewEncoder(bw)
 
 	// write header
 	err = encoder.Encode(AlphaModelFileHeader{
@@ -392,7 +475,7 @@ func (m *AlphaModel) loadData(q string, from, to time.Time) (*common.PrometheusR
 	return res.Data, nil
 }
 
-func (m *AlphaModel) getStampedValue(values []any) (bool, common.Stamp, float64) {
+func (m *AlphaModel) getStampedValueSlow(values []any) (bool, common.Stamp, float64) {
 
 	var stamp common.Stamp = 0
 	var value float64 = 0.0
@@ -430,6 +513,67 @@ func (m *AlphaModel) getStampedValue(values []any) (bool, common.Stamp, float64)
 		return false, stamp, value
 	}
 	return true, stamp, value
+}
+
+func (m *AlphaModel) getStampedValue(values []any) (bool, common.Stamp, float64) {
+
+	if len(values) < 2 {
+		return false, 0, 0
+	}
+
+	// 1. Extract Timestamp using a type switch
+	var rawStamp int64
+	switch v := values[0].(type) {
+	case float64:
+		rawStamp = int64(v)
+	case int64:
+		rawStamp = v
+	case int:
+		rawStamp = int64(v)
+	case string:
+		// Fallback in case it actually arrived as a string
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return false, 0, 0
+		}
+		rawStamp = int64(parsed)
+	default:
+		return false, 0, 0
+	}
+
+	// 2. Validate digit length mathematically instead of using strings
+	var stamp common.Stamp
+	if rawStamp >= 1_000_000_000_000 && rawStamp <= 9_999_999_999_999 {
+		// 13 digits: already in milliseconds
+		stamp = common.Stamp(rawStamp)
+	} else if rawStamp >= 1_000_000_000 && rawStamp <= 9_999_999_999 {
+		// 10 digits: convert seconds to milliseconds
+		stamp = common.Stamp(rawStamp * 1000)
+	} else {
+		// Handles the original stamp == 0 check and invalid lengths
+		return false, 0, 0
+	}
+
+	// 3. Extract Value using a type switch
+	var val float64
+	switch v := values[1].(type) {
+	case float64:
+		val = v
+	case int64:
+		val = float64(v)
+	case int:
+		val = float64(v)
+	case string:
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return false, 0, 0
+		}
+		val = parsed
+	default:
+		return false, 0, 0
+	}
+
+	return true, stamp, val
 }
 
 func (m *AlphaModel) loadHosts(names *common.Names, attributes *common.Attributes, q string, from, to time.Time) (*common.Hosts, error) {
@@ -532,6 +676,8 @@ func (m *AlphaModel) gatherHostsBySpan(data *AlphaModelData, query string, from,
 	}
 
 	gr := &errgroup.Group{}
+	gr.SetLimit(m.options.Concurrency)
+
 	mp := &sync.Map{}
 
 	for t1, t2 := range tt {
@@ -639,6 +785,8 @@ func (m *AlphaModel) gatherApplicationsBySpan(data *AlphaModelData, query string
 	}
 
 	gr := &errgroup.Group{}
+	gr.SetLimit(m.options.Concurrency)
+
 	mp := &sync.Map{}
 
 	for t1, t2 := range tt {
@@ -707,6 +855,8 @@ func (m *AlphaModel) loadModelData(data *AlphaModelData, q string, from, to time
 func (m *AlphaModel) gatherSignals(data *AlphaModelData, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]AlphaModelSeries, error) {
 
 	gr := &errgroup.Group{}
+	gr.SetLimit(m.options.Concurrency)
+
 	mp := &sync.Map{}
 
 	// gather signals
@@ -777,6 +927,8 @@ func (m *AlphaModel) gatherSignalsByQueries(data *AlphaModelData, name string, q
 	if len(labels) > 0 {
 
 		gr := &errgroup.Group{}
+		gr.SetLimit(m.options.Concurrency)
+
 		mp := &sync.Map{}
 		arr := m.sliceCommonLabels(nil, labels)
 
@@ -909,6 +1061,8 @@ func (m *AlphaModel) gatherSignalsBySpan(name string, data *AlphaModelData,
 	}
 
 	gr := &errgroup.Group{}
+	gr.SetLimit(m.options.Concurrency)
+
 	mp := &sync.Map{}
 
 	for t1, t2 := range tt {
@@ -1369,7 +1523,7 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 		}
 
 		// load from file if there is file
-		if utils.FileExists(file.path) {
+		if utils.FileExists(file.path) && !m.options.FileRewrite {
 			m.info("Loading from file %s...", file.path)
 			when := time.Now()
 			err := file.Load()
@@ -1389,8 +1543,8 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 		m.info("Training finished in %s", time.Since(when))
 
 		// for optimization reasons
-		d, _ := time.ParseDuration("45s")
-		time.Sleep(d)
+		//d, _ := time.ParseDuration("45s")
+		//time.Sleep(d)
 
 		// save to file if it's needed
 		if !utils.IsEmpty(file.path) {

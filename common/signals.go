@@ -37,12 +37,17 @@ type Names struct {
 
 type NamesItems = *xsync.Map[Hash, string]
 type Names struct {
-	items *xsync.Map[Hash, string]
+	items NamesItems
 }
 
-type AttributesItems = map[Hash]Labels
+/*type AttributesItems = map[Hash]Labels
 type Attributes struct {
 	mu    sync.Mutex
+	items AttributesItems
+}*/
+
+type AttributesItems = *xsync.Map[Hash, Labels]
+type Attributes struct {
 	items AttributesItems
 }
 
@@ -273,7 +278,7 @@ func HostSaturationKindByName(kind string) HostSaturationKind {
 
 // Attributes
 
-func (hs *Attributes) IsEmpty() bool {
+/*func (hs *Attributes) IsEmpty() bool {
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -321,10 +326,6 @@ func (hs *Attributes) AddOrUpdate(labels Labels) Hash {
 
 	lbs := hs.items[hash]
 	if lbs == nil {
-
-		hs.mu.Lock()
-		defer hs.mu.Unlock()
-
 		hs.items[hash] = labels
 	}
 	return hash
@@ -342,6 +343,67 @@ func NewAttributes() *Attributes {
 
 	return &Attributes{
 		items: make(AttributesItems),
+	}
+}*/
+
+func (as *Attributes) IsEmpty() bool {
+
+	if as.items == nil {
+		return true
+	}
+	return as.items.Size() == 0
+}
+
+func (as *Attributes) GetItems() AttributesItems {
+
+	return as.items
+}
+
+func (as *Attributes) SetItems(items AttributesItems) {
+
+	as.items = items
+}
+
+func (as *Attributes) LabelsHash(labels Labels) Hash {
+	if len(labels) == 0 {
+		return 0
+	}
+	return Map2Hash32(labels)
+}
+
+func (as *Attributes) AddOrUpdate(labels Labels) Hash {
+
+	hash := as.LabelsHash(labels)
+	if hash == 0 {
+		return hash
+	}
+
+	if as.items == nil {
+		as.items = xsync.NewMap[Hash, Labels]()
+	}
+
+	// Perform the map operation outside the heavy struct lock
+	// because xsync handles its internal concurrency safely.
+	as.items.Store(hash, labels)
+	return hash
+}
+
+func (as *Attributes) Find(hash Hash) Labels {
+
+	if as.items == nil {
+		return nil
+	}
+
+	v, ok := as.items.Load(hash)
+	if !ok {
+		return nil
+	}
+	return v
+}
+
+func NewAttributes() *Attributes {
+	return &Attributes{
+		items: xsync.NewMap[Hash, Labels](),
 	}
 }
 
@@ -418,6 +480,9 @@ func NewNames() *Names {
 
 func (ns *Names) IsEmpty() bool {
 
+	if ns.items == nil {
+		return true
+	}
 	return ns.items.Size() == 0
 }
 
@@ -432,7 +497,6 @@ func (ns *Names) SetItems(items NamesItems) {
 }
 
 func (ns *Names) NameHash(name string) Hash {
-
 	if utils.IsEmpty(name) {
 		return 0
 	}
@@ -440,7 +504,6 @@ func (ns *Names) NameHash(name string) Hash {
 }
 
 func (ns *Names) AddOrUpdate(name string) Hash {
-
 	hash := ns.NameHash(name)
 	if hash == 0 {
 		return hash
@@ -450,14 +513,17 @@ func (ns *Names) AddOrUpdate(name string) Hash {
 		ns.items = xsync.NewMap[Hash, string]()
 	}
 
-	_, ok := ns.items.Load(hash)
-	if !ok {
-		ns.items.Store(hash, name)
-	}
+	// Perform the map operation outside the heavy struct lock
+	// because xsync handles its internal concurrency safely.
+	ns.items.Store(hash, name)
 	return hash
 }
 
 func (ns *Names) Find(hash Hash) string {
+
+	if ns.items == nil {
+		return ""
+	}
 
 	v, ok := ns.items.Load(hash)
 	if !ok {
@@ -467,7 +533,6 @@ func (ns *Names) Find(hash Hash) string {
 }
 
 func NewNames() *Names {
-
 	return &Names{
 		items: xsync.NewMap[Hash, string](),
 	}

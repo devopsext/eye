@@ -110,7 +110,7 @@ func Map2Hash64(m map[string]string) uint64 {
 	return h.Sum64()
 }
 
-func Map2Hash32(m map[string]string) uint32 {
+func Map2Hash32Slow(m map[string]string) uint32 {
 
 	// 1. Return early if the map is empty to save time
 	if len(m) == 0 {
@@ -135,11 +135,65 @@ func Map2Hash32(m map[string]string) uint32 {
 	return h.Sum32()
 }
 
-func String2Hash32(s string) uint32 {
+func String2Hash32Slow(s string) uint32 {
 
 	h := fnv.New32a()
 	h.Write([]byte(s))
 	return h.Sum32()
+}
+
+const (
+	offset32 = 2166136261
+	prime32  = 16777619
+)
+
+func Map2Hash32(m map[string]string) uint32 {
+	if len(m) == 0 {
+		return 0
+	}
+
+	// 1. Allocate once and collect keys
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	// 2. Sort keys to guarantee deterministic output
+	slices.Sort(keys)
+
+	// 3. Unrolled FNV-1a calculation
+	hash := uint32(offset32)
+
+	for _, k := range keys {
+		v := m[k]
+
+		for i := 0; i < len(k); i++ {
+			hash ^= uint32(k[i])
+			hash *= prime32
+		}
+
+		hash ^= uint32('=')
+		hash *= prime32
+
+		for i := 0; i < len(v); i++ {
+			hash ^= uint32(v[i])
+			hash *= prime32
+		}
+
+		hash ^= uint32(';')
+		hash *= prime32
+	}
+
+	return hash
+}
+
+func String2Hash32(s string) uint32 {
+	hash := uint32(offset32)
+	for i := 0; i < len(s); i++ {
+		hash ^= uint32(s[i])
+		hash *= prime32
+	}
+	return hash
 }
 
 func ApplicationsCompact(apps []*Application) []*Application {

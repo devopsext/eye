@@ -10,7 +10,8 @@ import (
 )
 
 var alphaModelOptions = model.AlphaModelOptions{
-	File: envGet("ALPHA_MODEL_FILE", "").(string),
+	File:        envGet("ALPHA_MODEL_FILE", "").(string),
+	FileRewrite: envGet("ALPHA_MODEL_FILE_REWRITE", false).(bool),
 
 	AppQuery:     envFileContentExpand("ALPHA_MODEL_APP_QUERY", ""),
 	AppTolerance: envGet("ALPHA_MODEL_APP_TOLERANCE", 0).(int),
@@ -43,7 +44,8 @@ var alphaModelOptions = model.AlphaModelOptions{
 		Params:   envGet("ALPHA_MODEL_PROMETHEUS_PARAMS", "").(string),
 	},
 
-	Span: envGet("ALPHA_MODEL_PROMETHEUS_SPAN", "").(string),
+	Span:        envGet("ALPHA_MODEL_PROMETHEUS_SPAN", "").(string),
+	Concurrency: envGet("ALPHA_MODEL_PROMETHEUS_CONCURRENCY", 100).(int),
 }
 
 func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
@@ -74,6 +76,7 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 
 	flags := trainV1ModelCmd.PersistentFlags()
 	flags.StringVar(&alphaModelOptions.File, "alpha-model-file", alphaModelOptions.File, "Alpha model file path")
+	flags.BoolVar(&alphaModelOptions.FileRewrite, "alpha-model-file-rewrite", alphaModelOptions.FileRewrite, "Alpha model file rewrite")
 
 	flags.StringVar(&alphaModelOptions.AppQuery, "alpha-model-app-query", alphaModelOptions.AppQuery, "Alpha model prometheus app query")
 	flags.IntVar(&alphaModelOptions.AppTolerance, "alpha-model-app-tolerance", alphaModelOptions.AppTolerance, "Alpha model prometheus app tolerance")
@@ -105,6 +108,7 @@ func NewTrainCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&alphaModelOptions.Prometheus.Params, "alpha-model-prometheus-params", alphaModelOptions.Prometheus.Params, "Alpha model prometheus params")
 
 	flags.StringVar(&alphaModelOptions.Span, "alpha-model-prometheus-span", alphaModelOptions.Span, "Alpha model prometheus span")
+	flags.IntVar(&alphaModelOptions.Concurrency, "alpha-model-prometheus-concurrency", alphaModelOptions.Concurrency, "Alpha model prometheus concurrency")
 
 	trainCmd.AddCommand(&trainV1ModelCmd)
 
