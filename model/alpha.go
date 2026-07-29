@@ -1279,14 +1279,26 @@ func (m *AlphaModel) hostSignalsOverData(
 
 func (m *AlphaModel) train(data *AlphaModelData) error {
 
-	// 0. gather application and host infos +++
-	// 1. gather incoming traffic, errors, latency per application +++
-	// 2. gather outgoing traffic, errors, latency per application +++
-	// 3. gather saturation per application +++
-	// 4. make application signals (set application and host) based on incomings +++
-	// 5. add application signals (set application and host) based on outgoings & saturation +++
-	// 6. add saturation to host signals +++
-	// 7. add frontends & backends to application signals +++
+	/* this could be saved to file */
+	//  0. gather application and host infos +++
+	//  1. gather incoming traffic, errors, latency per application +++
+	//  2. gather outgoing traffic, errors, latency per application +++
+	//  3. gather saturation per application +++
+	//  4. make application signals (set application and host) based on incomings +++
+	//  5. add application signals (set application and host) based on outgoings & saturation +++
+	//  6. add saturation to host signals +++
+	//  7. add frontends & backends to application signals ---
+	//  8. load downtime periods for exclusion per application
+	//  9. prepare application signals weighted data: rps, errors, latency, saturation for iforest per kind
+	// 10. train iforest model based on weighted data and calculate anomaly bound per each application signals
+	// 11. train model on moving window 4 weeks
+
+	/* this could be checked periodically or on incoming requests */
+	// 0. load model and handle requests
+	// 1. make prediction over each application signals on scheduler or by request
+	// 2. find out anomaly in applcation signals, check outgoing dependecies, make predictions by them as well
+	// 3. provide metrics regarding anomalies
+	// 4. send events, trigger AI & mcp (could be via chatbot) to find out why on certain application (raw logs, metrics and errors)
 
 	if utils.IsEmpty(m.options.Prometheus.From) {
 		return fmt.Errorf("Cannot train due to from time is not defined")
