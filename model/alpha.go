@@ -61,12 +61,20 @@ type AlphaModelOptions struct {
 	Concurrency int
 }
 
+type AlphaModelSignals = map[common.Stamp]map[common.Hash]float64
+
 type AlphaModel struct {
 	mu            sync.Mutex
 	options       AlphaModelOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	ready         bool
+
+	names        *common.Names
+	attributes   *common.Attributes
+	hosts        *common.Hosts
+	applications *common.Applications
+	signals      AlphaModelSignals
 }
 
 type AlphaModelData struct {
@@ -1167,15 +1175,15 @@ func (m *AlphaModel) getApplicationHost(
 type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash)
 
 func (m *AlphaModel) applicationSignalsOverData(
-	in map[common.SignalKind]AlphaModelSeries,
-	out *AlphaModelData,
+	series map[common.SignalKind]AlphaModelSeries,
+	data *AlphaModelData,
 	callback applicationSignalsOverDataCallback) {
 
-	for kind, iv := range in {
-		for stamp, data := range iv {
-			for _, v := range data {
+	for kind, iv := range series {
+		for stamp, sdata := range iv {
+			for _, v := range sdata {
 
-				lbs := out.attributes.Find(v.Hash)
+				lbs := data.attributes.Find(v.Hash)
 				if lbs == nil {
 					continue
 				}
@@ -1183,18 +1191,18 @@ func (m *AlphaModel) applicationSignalsOverData(
 				appName := lbs[common.ApplicationSignalName]
 				hostName := lbs[common.ApplicationSignalHost]
 
-				appHost := out.measurements.BuildApplicationSignalName(appName, hostName)
-				appHostHash := out.names.AddOrUpdate(appHost)
+				appHost := data.measurements.BuildApplicationSignalName(appName, hostName)
+				appHostHash := data.names.AddOrUpdate(appHost)
 
-				as := out.measurements.FindApplicationSignal(stamp, appHostHash)
+				as := data.measurements.FindApplicationSignal(stamp, appHostHash)
 				if as == nil {
-					found, appHash, hostHash := m.getApplicationHost(out, stamp, appName, hostName, appHostHash)
+					found, appHash, hostHash := m.getApplicationHost(data, stamp, appName, hostName, appHostHash)
 					if !found {
 						continue
 					}
 					as = common.NewApplicationSignal(appHostHash, appHash, hostHash)
 				}
-				out.measurements.AddOrUpdate(stamp, as)
+				data.measurements.AddOrUpdate(stamp, as)
 				callback(as, kind, v.Value, v.Hash)
 			}
 		}
@@ -1269,9 +1277,8 @@ func (m *AlphaModel) hostSignalsOverData(
 	*/
 }
 
-func (m *AlphaModel) train(data *AlphaModelData) error {
+func (m *AlphaModel) Gather(data *AlphaModelData, from, to time.Time, span time.Duration) error {
 
-	/* this could be saved to file */
 	//  0. gather application and host infos +++
 	//  1. gather incoming traffic, errors, latency per application +++
 	//  2. gather outgoing traffic, errors, latency per application +++
@@ -1280,37 +1287,6 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	//  5. add application signals (set application and host) based on outgoings & saturation +++
 	//  6. add saturation to host signals +++
 	//  7. add frontends & backends to application signals ---
-	//  8. load downtime periods for exclusion per application (issues, incidents & releases)
-	//  9. prepare application signals weighted data: rps, errors, latency, saturation for iforest per kind
-	// 10. train iforest model based on weighted data and calculate anomaly bound per each application signals
-	// 11. train model on moving window 4 weeks
-
-	/* this could be checked periodically or on incoming requests */
-	// 0. load model and handle requests
-	// 1. make prediction over each application signals on scheduler or by request
-	// 2. find out anomaly in applcation signals, check outgoing dependecies, make predictions by them as well
-	// 3. provide metrics regarding anomalies
-	// 4. send events, trigger AI & mcp (could be via chatbot) to find out why on certain application (raw logs, metrics and errors)
-	// 5. group anomalies in one if there are simultenious
-
-	if utils.IsEmpty(m.options.Prometheus.From) {
-		return fmt.Errorf("Cannot train due to from time is not defined")
-	}
-
-	from := m.string2Time(m.options.Prometheus.From)
-
-	to := time.Now()
-	if !utils.IsEmpty(m.options.Prometheus.To) {
-		to = m.string2Time(m.options.Prometheus.To)
-	}
-
-	span := to.Sub(from)
-	if !utils.IsEmpty(m.options.Span) {
-		s, err := time.ParseDuration(m.options.Span)
-		if err == nil {
-			span = s
-		}
-	}
 
 	m.info("Gathering hosts (%s / %s, span: %s)...", from, to, span)
 
@@ -1335,13 +1311,13 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	queries[common.SignalErrors] = m.options.AppSignalInErrorsQuery
 	queries[common.SignalLatency] = m.options.AppSignalInLatencyQuery
 
-	mData, err := m.gatherSignalsBySpan("apps incoming", data, queries, appLabels, from, to, span)
+	series, err := m.gatherSignalsBySpan("apps incoming", data, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	// fill up app incomings
-	m.applicationSignalsOverData(mData, data,
+	m.applicationSignalsOverData(series, data,
 		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
@@ -1360,13 +1336,13 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
 	queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
 
-	mData, err = m.gatherSignalsBySpan("apps outgoing & saturation", data, queries, appLabels, from, to, span)
+	series, err = m.gatherSignalsBySpan("apps outgoing & saturation", data, queries, appLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	// fill up app outgoings and saturations
-	m.applicationSignalsOverData(mData, data,
+	m.applicationSignalsOverData(series, data,
 		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
@@ -1386,13 +1362,13 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	queries = make(map[common.SignalKind]string)
 	queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
 
-	mData, err = m.gatherSignalsBySpan("hosts", data, queries, hostLabels, from, to, span)
+	series, err = m.gatherSignalsBySpan("hosts", data, queries, hostLabels, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	// fill up host saturations
-	m.hostSignalsOverData(mData, data,
+	m.hostSignalsOverData(series, data,
 		func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
 			switch kind {
@@ -1418,6 +1394,27 @@ func (m *AlphaModel) Ready() bool {
 
 func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 
+	//  8. load downtime periods for exclusion per application (issues, incidents & releases)
+	//  9. prepare application signals weighted data: rps, errors, latency, saturation for iforest per kind
+	// 10. train iforest model based on weighted data and calculate anomaly bound per each application signals
+	// 11. train model on moving window 4 weeks
+
+	/* this could be checked periodically or on incoming requests */
+	// 0. load model and handle requests
+	// 1. make prediction over each application signals on scheduler or by request
+	// 2. find out anomaly in applcation signals, check outgoing dependecies, make predictions by them as well
+	// 3. provide metrics regarding anomalies
+	// 4. send events, trigger AI & mcp (could be via chatbot) to find out why on certain application (raw logs, metrics and errors)
+	// 5. group anomalies in one if there are simultenious
+
+	// check retention
+	// if data is over the retention, delete until retention limit
+	// if data within the limit, nothing should be done
+	// continue fulfill the data
+	// calculate anomaly bound for each application/host
+	// possibly save data to path
+	// possible load data from path
+
 	if !m.mu.TryLock() {
 		return
 	}
@@ -1428,21 +1425,49 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 
 	m.info("Training...")
 
+	if utils.IsEmpty(m.options.Prometheus.From) {
+		m.error("Cannot train due to from is not defined")
+		return
+	}
+
+	from := m.string2Time(m.options.Prometheus.From)
+
+	to := time.Now()
+	if !utils.IsEmpty(m.options.Prometheus.To) {
+		to = m.string2Time(m.options.Prometheus.To)
+	}
+
+	span := to.Sub(from)
+	if !utils.IsEmpty(m.options.Span) {
+		s, err := time.ParseDuration(m.options.Span)
+		if err == nil {
+			span = s
+		}
+	}
+
 	data := &AlphaModelData{
-		attributes:   common.NewAttributes(),
-		names:        common.NewNames(),
-		hosts:        common.NewHosts(),
-		applications: common.NewApplications(),
+		attributes:   m.attributes,
+		names:        m.names,
+		hosts:        m.hosts,
+		applications: m.applications,
 		measurements: common.NewMeasurements(),
 	}
 
 	when := time.Now()
-	err := m.train(data)
+
+	m.info("Gathering data...")
+	err := m.Gather(data, from, to, span)
 	if err != nil {
-		m.error("Training finished with error: %s", err)
+		m.error("Gathering finished with error: %s", err)
 		return
 	}
-	m.info("Training finished in %s", time.Since(when))
+	m.info("Gathering finished in %s", time.Since(when))
+
+	for _, _ := range data.measurements.GetItems() {
+		//
+	}
+
+	// ...training
 }
 
 func NewAlphaModel(options AlphaModelOptions, observability *common.Observability) *AlphaModel {
@@ -1451,6 +1476,10 @@ func NewAlphaModel(options AlphaModelOptions, observability *common.Observabilit
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
+		attributes:    common.NewAttributes(),
+		names:         common.NewNames(),
+		hosts:         common.NewHosts(),
+		applications:  common.NewApplications(),
 	}
 }
 
