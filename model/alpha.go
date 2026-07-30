@@ -33,7 +33,7 @@ type AlphaModelSeriesValue struct {
 type AlphaModelSeries = map[common.Stamp][]AlphaModelSeriesValue
 
 type AlphaModelOptions struct {
-	File        string
+	FilePath    string
 	FileRewrite bool
 
 	AppQuery                 string
@@ -56,13 +56,17 @@ type AlphaModelOptions struct {
 
 	Prometheus  toolsVendors.PrometheusOptions
 	Span        string
+	Retention   string
+	Schedule    string
 	Concurrency int
 }
 
 type AlphaModel struct {
+	mu            sync.Mutex
 	options       AlphaModelOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
+	ready         bool
 }
 
 type AlphaModelData struct {
@@ -408,10 +412,6 @@ func (mf *AlphaModelFile) Save(version uint16) error {
 
 // AlphaModel
 
-func (m *AlphaModel) Name() string {
-	return "AlphaModel"
-}
-
 func (m *AlphaModel) info(msg any, args ...any) {
 	gid := utils.GoRoutineID()
 	m.logger.Info(fmt.Sprintf("%v: [%d] %v", m.Name(), gid, msg), args...)
@@ -504,46 +504,6 @@ func (m *AlphaModel) loadData(q string, from, to time.Time) (*common.PrometheusR
 		return nil, nil
 	}
 	return res.Data, nil
-}
-
-func (m *AlphaModel) getStampedValueSlow(values []any) (bool, common.Stamp, float64) {
-
-	var stamp common.Stamp = 0
-	var value float64 = 0.0
-
-	if len(values) < 2 {
-		return false, stamp, value
-	}
-
-	// get stamp
-	s := fmt.Sprintf("%.0f", values[0])
-	s = strings.ReplaceAll(s, ".", "")
-	if len(s) == 13 { // unix millisec
-		i, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			return false, stamp, value
-		}
-		stamp = common.Stamp(i)
-	} else if len(s) == 10 { // unix sec
-		i, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			return false, stamp, value
-		}
-		stamp = common.Stamp(i * 1000) // unix millisec
-	}
-
-	// get value
-	s = fmt.Sprintf("%s", values[1])
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return false, stamp, value
-	}
-	value = f
-
-	if stamp == 0 {
-		return false, stamp, value
-	}
-	return true, stamp, value
 }
 
 func (m *AlphaModel) getStampedValue(values []any) (bool, common.Stamp, float64) {
@@ -1320,7 +1280,7 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	//  5. add application signals (set application and host) based on outgoings & saturation +++
 	//  6. add saturation to host signals +++
 	//  7. add frontends & backends to application signals ---
-	//  8. load downtime periods for exclusion per application
+	//  8. load downtime periods for exclusion per application (issues, incidents & releases)
 	//  9. prepare application signals weighted data: rps, errors, latency, saturation for iforest per kind
 	// 10. train iforest model based on weighted data and calculate anomaly bound per each application signals
 	// 11. train model on moving window 4 weeks
@@ -1331,6 +1291,7 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 	// 2. find out anomaly in applcation signals, check outgoing dependecies, make predictions by them as well
 	// 3. provide metrics regarding anomalies
 	// 4. send events, trigger AI & mcp (could be via chatbot) to find out why on certain application (raw logs, metrics and errors)
+	// 5. group anomalies in one if there are simultenious
 
 	if utils.IsEmpty(m.options.Prometheus.From) {
 		return fmt.Errorf("Cannot train due to from time is not defined")
@@ -1392,229 +1353,96 @@ func (m *AlphaModel) train(data *AlphaModelData) error {
 				as.IncomingLatency.AddOrUpdate(value, hash)
 			}
 		})
-	/*
-		queries = make(map[common.SignalKind]string)
-		queries[common.SignalTraffic] = m.options.AppSignalOutTrafficQuery
-		queries[common.SignalErrors] = m.options.AppSignalOutErrorsQuery
-		queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
-		queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
 
-		mData, err = m.gatherSignalsBySpan("apps outgoing & saturation", data.Hashes, queries, appLabels, from, to, span)
-		if err != nil {
-			return err
-		}
+	queries = make(map[common.SignalKind]string)
+	queries[common.SignalTraffic] = m.options.AppSignalOutTrafficQuery
+	queries[common.SignalErrors] = m.options.AppSignalOutErrorsQuery
+	queries[common.SignalLatency] = m.options.AppSignalOutLatencyQuery
+	queries[common.SignalSaturation] = m.options.AppSignalSaturationQuery
 
-		// fill up app outgoings and saturations
-		m.applicationSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts, data.Applications,
-			func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
+	mData, err = m.gatherSignalsBySpan("apps outgoing & saturation", data, queries, appLabels, from, to, span)
+	if err != nil {
+		return err
+	}
 
-				switch kind {
-				case common.SignalTraffic:
-					ot := as.GetOutgoingTraffic()
-					if ot != nil {
-						ot.AddOrUpdate(value, hash)
-					}
-				case common.SignalErrors:
-					oe := as.GetOutgoingErrors()
-					if oe != nil {
-						oe.AddOrUpdate(value, hash)
-					}
-				case common.SignalLatency:
-					ol := as.GetOutgoingLatency()
-					if ol != nil {
-						ol.AddOrUpdate(value, hash)
-					}
-				case common.SignalSaturation:
-					st := as.GetSaturation()
-					if st != nil {
-						st.AddOrUpdate(value, hash)
-					}
-				}
-			})
+	// fill up app outgoings and saturations
+	m.applicationSignalsOverData(mData, data,
+		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
 
-		hostLabels := utils.MapGetKeyValuesEx(m.options.HostSignalCommonLabels, ";", "=")
-
-		queries = make(map[common.SignalKind]string)
-		queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
-
-		mData, err = m.gatherSignalsBySpan("hosts", data.Hashes, queries, hostLabels, from, to, span)
-		if err != nil {
-			return err
-		}
-
-		// fill up host saturations
-		m.hostSignalsOverData(mData, data.Measurements, data.Hashes, data.Hosts,
-			func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
-
-				switch kind {
-				case common.SignalSaturation:
-					hs.Saturation().AddOrUpdate(value, hash)
-				}
-			})
-	*/
-	//last := measurements.LastStamp()
-
-	/*
-		// all last application signals
-		appSignals := measurements.ApplicationSignalsByNames(last, nil)
-		if !utils.IsEmpty(appSignals) {
-
-			for _, as := range appSignals {
-
-				n := as.Name()
-				// show frontends
-				frontedns := as.Frontends(last)
-				for _, f := range frontedns {
-					m.debug("Frontend %s => %s", f.Name(), n)
-				}
-
-				// show backends
-				backends := as.Backends(last)
-				for _, b := range backends {
-					m.debug("Backend %s => %s", n, b.Name())
-				}
+			switch kind {
+			case common.SignalTraffic:
+				as.OutgoingTraffic.AddOrUpdate(value, hash)
+			case common.SignalErrors:
+				as.OutgoingErrors.AddOrUpdate(value, hash)
+			case common.SignalLatency:
+				as.OutgoingLatency.AddOrUpdate(value, hash)
+			case common.SignalSaturation:
+				as.Saturation.AddOrUpdate(value, hash)
 			}
-		}
-	*/
+		})
 
-	/*
-			// all last host signals
-			hostSignals := measurements.HostSignals(last, nil)
-			if !utils.IsEmpty(hostSignals) {
+	hostLabels := utils.MapGetKeyValuesEx(m.options.HostSignalCommonLabels, ";", "=")
 
-				for _, hs := range hostSignals {
-					m.debug(hs.Name())
-				}
+	queries = make(map[common.SignalKind]string)
+	queries[common.SignalSaturation] = m.options.HostSignalSaturationQuery
+
+	mData, err = m.gatherSignalsBySpan("hosts", data, queries, hostLabels, from, to, span)
+	if err != nil {
+		return err
+	}
+
+	// fill up host saturations
+	m.hostSignalsOverData(mData, data,
+		func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
+
+			switch kind {
+			case common.SignalSaturation:
+				hs.Saturation.AddOrUpdate(value, hash)
 			}
-
-			// all last applications
-			apps := measurements.Applications(last, nil)
-			if !utils.IsEmpty(apps) {
-
-				for _, a := range apps {
-					m.debug("Application %s", a.Name())
-				}
-			}
-
-			// all last hosts
-			hsts := measurements.Hosts(last, nil)
-			if !utils.IsEmpty(hsts) {
-
-				for _, h := range hsts {
-					m.debug("Host %s", h.Name())
-				}
-			}
-
-
-
-		deps := measurements.DependenciesByNames(last, []string{"other"})
-		if !utils.IsEmpty(deps) {
-
-			for a, arr := range deps.Items() {
-				hosts := m.hostNames(measurements, last, a)
-				m.debugDependecies(measurements, last, a.Name(), "", arr, hosts)
-			}
-		}*/
+		})
 
 	return nil
 }
 
-/*
-func (m *AlphaModel) hostNames(measurements *common.Measurements, stamp common.Stamp, app *common.Application) []string {
+func (m *AlphaModel) Name() string {
+	return "AlphaModel"
+}
 
-		hosts := measurements.Hosts(stamp, []*common.Application{app})
+func (m *AlphaModel) Schedule() string {
+	return m.options.Schedule
+}
 
-		arr := []string{}
-		for _, h := range hosts {
-			hName := h.Name()
-			if !utils.Contains(arr, hName) {
-				arr = append(arr, hName)
-			}
-		}
-		if len(arr) > 0 {
-			return arr
-		}
+func (m *AlphaModel) Ready() bool {
+	return m.ready
+}
 
-		return []string{}
-	}
-
-func (m *AlphaModel) debugDependecies(measurements *common.Measurements, stamp common.Stamp, name, parent string, deps *common.Dependencies, hosts []string) {
-
-		if deps == nil {
-			m.debug("Dependency graph %s => %s (%s)", name, parent, strings.Join(hosts, ","))
-			return
-		}
-		for a, arr := range deps.Items() {
-
-			aName := a.Name()
-			if parent != "" {
-				aName = fmt.Sprintf("%s/%s", parent, aName)
-			}
-			hosts := m.hostNames(measurements, stamp, a)
-			m.debugDependecies(measurements, stamp, name, aName, arr, hosts)
-		}
-	}
-*/
 func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 
+	if !m.mu.TryLock() {
+		return
+	}
+	defer m.mu.Unlock()
+
 	wg.Add(1)
-	go func(swg *sync.WaitGroup) {
+	defer wg.Done()
 
-		defer swg.Done()
+	m.info("Training...")
 
-		m.info("Training...")
+	data := &AlphaModelData{
+		attributes:   common.NewAttributes(),
+		names:        common.NewNames(),
+		hosts:        common.NewHosts(),
+		applications: common.NewApplications(),
+		measurements: common.NewMeasurements(),
+	}
 
-		data := &AlphaModelData{
-			attributes:   common.NewAttributes(),
-			names:        common.NewNames(),
-			hosts:        common.NewHosts(),
-			applications: common.NewApplications(),
-			measurements: common.NewMeasurements(),
-		}
-
-		file := &AlphaModelFile{
-			model: m,
-			path:  m.options.File,
-			data:  data,
-		}
-
-		// load from file if there is file
-		if utils.FileExists(file.path) && !m.options.FileRewrite {
-			m.info("Loading from file %s...", file.path)
-			when := time.Now()
-			err := file.Load()
-			if err != nil {
-				m.error("Loading from file has error: %s", err)
-			} else {
-				m.info("Loading from file finished in %s", time.Since(when))
-			}
-		}
-
-		when := time.Now()
-		err := m.train(data)
-		if err != nil {
-			m.error("Training finished with error: %s", err)
-			return
-		}
-		m.info("Training finished in %s", time.Since(when))
-
-		// for optimization reasons
-		//d, _ := time.ParseDuration("45s")
-		//time.Sleep(d)
-
-		// save to file if it's needed
-		if !utils.IsEmpty(file.path) {
-			m.info("Saving to file %s...", file.path)
-			when := time.Now()
-			err := file.Save(AlphaModelFileVersionV1)
-			if err != nil {
-				m.error("Saving to file has error: %s", err)
-			} else {
-				m.info("Saving to file finished in %s", time.Since(when))
-			}
-		}
-
-	}(wg)
+	when := time.Now()
+	err := m.train(data)
+	if err != nil {
+		m.error("Training finished with error: %s", err)
+		return
+	}
+	m.info("Training finished in %s", time.Since(when))
 }
 
 func NewAlphaModel(options AlphaModelOptions, observability *common.Observability) *AlphaModel {

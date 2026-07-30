@@ -7,8 +7,10 @@ import (
 
 type Model interface {
 	Name() string
+	Schedule() string
 	Train(wg *sync.WaitGroup)
-	Start(wg *sync.WaitGroup)
+	Ready() bool
+	// Start(wg *sync.WaitGroup)
 }
 
 type Models struct {
@@ -36,7 +38,7 @@ func (ms *Models) Find(name string) Model {
 	return nil
 }
 
-func (ms *Models) Start(wg *sync.WaitGroup) {
+/*func (ms *Models) Start(wg *sync.WaitGroup) {
 
 	for _, i := range ms.list {
 
@@ -44,7 +46,7 @@ func (ms *Models) Start(wg *sync.WaitGroup) {
 			(i).Start(wg)
 		}
 	}
-}
+}*/
 
 func NewModels() *Models {
 	return &Models{}

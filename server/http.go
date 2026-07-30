@@ -114,7 +114,7 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 			// make pool of CA
 			caPool = x509.NewCertPool()
 			if !caPool.AppendCertsFromPEM(ca) {
-				h.logger.Debug("HTTP Server CA is invalid")
+				h.logger.Debug("Http Server CA is invalid")
 			}
 		}
 

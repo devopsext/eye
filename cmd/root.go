@@ -138,7 +138,6 @@ func Execute() {
 		},
 	})
 
-	rootCmd.AddCommand(NewTrainCommand(&mainWG))
 	rootCmd.AddCommand(NewServerCommand(&mainWG))
 
 	if err := rootCmd.Execute(); err != nil {

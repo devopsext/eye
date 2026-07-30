@@ -1,0 +1,203 @@
+/*
+func (m *AlphaModel) Train(wg *sync.WaitGroup) {
+
+	wg.Add(1)
+	go func(swg *sync.WaitGroup) {
+
+		defer swg.Done()
+
+		m.info("Training...")
+
+		data := &AlphaModelData{
+			attributes:   common.NewAttributes(),
+			names:        common.NewNames(),
+			hosts:        common.NewHosts(),
+			applications: common.NewApplications(),
+			measurements: common.NewMeasurements(),
+		}
+
+		file := &AlphaModelFile{
+			model: m,
+			path:  m.options.FilePath,
+			data:  data,
+		}
+
+		// load from file if there is file
+		if utils.FileExists(file.path) && !m.options.FileRewrite {
+			m.info("Loading from file %s...", file.path)
+			when := time.Now()
+			err := file.Load()
+			if err != nil {
+				m.error("Loading from file has error: %s", err)
+			} else {
+				m.info("Loading from file finished in %s", time.Since(when))
+			}
+		}
+
+		when := time.Now()
+		err := m.train(data)
+		if err != nil {
+			m.error("Training finished with error: %s", err)
+			return
+		}
+		m.info("Training finished in %s", time.Since(when))
+
+		// for optimization reasons
+		//d, _ := time.ParseDuration("45s")
+		//time.Sleep(d)
+
+		// save to file if it's needed
+		if !utils.IsEmpty(file.path) {
+			m.info("Saving to file %s...", file.path)
+			when := time.Now()
+			err := file.Save(AlphaModelFileVersionV1)
+			if err != nil {
+				m.error("Saving to file has error: %s", err)
+			} else {
+				m.info("Saving to file finished in %s", time.Since(when))
+			}
+		}
+
+	}(wg)
+} */
+
+func (m *AlphaModel) getStampedValueSlow(values []any) (bool, common.Stamp, float64) {
+
+	var stamp common.Stamp = 0
+	var value float64 = 0.0
+
+	if len(values) < 2 {
+		return false, stamp, value
+	}
+
+	// get stamp
+	s := fmt.Sprintf("%.0f", values[0])
+	s = strings.ReplaceAll(s, ".", "")
+	if len(s) == 13 { // unix millisec
+		i, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return false, stamp, value
+		}
+		stamp = common.Stamp(i)
+	} else if len(s) == 10 { // unix sec
+		i, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return false, stamp, value
+		}
+		stamp = common.Stamp(i * 1000) // unix millisec
+	}
+
+	// get value
+	s = fmt.Sprintf("%s", values[1])
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return false, stamp, value
+	}
+	value = f
+
+	if stamp == 0 {
+		return false, stamp, value
+	}
+	return true, stamp, value
+}
+
+	//last := measurements.LastStamp()
+
+	/*
+		// all last application signals
+		appSignals := measurements.ApplicationSignalsByNames(last, nil)
+		if !utils.IsEmpty(appSignals) {
+
+			for _, as := range appSignals {
+
+				n := as.Name()
+				// show frontends
+				frontedns := as.Frontends(last)
+				for _, f := range frontedns {
+					m.debug("Frontend %s => %s", f.Name(), n)
+				}
+
+				// show backends
+				backends := as.Backends(last)
+				for _, b := range backends {
+					m.debug("Backend %s => %s", n, b.Name())
+				}
+			}
+		}
+	*/
+
+	/*
+			// all last host signals
+			hostSignals := measurements.HostSignals(last, nil)
+			if !utils.IsEmpty(hostSignals) {
+
+				for _, hs := range hostSignals {
+					m.debug(hs.Name())
+				}
+			}
+
+			// all last applications
+			apps := measurements.Applications(last, nil)
+			if !utils.IsEmpty(apps) {
+
+				for _, a := range apps {
+					m.debug("Application %s", a.Name())
+				}
+			}
+
+			// all last hosts
+			hsts := measurements.Hosts(last, nil)
+			if !utils.IsEmpty(hsts) {
+
+				for _, h := range hsts {
+					m.debug("Host %s", h.Name())
+				}
+			}
+
+
+
+		deps := measurements.DependenciesByNames(last, []string{"other"})
+		if !utils.IsEmpty(deps) {
+
+			for a, arr := range deps.Items() {
+				hosts := m.hostNames(measurements, last, a)
+				m.debugDependecies(measurements, last, a.Name(), "", arr, hosts)
+			}
+		}*/
+
+/*
+func (m *AlphaModel) hostNames(measurements *common.Measurements, stamp common.Stamp, app *common.Application) []string {
+
+		hosts := measurements.Hosts(stamp, []*common.Application{app})
+
+		arr := []string{}
+		for _, h := range hosts {
+			hName := h.Name()
+			if !utils.Contains(arr, hName) {
+				arr = append(arr, hName)
+			}
+		}
+		if len(arr) > 0 {
+			return arr
+		}
+
+		return []string{}
+	}
+
+func (m *AlphaModel) debugDependecies(measurements *common.Measurements, stamp common.Stamp, name, parent string, deps *common.Dependencies, hosts []string) {
+
+		if deps == nil {
+			m.debug("Dependency graph %s => %s (%s)", name, parent, strings.Join(hosts, ","))
+			return
+		}
+		for a, arr := range deps.Items() {
+
+			aName := a.Name()
+			if parent != "" {
+				aName = fmt.Sprintf("%s/%s", parent, aName)
+			}
+			hosts := m.hostNames(measurements, stamp, a)
+			m.debugDependecies(measurements, stamp, name, aName, arr, hosts)
+		}
+	}
+*/
