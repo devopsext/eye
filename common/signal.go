@@ -10,7 +10,7 @@ import (
 )
 
 type Labels = map[string]string
-type Stamp = uint64
+type Stamp = uint64 // in milliseconds
 
 type SignalKind = int
 
@@ -174,7 +174,6 @@ const (
 
 type HostSignal struct {
 	Name       Hash
-	host       *Host
 	Saturation HostSaturation
 }
 
@@ -1321,12 +1320,16 @@ func (hs *HostSignal) GetName() Hash {
 	return hs.Name
 }
 
-func (hs *HostSignal) GetHost() *Host {
-	return hs.host
-}
-
 func (hs *HostSignal) Merge(s Signal) {
 	// should check all fields of HostSignal
+}
+
+func NewHostSignal(name Hash) *HostSignal {
+
+	return &HostSignal{
+
+		Name: name,
+	}
 }
 
 // ApplicationSignal
@@ -1681,6 +1684,7 @@ func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*
 	return ms.unsafeApplicationSignals(stamp, apps)
 }*/
 
+/*
 func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
 
 	ms.mu.Lock()
@@ -1705,7 +1709,7 @@ func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
 		if !ok {
 			continue
 		}
-		_, exists := mm[hs.host]
+		_, exists := mm[hs.Host]
 		if len(hosts) == 0 || exists {
 			if !utils.Contains(m, hs) {
 				m = append(m, hs)
@@ -1714,6 +1718,7 @@ func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
 	}
 	return m
 }
+*/
 
 /*func (ms *Measurements) HostSignalsByNames(stamp Stamp, names []string) []*HostSignal {
 
