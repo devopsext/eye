@@ -8,6 +8,8 @@ import (
 	"maps"
 	"math"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,8 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/sync/errgroup"
+
+	iforest "github.com/e-XpertSolutions/go-iforest/iforest"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -62,9 +66,16 @@ type AlphaModelOptions struct {
 	Concurrency int
 }
 
-type AlphaModelSignals struct {
+type AlphaModelHistoryItems = map[common.Hash]map[common.Stamp][]float64
+type AlphaModelHistory struct {
 	mu    sync.Mutex
-	Items map[common.Hash][][]float64
+	items AlphaModelHistoryItems
+}
+
+type AlphaModelForestsItems = map[common.Hash]*iforest.Forest
+type AlphaModelForests struct {
+	mu    sync.Mutex
+	items map[common.Hash]*iforest.Forest
 }
 
 type AlphaModel struct {
@@ -78,16 +89,9 @@ type AlphaModel struct {
 	attributes   *common.Attributes
 	hosts        *common.Hosts
 	applications *common.Applications
-	signals      *AlphaModelSignals
+	history      *AlphaModelHistory
+	forests      *AlphaModelForests
 }
-
-/*type AlphaModelData struct {
-	names        *common.Names
-	attributes   *common.Attributes
-	hosts        *common.Hosts
-	applications *common.Applications
-	measurements *common.Measurements
-}*/
 
 type AlphaModelFileHeader struct {
 	Version uint16
@@ -118,7 +122,6 @@ type AlphaModelFileMeasurements struct {
 type AlphaModelFile struct {
 	model *AlphaModel
 	path  string
-	//data  *AlphaModelData
 }
 
 const (
@@ -1429,8 +1432,6 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
 
-	m.info("Training...")
-
 	if utils.IsEmpty(m.options.Prometheus.From) {
 		m.error("Cannot train due to from is not defined")
 		return
@@ -1463,9 +1464,36 @@ func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 	}
 	m.info("Gathering finished in %s", time.Since(when))
 
-	m.signals.AddOrUpdate(measurements)
+	l1, l2 := m.history.Sizes()
+	min, max := m.history.Times()
+	tmin := time.UnixMilli(int64(min))
+	tmax := time.UnixMilli(int64(max))
 
-	// ...training
+	m.debug("Initial history for %d items / %d samples (min: %s, max: %s, diff: %s)", l1, l2, tmin, tmax, tmax.Sub(tmin))
+
+	m.history.AddOrUpdate(measurements)
+
+	l1, l2 = m.history.Sizes()
+	min, max = m.history.Times()
+	tmin = time.UnixMilli(int64(min))
+	tmax = time.UnixMilli(int64(max))
+	m.debug("Updated history for %d items / %d samples (min: %s, max: %s, diff: %s)", l1, l2, tmin, tmax, tmax.Sub(tmin))
+
+	m.info("Training data...")
+
+	when = time.Now()
+
+	m.debug("Initial forest for %d items", len(m.forests.GetItems()))
+	m.forests.Train(m.history)
+	m.debug("Updated forest for %d items", len(m.forests.GetItems()))
+
+	// release memory for measurements
+	measurements = nil
+	runtime.GC()
+	debug.FreeOSMemory()
+
+	m.info("Training finished in %s", time.Since(when))
+	// time.Sleep(time.Duration(time.Minute * 10))
 }
 
 func NewAlphaModel(options AlphaModelOptions, observability *common.Observability) *AlphaModel {
@@ -1478,13 +1506,153 @@ func NewAlphaModel(options AlphaModelOptions, observability *common.Observabilit
 		names:         common.NewNames(),
 		hosts:         common.NewHosts(),
 		applications:  common.NewApplications(),
-		signals:       &AlphaModelSignals{},
+		history:       NewAlphaModelHistory(),
+		forests:       NewAlphaModelForests(),
 	}
 }
 
-// AlphaModelSignals
+// AlphaModelHistory
 
-func (s *AlphaModelSignals) getStampFeatures(stamp time.Time) (float64, float64, float64, float64) {
+func (h *AlphaModelHistory) GetItems() AlphaModelHistoryItems {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.items
+}
+
+func (h *AlphaModelHistory) Sizes() (int, int) {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r := 0
+	for _, v := range h.items {
+		r += len(v)
+	}
+	return len(h.items), r
+}
+
+func (h *AlphaModelHistory) Times() (common.Stamp, common.Stamp) {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	min := common.Stamp(math.MaxUint64)
+	max := common.Stamp(0)
+	for _, v := range h.items {
+
+		for s, _ := range v {
+
+			if s > max {
+				max = s
+			}
+
+			if s < min {
+				min = s
+			}
+		}
+	}
+	return min, max
+}
+
+func (h *AlphaModelHistory) getApplicationSignalData(signal *common.ApplicationSignal) []float64 {
+
+	inTraffic := 0.0
+	inTrafficKind := 0.0
+	inErrors := 0.0
+	inLatency := 0.0
+	outTraffic := 0.0
+	outTrafficKind := 0.0
+	outErrors := 0.0
+	outLatency := 0.0
+	saturation := 0.0
+	saturationKind := 0.0
+
+	data := []float64{
+		inTraffic, inTrafficKind, inErrors, inLatency,
+		outTraffic, outTrafficKind, outErrors, outLatency,
+		saturation, saturationKind,
+	}
+
+	return data
+}
+
+func (h *AlphaModelHistory) getHostSignalData(signal *common.HostSignal) []float64 {
+
+	cpuSaturation := 0.0
+	memorySaturation := 0.0
+
+	data := []float64{
+		cpuSaturation, memorySaturation,
+	}
+
+	return data
+}
+
+func (h *AlphaModelHistory) getSignalData(signal common.Signal) []float64 {
+
+	var r []float64
+
+	as, ok := signal.(*common.ApplicationSignal)
+	if ok {
+		return h.getApplicationSignalData(as)
+	}
+
+	hs, ok := signal.(*common.HostSignal)
+	if ok {
+		return h.getHostSignalData(hs)
+	}
+	return r
+}
+
+func (h *AlphaModelHistory) AddOrUpdate(measurements *common.Measurements) {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	items := measurements.GetItems()
+
+	if h.items == nil {
+		h.items = make(AlphaModelHistoryItems)
+	}
+
+	for stamp, signals := range items {
+
+		for hash, signal := range signals {
+
+			signalData := h.getSignalData(signal)
+			if len(signalData) == 0 {
+				continue
+			}
+
+			historyItem, ok := h.items[hash]
+			if !ok {
+				historyItem = make(map[common.Stamp][]float64)
+			}
+			historyItem[stamp] = signalData
+			h.items[hash] = historyItem
+		}
+	}
+}
+
+func NewAlphaModelHistory() *AlphaModelHistory {
+	return &AlphaModelHistory{
+		items: make(AlphaModelHistoryItems),
+	}
+}
+
+// AlphaModelForests
+
+func (fs *AlphaModelForests) GetItems() AlphaModelForestsItems {
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	return fs.items
+}
+
+func (fs *AlphaModelForests) getStampFeatures(stamp time.Time) (float64, float64, float64, float64) {
 
 	hour := float64(stamp.Hour()) + float64(stamp.Minute())/60.0 + float64(stamp.Second())/3600.0
 
@@ -1503,7 +1671,7 @@ type timeWindow struct {
 	End   time.Time
 }
 
-func (s *AlphaModelSignals) stampIsExcluded(stamp time.Time, exclusions []timeWindow) bool {
+func (fs *AlphaModelForests) stampIsExcluded(stamp time.Time, exclusions []timeWindow) bool {
 
 	for _, window := range exclusions {
 		if (stamp.Equal(window.Start) || stamp.After(window.Start)) && (stamp.Equal(window.End) || stamp.Before(window.End)) {
@@ -1513,27 +1681,21 @@ func (s *AlphaModelSignals) stampIsExcluded(stamp time.Time, exclusions []timeWi
 	return false
 }
 
-func (s *AlphaModelSignals) applyWeights(features []float64, weights []int) []float64 {
+func (fs *AlphaModelForests) applyWeights(data []float64, weights []int) []float64 {
 
-	var weightedFeatures []float64
-	for i, val := range features {
+	var weighted []float64
+	for i, val := range data {
 		weight := weights[i]
 		for w := 0; w < weight; w++ {
-			weightedFeatures = append(weightedFeatures, val)
+			weighted = append(weighted, val)
 		}
 	}
-	return weightedFeatures
+	return weighted
 }
 
-func (s *AlphaModelSignals) getApplicationSignalData(stamp time.Time, signal *common.ApplicationSignal) []float64 {
-
-	r := []float64{}
+func (fs *AlphaModelForests) applicationSignalsWeights() []int {
 
 	weights := []int{
-		1, // timeSin
-		1, // timeCos
-		1, // daySin
-		1, // dayCos
 		1, // inTraffic
 		1, // inTrafficKind
 		1, // inErrors
@@ -1545,89 +1707,93 @@ func (s *AlphaModelSignals) getApplicationSignalData(stamp time.Time, signal *co
 		1, // Saturation
 		1, // SaturationKind
 	}
-
-	timeSin, timeCos, daySin, dayCos := s.getStampFeatures(stamp)
-
-	if s.stampIsExcluded(stamp, []timeWindow{}) {
-		return r
-	}
-
-	inTraffic := 0.0
-	inTrafficKind := 0.0
-	inErrors := 0.0
-	inLatency := 0.0
-	outTraffic := 0.0
-	outTrafficKind := 0.0
-	outErrors := 0.0
-	outLatency := 0.0
-	saturation := 0.0
-	saturationKind := 0.0
-
-	features := []float64{
-		timeSin, timeCos, daySin, dayCos,
-		inTraffic, inTrafficKind, inErrors, inLatency,
-		outTraffic, outTrafficKind, outErrors, outLatency,
-		saturation, saturationKind,
-	}
-
-	return s.applyWeights(features, weights)
+	return weights
 }
 
-func (s *AlphaModelSignals) getHostSignalData(stamp time.Time, signal *common.HostSignal) []float64 {
-	return []float64{}
+func (fs *AlphaModelForests) hostSignalsWeights() []int {
+
+	weights := []int{
+		1, // cpuSaturation
+		1, // memorySaturation
+	}
+	return weights
 }
 
-func (s *AlphaModelSignals) getSignalData(stamp time.Time, signal common.Signal) []float64 {
+func (fs *AlphaModelForests) timeDayWeights() []int {
 
-	var r []float64
-
-	as, ok := signal.(*common.ApplicationSignal)
-	if ok {
-		return s.getApplicationSignalData(stamp, as)
+	weights := []int{
+		1, // timeSin
+		1, // timeCos
+		1, // daySin
+		1, // dayCos
 	}
-
-	hs, ok := signal.(*common.HostSignal)
-	if ok {
-		return s.getHostSignalData(stamp, hs)
-	}
-	return r
+	return weights
 }
 
-func (s *AlphaModelSignals) AddOrUpdate(measurements *common.Measurements) {
+func (fs *AlphaModelForests) Train(history *AlphaModelHistory) {
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 
-	items := measurements.GetItems()
+	mf := make(map[*iforest.Forest][][]float64)
 
-	if s.Items == nil {
-		s.Items = make(map[common.Hash][][]float64)
-	}
+	appSignalsWeigths := fs.applicationSignalsWeights()
+	appSignalsLen := len(appSignalsWeigths)
 
-	for stamp, signals := range items {
+	hostSignalsWeigths := fs.hostSignalsWeights()
+	hostSignalsLen := len(hostSignalsWeigths)
 
-		t := time.UnixMilli(int64(stamp))
+	timeDayWeights := fs.timeDayWeights()
 
-		for hash, signal := range signals {
+	for hash, v := range history.GetItems() {
 
-			d := s.getSignalData(t, signal)
-			if len(d) == 0 {
+		f, ok := fs.items[hash]
+		if !ok {
+			f = iforest.NewForest(100, 256, 0.01)
+			fs.items[hash] = f
+		}
+
+		for stamp, data := range v {
+
+			t := time.UnixMilli(int64(stamp))
+			timeSin, timeCos, daySin, dayCos := fs.getStampFeatures(t)
+
+			if fs.stampIsExcluded(t, []timeWindow{}) {
 				continue
 			}
 
-			data, ok := s.Items[hash]
-			if !ok {
-				data = [][]float64{}
+			l := len(data)
+			if l != appSignalsLen && l != hostSignalsLen {
+				l = 0
+				continue
 			}
-			data = append(data, d)
-			s.Items[hash] = data
+
+			timeDateData := append([]float64{timeSin, timeCos, daySin, dayCos}, data...)
+
+			weighted := []float64{}
+
+			switch l {
+			case appSignalsLen:
+				weighted = fs.applyWeights(timeDateData, append(timeDayWeights, appSignalsWeigths...))
+			case hostSignalsLen:
+				weighted = fs.applyWeights(timeDateData, append(timeDayWeights, hostSignalsWeigths...))
+			}
+
+			if len(weighted) == 0 {
+				continue
+			}
+			mf[f] = append(mf[f], weighted)
 		}
+	}
+
+	for f, m := range mf {
+		f.Train(m)
+		f.Test(m)
 	}
 }
 
-/*
-func init() {
-	//gob.Register(common.ApplicationSignal{})
-	gob.RegisterName("common.Signal", &common.ApplicationSignal{})
+func NewAlphaModelForests() *AlphaModelForests {
+	return &AlphaModelForests{
+		items: make(AlphaModelForestsItems),
+	}
 }
-*/

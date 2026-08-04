@@ -8,6 +8,7 @@ require (
 	github.com/devopsext/sre v0.7.0
 	github.com/devopsext/tools v0.21.0
 	github.com/devopsext/utils v0.4.8
+	github.com/e-XpertSolutions/go-iforest v1.0.0
 	github.com/go-co-op/gocron/v2 v2.22.0
 	github.com/go-playground/form v3.1.4+incompatible
 	github.com/jinzhu/copier v0.4.0
