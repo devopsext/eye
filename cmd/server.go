@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/devopsext/eye/common"
+	"github.com/devopsext/eye/datasource"
 	"github.com/devopsext/eye/handler"
 	"github.com/devopsext/eye/model"
 	"github.com/devopsext/eye/server"
@@ -11,50 +12,54 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var prometheusOptions = datasource.PrometheusOptions{
+
+	AppQuery:     envFileContentExpand("PROMETHEUS_APP_QUERY", ""),
+	AppTolerance: envGet("PROMETHEUS_APP_TOLERANCE", 0).(int),
+
+	AppSignalCommonLabels:    envStringExpand("PROMETHEUS_APP_SIGNAL_COMMON_LABELS", ""),
+	AppSignalInTrafficQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
+	AppSignalInErrorsQuery:   envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_ERRORS_QUERY", ""),
+	AppSignalInLatencyQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_LATENCY_QUERY", ""),
+	AppSignalOutTrafficQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_TRAFFIC_QUERY", ""),
+	AppSignalOutErrorsQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
+	AppSignalOutLatencyQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
+	AppSignalSaturationQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_SATURATION_QUERY", ""),
+	AppSignalTolerance:       envGet("PROMETHEUS_APP_SIGNAL_TOLERANCE", 0).(int),
+
+	HostQuery:                 envFileContentExpand("PROMETHEUS_HOST_QUERY", ""),
+	HostTolerance:             envGet("PROMETHEUS_HOST_TOLERANCE", 0).(int),
+	HostSignalCommonLabels:    envStringExpand("PROMETHEUS_HOST_SIGNAL_COMMON_LABELS", ""),
+	HostSignalSaturationQuery: envFileContentExpand("PROMETHEUS_HOST_SIGNAL_SATURATION_QUERY", ""),
+	HostSignalTolerance:       envGet("PROMETHEUS_HOST_SIGNAL_TOLERANCE", 0).(int),
+
+	Prometheus: toolsVendors.PrometheusOptions{
+		URL:      envStringExpand("PROMETHEUS_URL", ""),
+		User:     envStringExpand("PROMETHEUS_USER", ""),
+		Password: envStringExpand("PROMETHEUS_PASSWORD", ""),
+		Timeout:  envGet("PROMETHEUS_TIMEOUT", 30).(int),
+		Insecure: envGet("PROMETHEUS_INSECURE", false).(bool),
+		From:     envGet("PROMETHEUS_FROM", "-1h").(string),
+		To:       envGet("PROMETHEUS_TO", "").(string),
+		Step:     envGet("PROMETHEUS_STEP", "60s").(string),
+		Params:   envGet("PROMETHEUS_PARAMS", "").(string),
+	},
+
+	Span:        envGet("PROMETHEUS_SPAN", "").(string),
+	Schedule:    envGet("PROMETHEUS_SCHEDULE", "").(string),
+	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
+}
+
 var testModelOptions = model.TestModelOptions{
 	Schedule:     envGet("TEST_MODEL_SCHEDULE", "").(string),
 	WaitInterval: envGet("TEST_MODEL_WAIT_INTERVAL", "").(string),
 }
 
-var alphaModelOptions = model.AlphaModelOptions{
-	FilePath:    envGet("ALPHA_MODEL_FILE_PATH", "").(string),
-	FileRewrite: envGet("ALPHA_MODEL_FILE_REWRITE", false).(bool),
+var forestModelOptions = model.ForestModelOptions{
+	FilePath: envGet("FOREST_MODEL_FILE_PATH", "").(string),
 
-	AppQuery:     envFileContentExpand("ALPHA_MODEL_APP_QUERY", ""),
-	AppTolerance: envGet("ALPHA_MODEL_APP_TOLERANCE", 0).(int),
-
-	AppSignalCommonLabels:    envStringExpand("ALPHA_MODEL_APP_SIGNAL_COMMON_LABELS", ""),
-	AppSignalInTrafficQuery:  envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
-	AppSignalInErrorsQuery:   envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_IN_ERRORS_QUERY", ""),
-	AppSignalInLatencyQuery:  envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_IN_LATENCY_QUERY", ""),
-	AppSignalOutTrafficQuery: envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_OUT_TRAFFIC_QUERY", ""),
-	AppSignalOutErrorsQuery:  envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
-	AppSignalOutLatencyQuery: envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
-	AppSignalSaturationQuery: envFileContentExpand("ALPHA_MODEL_APP_SIGNAL_SATURATION_QUERY", ""),
-	AppSignalTolerance:       envGet("ALPHA_MODEL_APP_SIGNAL_TOLERANCE", 0).(int),
-
-	HostQuery:                 envFileContentExpand("ALPHA_MODEL_HOST_QUERY", ""),
-	HostTolerance:             envGet("ALPHA_MODEL_HOST_TOLERANCE", 0).(int),
-	HostSignalCommonLabels:    envStringExpand("ALPHA_MODEL_HOST_SIGNAL_COMMON_LABELS", ""),
-	HostSignalSaturationQuery: envFileContentExpand("ALPHA_MODEL_HOST_SIGNAL_SATURATION_QUERY", ""),
-	HostSignalTolerance:       envGet("ALPHA_MODEL_HOST_SIGNAL_TOLERANCE", 0).(int),
-
-	Prometheus: toolsVendors.PrometheusOptions{
-		URL:      envStringExpand("ALPHA_MODEL_PROMETHEUS_URL", ""),
-		User:     envStringExpand("ALPHA_MODEL_PROMETHEUS_USER", ""),
-		Password: envStringExpand("ALPHA_MODEL_PROMETHEUS_PASSWORD", ""),
-		Timeout:  envGet("ALPHA_MODEL_PROMETHEUS_TIMEOUT", 30).(int),
-		Insecure: envGet("ALPHA_MODEL_PROMETHEUS_INSECURE", false).(bool),
-		From:     envGet("ALPHA_MODEL_FROM", "-1h").(string),
-		To:       envGet("ALPHA_MODEL_TO", "").(string),
-		Step:     envGet("ALPHA_MODEL_STEP", "60s").(string),
-		Params:   envGet("ALPHA_MODEL_PARAMS", "").(string),
-	},
-
-	Span:        envGet("ALPHA_MODEL_SPAN", "").(string),
-	Retention:   envGet("ALPHA_MODEL_RETENTION", "").(string),
-	Schedule:    envGet("ALPHA_MODEL_SCHEDULE", "").(string),
-	Concurrency: envGet("ALPHA_MODEL_CONCURRENCY", 100).(int),
+	Retention: envGet("FOREST_MODEL_RETENTION", "").(string),
+	Schedule:  envGet("FOREST_MODEL_SCHEDULE", "").(string),
 }
 
 var httpServerOptions = server.HttpServerOptions{
@@ -87,18 +92,20 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			models := common.NewModels()
 			models.Add(model.NewTestModel(testModelOptions, obs))
-			models.Add(model.NewAlphaModel(alphaModelOptions, obs))
+			models.Add(model.NewForestModel(forestModelOptions, obs))
 
-			trainServer := server.NewTrainServer(models, obs)
+			schedules := common.NewSchedules()
+			schedules.Add(datasource.NewPrometheus(prometheusOptions, models, obs))
+			scheduler := server.NewScheduler(schedules, obs)
 
 			handlers := common.NewHandlers()
 			handlers.Add(handler.NewHttpHealthHandler(httpHealthHandlerOptions, obs))
 			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
-			httpServer := server.NewHttpServer(httpServerOptions, handlers, obs)
+			http := server.NewHttpServer(httpServerOptions, handlers, obs)
 
 			servers := common.NewServers()
-			servers.Add(trainServer)
-			servers.Add(httpServer)
+			servers.Add(scheduler)
+			servers.Add(http)
 			servers.Start(wg)
 
 			wg.Wait()
@@ -120,50 +127,52 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&httpHealthHandlerOptions.URL, "http-health-url", httpHealthHandlerOptions.URL, "Http health handler url")
 	flags.StringVar(&httpInspectHandlerOptions.URL, "http-inspect-url", httpInspectHandlerOptions.URL, "Http inspect handler url")
 
+	// Prometheus
+
+	flags.StringVar(&prometheusOptions.AppQuery, "prometheus-app-query", prometheusOptions.AppQuery, "Prometheus app query")
+	flags.IntVar(&prometheusOptions.AppTolerance, "prometheus-app-tolerance", prometheusOptions.AppTolerance, "Prometheus app tolerance")
+
+	flags.StringVar(&prometheusOptions.AppSignalCommonLabels, "prometheus-app-signal-common-labels", prometheusOptions.AppSignalCommonLabels, "Prometheus app common labels")
+	flags.StringVar(&prometheusOptions.AppSignalInTrafficQuery, "prometheus-app-signal-in-traffic-query", prometheusOptions.AppSignalInTrafficQuery, "Prometheus app incoming traffic query")
+	flags.StringVar(&prometheusOptions.AppSignalInErrorsQuery, "prometheus-app-signal-in-errors-query", prometheusOptions.AppSignalInErrorsQuery, "Prometheus app incoming errors query")
+	flags.StringVar(&prometheusOptions.AppSignalInLatencyQuery, "prometheus-app-signal-in-latency-query", prometheusOptions.AppSignalInLatencyQuery, "Prometheus app incoming latency query")
+	flags.StringVar(&prometheusOptions.AppSignalOutTrafficQuery, "prometheus-app-signal-out-traffic-query", prometheusOptions.AppSignalOutTrafficQuery, "Prometheus app outgoing traffic query")
+	flags.StringVar(&prometheusOptions.AppSignalOutErrorsQuery, "prometheus-app-signal-out-errors-query", prometheusOptions.AppSignalOutErrorsQuery, "Prometheus app outgoing errors query")
+	flags.StringVar(&prometheusOptions.AppSignalOutLatencyQuery, "prometheus-app-signal-out-latency-query", prometheusOptions.AppSignalOutLatencyQuery, "Prometheus app outgoing latency query")
+	flags.StringVar(&prometheusOptions.AppSignalSaturationQuery, "prometheus-app-signal-saturation-query", prometheusOptions.AppSignalSaturationQuery, "Prometheus app saturation query")
+	flags.IntVar(&prometheusOptions.AppSignalTolerance, "prometheus-app-signal-tolerance", prometheusOptions.AppSignalTolerance, "Prometheus app signal tolerance")
+
+	flags.StringVar(&prometheusOptions.HostQuery, "prometheus-host-query", prometheusOptions.HostQuery, "Prometheus host query")
+	flags.IntVar(&prometheusOptions.HostTolerance, "prometheus-host-tolerance", prometheusOptions.HostTolerance, "Prometheus host tolerance")
+	flags.StringVar(&prometheusOptions.HostSignalCommonLabels, "prometheus-host-signal-common-labels", prometheusOptions.HostSignalCommonLabels, "Prometheus host common labels")
+	flags.StringVar(&prometheusOptions.HostSignalSaturationQuery, "prometheus-host-signal-saturation-query", prometheusOptions.HostSignalSaturationQuery, "Prometheus host saturation query")
+	flags.IntVar(&prometheusOptions.HostSignalTolerance, "prometheus-host-signal-tolerance", prometheusOptions.HostSignalTolerance, "Prometheus host signal tolerance")
+
+	flags.StringVar(&prometheusOptions.Prometheus.URL, "prometheus-prometheus-url", prometheusOptions.Prometheus.URL, "Prometheus url")
+	flags.StringVar(&prometheusOptions.Prometheus.User, "prometheus-prometheus-user", prometheusOptions.Prometheus.User, "Prometheus user")
+	flags.StringVar(&prometheusOptions.Prometheus.Password, "prometheus-prometheus-password", prometheusOptions.Prometheus.Password, "Prometheus password")
+	flags.IntVar(&prometheusOptions.Prometheus.Timeout, "prometheus-prometheus-timeout", prometheusOptions.Prometheus.Timeout, "Prometheus timeout")
+	flags.BoolVar(&prometheusOptions.Prometheus.Insecure, "prometheus-prometheus-insecure", prometheusOptions.Prometheus.Insecure, "Prometheus insecure")
+
+	flags.StringVar(&prometheusOptions.Prometheus.From, "prometheus-from", prometheusOptions.Prometheus.From, "Forest model from")
+	flags.StringVar(&prometheusOptions.Prometheus.To, "prometheus-to", prometheusOptions.Prometheus.To, "Forest model to")
+	flags.StringVar(&prometheusOptions.Prometheus.Step, "prometheus-step", prometheusOptions.Prometheus.Step, "Forest model step")
+	flags.StringVar(&prometheusOptions.Prometheus.Params, "prometheus-params", prometheusOptions.Prometheus.Params, "Forest model params")
+	flags.StringVar(&prometheusOptions.Span, "prometheus-span", prometheusOptions.Span, "Forest model span")
+	flags.StringVar(&prometheusOptions.Schedule, "prometheus-schedule", prometheusOptions.Schedule, "Forest model schedule")
+
+	flags.IntVar(&prometheusOptions.Concurrency, "prometheus-concurrency", prometheusOptions.Concurrency, "Forest model concurrency")
+
 	// Test model
 
 	flags.StringVar(&testModelOptions.Schedule, "test-model-schedule", testModelOptions.Schedule, "Test model schedule")
 	flags.StringVar(&testModelOptions.WaitInterval, "test-model-wait-interval", testModelOptions.WaitInterval, "Test model wait interval")
 
-	// Alpha model
+	// Forest model
 
-	flags.StringVar(&alphaModelOptions.FilePath, "alpha-model-file-path", alphaModelOptions.FilePath, "Alpha model file path")
-	flags.BoolVar(&alphaModelOptions.FileRewrite, "alpha-model-file-rewrite", alphaModelOptions.FileRewrite, "Alpha model file rewrite")
-
-	flags.StringVar(&alphaModelOptions.AppQuery, "alpha-model-app-query", alphaModelOptions.AppQuery, "Alpha model prometheus app query")
-	flags.IntVar(&alphaModelOptions.AppTolerance, "alpha-model-app-tolerance", alphaModelOptions.AppTolerance, "Alpha model prometheus app tolerance")
-
-	flags.StringVar(&alphaModelOptions.AppSignalCommonLabels, "alpha-model-app-signal-common-labels", alphaModelOptions.AppSignalCommonLabels, "Alpha model prometheus app common labels")
-	flags.StringVar(&alphaModelOptions.AppSignalInTrafficQuery, "alpha-model-app-signal-in-traffic-query", alphaModelOptions.AppSignalInTrafficQuery, "Alpha model prometheus app incoming traffic query")
-	flags.StringVar(&alphaModelOptions.AppSignalInErrorsQuery, "alpha-model-app-signal-in-errors-query", alphaModelOptions.AppSignalInErrorsQuery, "Alpha model prometheus app incoming errors query")
-	flags.StringVar(&alphaModelOptions.AppSignalInLatencyQuery, "alpha-model-app-signal-in-latency-query", alphaModelOptions.AppSignalInLatencyQuery, "Alpha model prometheus app incoming latency query")
-	flags.StringVar(&alphaModelOptions.AppSignalOutTrafficQuery, "alpha-model-app-signal-out-traffic-query", alphaModelOptions.AppSignalOutTrafficQuery, "Alpha model prometheus app outgoing traffic query")
-	flags.StringVar(&alphaModelOptions.AppSignalOutErrorsQuery, "alpha-model-app-signal-out-errors-query", alphaModelOptions.AppSignalOutErrorsQuery, "Alpha model prometheus app outgoing errors query")
-	flags.StringVar(&alphaModelOptions.AppSignalOutLatencyQuery, "alpha-model-app-signal-out-latency-query", alphaModelOptions.AppSignalOutLatencyQuery, "Alpha model prometheus app outgoing latency query")
-	flags.StringVar(&alphaModelOptions.AppSignalSaturationQuery, "alpha-model-app-signal-saturation-query", alphaModelOptions.AppSignalSaturationQuery, "Alpha model prometheus app saturation query")
-	flags.IntVar(&alphaModelOptions.AppSignalTolerance, "alpha-model-app-signal-tolerance", alphaModelOptions.AppSignalTolerance, "Alpha model prometheus app signal tolerance")
-
-	flags.StringVar(&alphaModelOptions.HostQuery, "alpha-model-host-query", alphaModelOptions.HostQuery, "Alpha model prometheus host query")
-	flags.IntVar(&alphaModelOptions.HostTolerance, "alpha-model-host-tolerance", alphaModelOptions.HostTolerance, "Alpha model prometheus host tolerance")
-	flags.StringVar(&alphaModelOptions.HostSignalCommonLabels, "alpha-model-host-signal-common-labels", alphaModelOptions.HostSignalCommonLabels, "Alpha model prometheus host common labels")
-	flags.StringVar(&alphaModelOptions.HostSignalSaturationQuery, "alpha-model-host-signal-saturation-query", alphaModelOptions.HostSignalSaturationQuery, "Alpha model prometheus host saturation query")
-	flags.IntVar(&alphaModelOptions.HostSignalTolerance, "alpha-model-host-signal-tolerance", alphaModelOptions.HostSignalTolerance, "Alpha model prometheus host signal tolerance")
-
-	flags.StringVar(&alphaModelOptions.Prometheus.URL, "alpha-model-prometheus-url", alphaModelOptions.Prometheus.URL, "Alpha model prometheus url")
-	flags.StringVar(&alphaModelOptions.Prometheus.User, "alpha-model-prometheus-user", alphaModelOptions.Prometheus.User, "Alpha model prometheus user")
-	flags.StringVar(&alphaModelOptions.Prometheus.Password, "alpha-model-prometheus-password", alphaModelOptions.Prometheus.Password, "Alpha model prometheus password")
-	flags.IntVar(&alphaModelOptions.Prometheus.Timeout, "alpha-model-prometheus-timeout", alphaModelOptions.Prometheus.Timeout, "Alpha model prometheus timeout")
-	flags.BoolVar(&alphaModelOptions.Prometheus.Insecure, "alpha-model-prometheus-insecure", alphaModelOptions.Prometheus.Insecure, "Alpha model prometheus insecure")
-
-	flags.StringVar(&alphaModelOptions.Prometheus.From, "alpha-model-from", alphaModelOptions.Prometheus.From, "Alpha model from")
-	flags.StringVar(&alphaModelOptions.Prometheus.To, "alpha-model-to", alphaModelOptions.Prometheus.To, "Alpha model to")
-	flags.StringVar(&alphaModelOptions.Prometheus.Step, "alpha-model-step", alphaModelOptions.Prometheus.Step, "Alpha model step")
-	flags.StringVar(&alphaModelOptions.Prometheus.Params, "alpha-model-params", alphaModelOptions.Prometheus.Params, "Alpha model params")
-	flags.StringVar(&alphaModelOptions.Span, "alpha-model-span", alphaModelOptions.Span, "Alpha model span")
-	flags.StringVar(&alphaModelOptions.Retention, "alpha-model-retention", alphaModelOptions.Retention, "Alpha model retention")
-	flags.StringVar(&alphaModelOptions.Schedule, "alpha-model-schedule", alphaModelOptions.Schedule, "Alpha model schedule")
-
-	flags.IntVar(&alphaModelOptions.Concurrency, "alpha-model-concurrency", alphaModelOptions.Concurrency, "Alpha model concurrency")
+	flags.StringVar(&forestModelOptions.FilePath, "forest-model-file-path", forestModelOptions.FilePath, "Forest model file path")
+	flags.StringVar(&forestModelOptions.Retention, "forest-model-retention", forestModelOptions.Retention, "Forest model retention")
+	flags.StringVar(&forestModelOptions.Schedule, "forest-model-schedule", forestModelOptions.Schedule, "Forest model schedule")
 
 	return &serverCmd
 }

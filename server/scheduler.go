@@ -11,52 +11,52 @@ import (
 	"github.com/go-co-op/gocron/v2"
 )
 
-type TrainServer struct {
-	models *common.Models
-	logger sreCommon.Logger
-	meter  sreCommon.Meter
+type Scheduler struct {
+	schedules *common.Schedules
+	logger    sreCommon.Logger
+	meter     sreCommon.Meter
 }
 
 const (
-	TrainOnce = "once"
+	ScheduleOnce = "once"
 )
 
-func (t *TrainServer) runOnce(wg *sync.WaitGroup, model common.Model) {
+func (s *Scheduler) runOnce(wg *sync.WaitGroup, schedule common.Schedule) {
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		model.Train(wg)
+		schedule.RunOnSchedule(wg)
 	}()
 }
 
-func (t *TrainServer) Start(wg *sync.WaitGroup) {
+func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 
-	t.logger.Info("Start train server...")
+	sr.logger.Info("Start train server...")
 
 	opts := []gocron.SchedulerOption{}
 	opts = append(opts, gocron.WithLocation(time.UTC))
 
 	scheduler, err := gocron.NewScheduler(opts...)
 	if err != nil {
-		t.logger.Panic(err)
+		sr.logger.Panic(err)
 	}
 
-	for _, m := range t.models.Items() {
+	for _, s := range sr.schedules.Items() {
 
-		if utils.IsEmpty(m) {
+		if utils.IsEmpty(s) {
 			continue
 		}
-		name := m.Name()
-		schedule := m.Schedule()
+		name := s.Name()
+		schedule := s.Schedule()
 
 		if utils.IsEmpty(schedule) {
-			t.logger.Debug("Train server skipped %s model", name)
+			sr.logger.Debug("Scheduler skipped %s schedule", name)
 			continue
 		}
 
-		if schedule == TrainOnce {
-			t.runOnce(wg, m)
+		if schedule == ScheduleOnce {
+			sr.runOnce(wg, s)
 			continue
 		}
 
@@ -66,7 +66,7 @@ func (t *TrainServer) Start(wg *sync.WaitGroup) {
 
 			d, err := time.ParseDuration(schedule)
 			if err != nil {
-				t.logger.Error("Train server cannot schedule %s model %s, error: %s", schedule, name, err)
+				sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
 				continue
 			}
 			def = gocron.DurationJob(d)
@@ -75,7 +75,7 @@ func (t *TrainServer) Start(wg *sync.WaitGroup) {
 			def = gocron.CronJob(schedule, false)
 		}
 
-		task := gocron.NewTask(m.Train, wg)
+		task := gocron.NewTask(s.RunOnSchedule, wg)
 
 		opts := []gocron.JobOption{}
 		opts = append(opts, gocron.WithName(name))
@@ -84,23 +84,23 @@ func (t *TrainServer) Start(wg *sync.WaitGroup) {
 
 		job, err := scheduler.NewJob(def, task, opts...)
 		if err != nil {
-			t.logger.Error("Train server cannot schedule %s model %s, error: %s", schedule, name, err)
+			sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
 			continue
 		}
-		t.logger.Info("Train server scheduled model %s with id %s", name, job.ID())
+		sr.logger.Info("Scheduler scheduled model %s with id %s", name, job.ID())
 	}
 
 	scheduler.Start()
-	t.logger.Info("Train server started.")
+	sr.logger.Info("Scheduler started.")
 }
 
-func NewTrainServer(models *common.Models, observability *common.Observability) *TrainServer {
+func NewScheduler(schedules *common.Schedules, observability *common.Observability) *Scheduler {
 
 	meter := observability.Metrics()
 
-	return &TrainServer{
-		models: models,
-		logger: observability.Logs(),
-		meter:  meter,
+	return &Scheduler{
+		schedules: schedules,
+		logger:    observability.Logs(),
+		meter:     meter,
 	}
 }

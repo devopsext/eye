@@ -28,11 +28,7 @@ func (t *TestModel) Schedule() string {
 	return t.options.Schedule
 }
 
-func (t *TestModel) Ready() bool {
-	return true
-}
-
-func (t *TestModel) Train(wg *sync.WaitGroup) {
+func (t *TestModel) TrainOnDataSource(wg *sync.WaitGroup, ds common.DataSource) {
 
 	if !t.mu.TryLock() {
 		return
@@ -50,6 +46,10 @@ func (t *TestModel) Train(wg *sync.WaitGroup) {
 	time.Sleep(d)
 
 	t.logger.Info("%s: Training finished in %s", name, time.Since(when))
+}
+
+func (t *TestModel) RunOnSchedule(wg *sync.WaitGroup) {
+	t.logger.Debug("Running...")
 }
 
 func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {

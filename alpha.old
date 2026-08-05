@@ -1,3 +1,359 @@
+	//  8. load downtime periods for exclusion per application (issues, incidents & releases)
+	//  9. prepare application signals weighted data: rps, errors, latency, saturation for iforest per kind
+	// 10. train iforest model based on weighted data and calculate anomaly bound per each application signals
+	// 11. train model on moving window 4 weeks
+
+	/* this could be checked periodically or on incoming requests */
+	// 0. load model and handle requests
+	// 1. make prediction over each application signals on scheduler or by request
+	// 2. find out anomaly in applcation signals, check outgoing dependecies, make predictions by them as well
+	// 3. provide metrics regarding anomalies
+	// 4. send events, trigger AI & mcp (could be via chatbot) to find out why on certain application (raw logs, metrics and errors)
+	// 5. group anomalies in one if there are simultenious
+
+	// check retention
+	// if data is over the retention, delete until retention limit
+	// if data within the limit, nothing should be done
+	// continue fulfill the data
+	// calculate anomaly bound for each application/host
+	// possibly save data to path
+	// possible load data from path
+
+type ForestModelFileHeader struct {
+	Version uint16
+}
+
+type ForestModelFileNames struct {
+	Items common.NamesItems
+}
+
+type ForestModelFileAttributes struct {
+	Items common.AttributesItems
+}
+
+type ForestModelFileHosts struct {
+	Items common.HostsItems
+}
+
+type ForestModelFileApplications struct {
+	Items common.ApplicationsItems
+}
+
+type ForestModelFileMeasurements struct {
+	First common.Stamp
+	Last  common.Stamp
+	Items common.MeasurementsItems
+}
+
+type ForestModelFile struct {
+	model *ForestModel
+	path  string
+}
+
+const (
+	ForestModelFileVersionV0 = iota
+	ForestModelFileVersionV1
+)
+
+// ForestModelFileNames
+
+func (as *ForestModelFileNames) GobEncode() ([]byte, error) {
+	// We use an intermediate struct that holds a standard map
+	type intermediate struct {
+		Items map[common.Hash]string
+	}
+
+	temp := intermediate{
+		Items: make(map[common.Hash]string),
+	}
+
+	as.Items.Range(func(k common.Hash, v string) bool {
+		temp.Items[k] = v
+		return true
+	})
+
+	var buf bytes.Buffer
+	err := gob.NewEncoder(&buf).Encode(temp)
+	return buf.Bytes(), err
+}
+
+func (as *ForestModelFileNames) GobDecode(data []byte) error {
+
+	type intermediate struct {
+		Items map[common.Hash]string
+	}
+
+	var temp intermediate
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&temp); err != nil {
+		return err
+	}
+
+	as.Items = xsync.NewMap[common.Hash, string]()
+	for k, v := range temp.Items {
+		as.Items.Store(k, v)
+	}
+	return nil
+}
+
+// ForestModelFileAttributes
+
+func (as *ForestModelFileAttributes) GobEncode() ([]byte, error) {
+	// We use an intermediate struct that holds a standard map
+	type intermediate struct {
+		Items map[common.Hash]common.Labels
+	}
+
+	temp := intermediate{
+		Items: make(map[common.Hash]common.Labels),
+	}
+
+	as.Items.Range(func(k common.Hash, v common.Labels) bool {
+		temp.Items[k] = v
+		return true
+	})
+
+	var buf bytes.Buffer
+	err := gob.NewEncoder(&buf).Encode(temp)
+	return buf.Bytes(), err
+}
+
+func (as *ForestModelFileAttributes) GobDecode(data []byte) error {
+
+	type intermediate struct {
+		Items map[common.Hash]common.Labels
+	}
+
+	var temp intermediate
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&temp); err != nil {
+		return err
+	}
+
+	as.Items = xsync.NewMap[common.Hash, common.Labels]()
+	for k, v := range temp.Items {
+		as.Items.Store(k, v)
+	}
+	return nil
+}
+
+// ForestModelFile
+
+func (mf *ForestModelFile) IsSupported(version uint16) bool {
+
+	supported := []uint16{ForestModelFileVersionV1}
+	if utils.Contains(supported, version) {
+		return true
+	}
+	return false
+}
+
+/*
+func (mf *ForestModelFile) DecodeV1(decoder *gob.Decoder) error {
+
+		// read names
+		names := ForestModelFileNames{}
+		err := decoder.Decode(&names)
+		if err != nil {
+			return err
+		}
+		mf.data.names.SetItems(names.Items)
+
+		// read attributes
+		attributes := ForestModelFileAttributes{}
+		err = decoder.Decode(&attributes)
+		if err != nil {
+			return err
+		}
+		mf.data.attributes.SetItems(attributes.Items)
+
+		// read hosts
+		hosts := ForestModelFileHosts{}
+		err = decoder.Decode(&hosts)
+		if err != nil {
+			return err
+		}
+		mf.data.hosts.SetItems(hosts.Items)
+
+		// read applications
+		applications := ForestModelFileApplications{}
+		err = decoder.Decode(&applications)
+		if err != nil {
+			return err
+		}
+		mf.data.applications.SetItems(applications.Items)
+
+		// read measurements
+		measurements := ForestModelFileMeasurements{}
+		err = decoder.Decode(&measurements)
+		if err != nil {
+			return err
+		}
+		dms := mf.data.measurements
+		dms.SetFirst(measurements.First)
+		dms.SetLast(measurements.Last)
+		dms.SetItems(measurements.Items)
+
+		return nil
+	}
+*/
+func (mf *ForestModelFile) Load() error {
+
+	f, err := os.Open(mf.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+
+	/*gr, err := zlib.NewReader(br)
+	if err != nil {
+		return err
+	}
+	defer gr.Close()*/
+
+	decoder := gob.NewDecoder(br)
+
+	// read header
+	header := ForestModelFileHeader{}
+	err = decoder.Decode(&header)
+	if err != nil {
+		return err
+	}
+
+	if !mf.IsSupported(header.Version) {
+		return fmt.Errorf("file version %d is not supported", header.Version)
+	}
+
+	switch header.Version {
+	case ForestModelFileVersionV1:
+		//return mf.DecodeV1(decoder)
+	}
+	return nil
+}
+
+/*
+func (mf *ForestModelFile) makeFileMeasurementsItemsV1() map[common.Stamp]map[string]*ForestModelFileSignal {
+
+		r := make(map[common.Stamp]map[string]*ForestModelFileSignal)
+		for sp, ss := range mf.data.Measurements.GetItems() {
+
+			mfs := make(map[string]*ForestModelFileSignal)
+			for n, s := range ss.GetItems() {
+
+				fs := &ForestModelFileSignal{}
+
+				as, ok := s.(*common.ApplicationSignal)
+				if ok {
+					fs.Application = as.GetApplicationHash()
+					fs.Host = as.GetHostHash()
+					mfs[n] = fs
+					continue
+				}
+
+				hs, ok := s.(*common.HostSignal)
+				if ok {
+					fs.Host = hs.GetHostHash()
+					mfs[n] = fs
+					continue
+				}
+			}
+			r[sp] = mfs
+		}
+		return r
+	}
+*/
+
+/*
+func (mf *ForestModelFile) EncodeV1(encoder *gob.Encoder) error {
+
+		// write names
+		names := ForestModelFileNames{
+			Items: mf.data.names.GetItems(),
+		}
+		err := encoder.Encode(&names)
+		if err != nil {
+			return err
+		}
+
+		// write attributes
+		attributes := ForestModelFileAttributes{
+			Items: mf.data.attributes.GetItems(),
+		}
+		err = encoder.Encode(&attributes)
+		if err != nil {
+			return err
+		}
+
+		// write hosts
+		hosts := ForestModelFileHosts{
+			Items: mf.data.hosts.GetItems(),
+		}
+		err = encoder.Encode(&hosts)
+		if err != nil {
+			return err
+		}
+
+		// write applications
+		applications := ForestModelFileApplications{
+			Items: mf.data.applications.GetItems(),
+		}
+		err = encoder.Encode(&applications)
+		if err != nil {
+			return err
+		}
+
+		// write measurements
+		dms := mf.data.measurements
+		measurements := ForestModelFileMeasurements{
+			First: dms.GetFirst(),
+			Last:  dms.GetLast(),
+			Items: dms.GetItems(),
+		}
+		err = encoder.Encode(&measurements)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+*/
+func (mf *ForestModelFile) Save(version uint16) error {
+
+	if !mf.IsSupported(version) {
+		return fmt.Errorf("file version %d is not supported", version)
+	}
+
+	f, err := os.Create(mf.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	bw := bufio.NewWriter(f)
+	defer bw.Flush()
+
+	/*gw := zlib.NewWriter(bw)
+	defer gw.Close()*/
+
+	encoder := gob.NewEncoder(bw)
+
+	// write header
+	err = encoder.Encode(ForestModelFileHeader{
+		Version: version,
+	})
+	if err != nil {
+		return err
+	}
+
+	switch version {
+	case ForestModelFileVersionV0:
+		// nothing here
+	case ForestModelFileVersionV1:
+		//	return mf.EncodeV1(encoder)
+	}
+	return nil
+}
+
 /*
 func (m *AlphaModel) Train(wg *sync.WaitGroup) {
 
