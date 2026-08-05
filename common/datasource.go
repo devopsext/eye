@@ -9,6 +9,11 @@ type DataSource interface {
 	Name() string
 	Schedule() string
 	RunOnSchedule(wg *sync.WaitGroup)
+	Names() *Names
+	Attributes() *Attributes
+	Hosts() *Hosts
+	Applications() *Applications
+	Measurements() *Measurements
 }
 
 type DataSources struct {

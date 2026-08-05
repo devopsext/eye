@@ -74,6 +74,8 @@ func (f *ForestModel) TrainOnDataSource(wg *sync.WaitGroup, ds common.DataSource
 	tmin := time.UnixMilli(int64(min))
 	tmax := time.UnixMilli(int64(max))
 
+	//ds.Measurements().GetItems()
+
 	f.logger.Debug("Initial history for %d items / %d samples (min: %s, max: %s, diff: %s)", l1, l2, tmin, tmax, tmax.Sub(tmin))
 }
 

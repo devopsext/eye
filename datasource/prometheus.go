@@ -88,6 +88,41 @@ func (p *Prometheus) Schedule() string {
 	return p.options.Schedule
 }
 
+func (p *Prometheus) Names() *common.Names {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.names
+}
+
+func (p *Prometheus) Attributes() *common.Attributes {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.attributes
+}
+
+func (p *Prometheus) Hosts() *common.Hosts {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.hosts
+}
+
+func (p *Prometheus) Applications() *common.Applications {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.Applications()
+}
+
+func (p *Prometheus) Measurements() *common.Measurements {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.Measurements()
+}
+
 func (p *Prometheus) info(msg any, args ...any) {
 	gid := utils.GoRoutineID()
 	p.logger.Info(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
