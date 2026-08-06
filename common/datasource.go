@@ -8,7 +8,7 @@ import (
 type DataSource interface {
 	Name() string
 	Schedule() string
-	RunOnSchedule(wg *sync.WaitGroup)
+	Start(wg *sync.WaitGroup)
 	Names() *Names
 	Attributes() *Attributes
 	Hosts() *Hosts
@@ -19,6 +19,8 @@ type DataSource interface {
 type DataSources struct {
 	list []DataSource
 }
+
+type DataSourceOnData = func(ds DataSource)
 
 func (ms *DataSources) Items() []DataSource {
 	return ms.list

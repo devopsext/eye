@@ -218,7 +218,7 @@ type Signals struct {
 }
 */
 
-type MeasurementsItems = map[Stamp]map[Hash]Signal
+type MeasurementsItems = map[Hash]map[Stamp]Signal
 type Measurements struct {
 	mu    sync.Mutex
 	first Stamp
@@ -1492,34 +1492,35 @@ func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 		ms.first = stamp
 	}
 
-	n := s.GetName()
-	if n == 0 {
+	hash := s.GetName()
+	if hash == 0 {
 		return
 	}
 
-	ss := ms.items[stamp]
+	ss := ms.items[hash]
 	if ss == nil {
-		ss = make(map[Hash]Signal)
-		ms.items[stamp] = ss
+		ss = make(map[Stamp]Signal)
+		ms.items[hash] = ss
 	}
 
-	sOld := ss[n]
+	sOld := ss[stamp]
 	if utils.IsEmpty(sOld) {
-		ss[n] = s
+		ss[stamp] = s
 		return
 	}
 	sOld.Merge(s)
 
-	ms.items[stamp] = ss
+	ms.items[hash] = ss
 }
 
+/*
 func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
 
 	tb := stamp
 	abs := math.Abs(float64(tolerance))
 	for {
 		tb--
-		ss := ms.items[tb]
+		ss := ms.items[hash]
 		diff := stamp - tb
 		if ss == nil && diff < Stamp(abs) {
 			continue
@@ -1538,6 +1539,7 @@ func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance i
 		return nil
 	}
 }
+*/
 
 func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
 
@@ -1548,20 +1550,20 @@ func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, hash Hash, to
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	ss := ms.items[stamp]
+	ss := ms.items[hash]
 
 	if ss == nil || len(ss) == 0 {
 		return nil
 	}
 
-	if tolerance < 0 {
+	/*if tolerance < 0 {
 		s := ms.unsafeLookBackByType(stamp, hash, tolerance, typ)
 		if utils.IsEmpty(s) {
 			return s
 		}
-	}
+	}*/
 
-	return ss[hash]
+	return ss[stamp]
 }
 
 func (ms *Measurements) FindApplicationSignalWithTolerance(stamp Stamp, hash Hash, tolerance int) *ApplicationSignal {

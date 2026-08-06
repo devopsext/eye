@@ -28,15 +28,12 @@ func (t *TestModel) Schedule() string {
 	return t.options.Schedule
 }
 
-func (t *TestModel) TrainOnDataSource(wg *sync.WaitGroup, ds common.DataSource) {
+func (t *TestModel) Train(common.DataSource) {
 
 	if !t.mu.TryLock() {
 		return
 	}
 	defer t.mu.Unlock()
-
-	wg.Add(1)
-	defer wg.Done()
 
 	name := t.Name()
 	t.logger.Info("%s: Training...", name)
@@ -48,8 +45,8 @@ func (t *TestModel) TrainOnDataSource(wg *sync.WaitGroup, ds common.DataSource) 
 	t.logger.Info("%s: Training finished in %s", name, time.Since(when))
 }
 
-func (t *TestModel) RunOnSchedule(wg *sync.WaitGroup) {
-	t.logger.Debug("Running...")
+func (t *TestModel) Start(wg *sync.WaitGroup) {
+	t.logger.Debug("Starting...")
 }
 
 func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {

@@ -95,7 +95,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 
 			schedules := common.NewSchedules()
-			schedules.Add(datasource.NewPrometheus(prometheusOptions, models, obs))
+			schedules.Add(datasource.NewPrometheus(prometheusOptions, obs, models.OnData))
 			scheduler := server.NewScheduler(schedules, obs)
 
 			handlers := common.NewHandlers()

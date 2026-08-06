@@ -8,7 +8,7 @@ import (
 type Schedule interface {
 	Name() string
 	Schedule() string
-	RunOnSchedule(wg *sync.WaitGroup)
+	Start(wg *sync.WaitGroup)
 }
 
 type Schedules struct {
@@ -28,6 +28,7 @@ func (ss *Schedules) Add(s Schedule) {
 }
 
 func (ss *Schedules) Find(name string) Schedule {
+
 	for _, s := range ss.list {
 		if s.Name() == name {
 			return s

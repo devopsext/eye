@@ -1,3 +1,26 @@
+	func (h *ForestModelHistory) Times() (common.Stamp, common.Stamp) {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	min := common.Stamp(math.MaxUint64)
+	max := common.Stamp(0)
+	for _, v := range h.items {
+
+		for s := range v {
+
+			if s > max {
+				max = s
+			}
+
+			if s < min {
+				min = s
+			}
+		}
+	}
+	return min, max
+}
+	
 	//  8. load downtime periods for exclusion per application (issues, incidents & releases)
 	//  9. prepare application signals weighted data: rps, errors, latency, saturation for iforest per kind
 	// 10. train iforest model based on weighted data and calculate anomaly bound per each application signals

@@ -21,12 +21,12 @@ const (
 	ScheduleOnce = "once"
 )
 
-func (s *Scheduler) runOnce(wg *sync.WaitGroup, schedule common.Schedule) {
+func (s *Scheduler) startOnce(wg *sync.WaitGroup, schedule common.Schedule) {
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		schedule.RunOnSchedule(wg)
+		schedule.Start(wg)
 	}()
 }
 
@@ -56,7 +56,7 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 		}
 
 		if schedule == ScheduleOnce {
-			sr.runOnce(wg, s)
+			sr.startOnce(wg, s)
 			continue
 		}
 
@@ -75,7 +75,7 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 			def = gocron.CronJob(schedule, false)
 		}
 
-		task := gocron.NewTask(s.RunOnSchedule, wg)
+		task := gocron.NewTask(s.Start, wg)
 
 		opts := []gocron.JobOption{}
 		opts = append(opts, gocron.WithName(name))

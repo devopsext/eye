@@ -69,7 +69,7 @@ type Prometheus struct {
 	options       PrometheusOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
-	models        *common.Models
+	onData        common.DataSourceOnData
 
 	names        *common.Names
 	attributes   *common.Attributes
@@ -113,14 +113,14 @@ func (p *Prometheus) Applications() *common.Applications {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.Applications()
+	return p.applications
 }
 
 func (p *Prometheus) Measurements() *common.Measurements {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.Measurements()
+	return p.measurements
 }
 
 func (p *Prometheus) info(msg any, args ...any) {
@@ -1071,7 +1071,7 @@ func (p *Prometheus) gather(from, to time.Time, span time.Duration) error {
 	return nil
 }
 
-func (p *Prometheus) RunOnSchedule(wg *sync.WaitGroup) {
+func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	if !p.mu.TryLock() {
 		return
@@ -1111,24 +1111,20 @@ func (p *Prometheus) RunOnSchedule(wg *sync.WaitGroup) {
 	}
 	p.info("Gathering finished in %s", time.Since(when))
 
-	gr := &errgroup.Group{}
-
-	for _, m := range p.models.Items() {
-		gr.Go(func() error {
-			m.TrainOnDataSource(wg, p)
-			return nil
-		})
+	if p.onData == nil {
+		p.debug("No on data defined.")
+		return
 	}
-	gr.Wait()
+	go p.onData(p)
 }
 
-func NewPrometheus(options PrometheusOptions, models *common.Models, observability *common.Observability) *Prometheus {
+func NewPrometheus(options PrometheusOptions, observability *common.Observability, onData common.DataSourceOnData) *Prometheus {
 
 	return &Prometheus{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
-		models:        models,
+		onData:        onData,
 		attributes:    common.NewAttributes(),
 		names:         common.NewNames(),
 		hosts:         common.NewHosts(),
