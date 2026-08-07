@@ -14,17 +14,20 @@ import (
 	"github.com/devopsext/eye/datasource"
 	sreCommon "github.com/devopsext/sre/common"
 	"github.com/e-XpertSolutions/go-iforest/iforest"
+	"golang.org/x/sync/errgroup"
 )
 
 type ForestModelOptions struct {
-	FilePath  string
-	Schedule  string
-	Retention string
+	FilePath    string
+	Schedule    string
+	Retention   string
+	Concurrency int
 }
 
 type ForestModelDataItems = map[common.Hash]*iforest.Forest
 type ForestModelData struct {
 	mu    sync.Mutex
+	model *ForestModel
 	items map[common.Hash]*iforest.Forest
 }
 
@@ -53,38 +56,12 @@ func (fd *ForestModelData) GetItems() ForestModelDataItems {
 	return fd.items
 }
 
-func (fd *ForestModelData) saveData(hash common.Hash, data [][]float64, path string) error {
+func (fd *ForestModelData) AddOrUpdate(hash common.Hash, forest *iforest.Forest) {
 
-	dpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
 
-	file, err := os.Create(dpath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	bw := bufio.NewWriter(file)
-	defer bw.Flush()
-
-	encoder := gob.NewEncoder(bw)
-	return encoder.Encode(data)
-}
-
-func (fd *ForestModelData) saveForest(hash common.Hash, forest *iforest.Forest, path string) error {
-
-	fpath := filepath.Join(path, fmt.Sprintf("%d.forest", hash))
-
-	file, err := os.Create(fpath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	bw := bufio.NewWriter(file)
-	defer bw.Flush()
-
-	encoder := gob.NewEncoder(bw)
-	return encoder.Encode(forest)
+	fd.items[hash] = forest
 }
 
 func (fd *ForestModelData) getStampFeatures(stamp time.Time) (float64, float64, float64, float64) {
@@ -215,12 +192,10 @@ func (fd *ForestModelData) getSignalData(signal common.Signal) []float64 {
 	return r
 }
 
-func (fd *ForestModelData) Train(measurements *common.Measurements, path string) {
-
-	fd.mu.Lock()
-	defer fd.mu.Unlock()
+func (fd *ForestModelData) prepare(measurements *common.Measurements) (map[common.Hash][][]float64, map[common.Hash][]common.Stamp) {
 
 	md := make(map[common.Hash][][]float64)
+	mt := make(map[common.Hash][]common.Stamp)
 
 	appSignalsWeigths := fd.applicationSignalsWeights()
 	appSignalsLen := len(appSignalsWeigths)
@@ -231,14 +206,6 @@ func (fd *ForestModelData) Train(measurements *common.Measurements, path string)
 	timeDayWeights := fd.timeDayWeights()
 
 	for hash, signals := range measurements.GetItems() {
-
-		f, ok := fd.items[hash]
-		if !ok {
-			f = iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForstModelOutlierRatio)
-			fd.items[hash] = f
-		}
-
-		// load history
 
 		for stamp, signal := range signals {
 
@@ -272,26 +239,141 @@ func (fd *ForestModelData) Train(measurements *common.Measurements, path string)
 				continue
 			}
 			md[hash] = append(md[hash], weighted)
+			mt[hash] = append(mt[hash], stamp)
 		}
 	}
+	return md, mt
+}
 
-	for h, d := range md {
+type ForestModelFileForest struct {
+	Forest *iforest.Forest
+}
 
-		f, ok := fd.items[h]
-		if !ok {
-			continue
-		}
+func (fd *ForestModelData) loadForst(path string, hash common.Hash) *iforest.Forest {
 
-		err := fd.saveData(h, d, path)
-		if err != nil {
-			continue
-		}
+	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
 
-		f.Train(d)
-		f.Test(d)
-
-		fd.saveForest(h, f, path)
+	f, err := os.Open(fpath)
+	if err != nil {
+		return nil
 	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+	decoder := gob.NewDecoder(br)
+
+	fmff := ForestModelFileForest{}
+	err = decoder.Decode(&fmff)
+	if err != nil {
+		return nil
+	}
+	return fmff.Forest
+}
+
+type ForestModelFileData struct {
+	Data  [][]float64
+	Times []common.Stamp
+}
+
+func (fd *ForestModelData) loadData(path string, hash common.Hash, first, last common.Stamp) ([][]float64, [][]float64) {
+
+	r1 := [][]float64{}
+	r2 := [][]float64{}
+	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
+
+	f, err := os.Open(fpath)
+	if err != nil {
+		return r1, r2
+	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+	decoder := gob.NewDecoder(br)
+
+	fmfd := ForestModelFileData{}
+	err = decoder.Decode(&fmfd)
+	if err != nil {
+		return r1, r2
+	}
+
+	if len(fmfd.Data) != len(fmfd.Times) {
+		return r1, r2
+	}
+
+	for k, stamp := range fmfd.Times {
+
+		// add only data outside of time limits
+		if stamp < first {
+			r1 = append(r1, fmfd.Data[k])
+		} else if stamp > last {
+			r2 = append(r2, fmfd.Data[k])
+		}
+	}
+	return r1, r2
+}
+
+type ForestModelFile struct {
+	Forest *iforest.Forest
+	Data   [][]float64
+	Times  []common.Stamp
+}
+
+func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.Forest, data [][]float64, times []common.Stamp) error {
+
+	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
+
+	file, err := os.Create(fpath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	bw := bufio.NewWriter(file)
+	defer bw.Flush()
+
+	encoder := gob.NewEncoder(bw)
+
+	fmf := ForestModelFile{
+		Forest: forest,
+		Data:   data,
+		Times:  times,
+	}
+	return encoder.Encode(&fmf)
+}
+
+func (fd *ForestModelData) Train(measurements *common.Measurements) {
+
+	first := measurements.GetFirst()
+	last := measurements.GetLast()
+
+	data, times := fd.prepare(measurements)
+	path := fd.model.options.FilePath
+
+	gr := &errgroup.Group{}
+	gr.SetLimit(fd.model.options.Concurrency)
+
+	for h, d := range data {
+
+		gr.Go(func() error {
+
+			d1, d2 := fd.loadData(path, h, first, last)
+
+			d := append(d1, d...)
+			d = append(d, d2...)
+
+			f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForstModelOutlierRatio)
+
+			f.Train(d)
+			err := f.Test(d)
+			if err != nil {
+				return err
+			}
+			fd.AddOrUpdate(h, f)
+			fd.save(path, h, f, d, times[h])
+			return nil
+		})
+	}
+	gr.Wait()
 }
 
 func NewForestModelData() *ForestModelData {
@@ -302,34 +384,35 @@ func NewForestModelData() *ForestModelData {
 
 // ForestModel
 
-func (f *ForestModel) Name() string {
+func (fm *ForestModel) Name() string {
 	return "ForestModel"
 }
 
-func (f *ForestModel) Schedule() string {
-	return f.options.Schedule
+func (fm *ForestModel) Schedule() string {
+	return fm.options.Schedule
 }
 
-func (f *ForestModel) Train(ds common.DataSource) {
+func (fm *ForestModel) Train(ds common.DataSource) {
 
-	if !f.mu.TryLock() {
+	if !fm.mu.TryLock() {
 		return
 	}
-	defer f.mu.Unlock()
+	defer fm.mu.Unlock()
 
-	f.data.Train(ds.Measurements(), f.options.FilePath)
+	fm.data.model = fm
+	fm.data.Train(ds.Measurements())
 }
 
-func (f *ForestModel) Start(wg *sync.WaitGroup) {
+func (fm *ForestModel) Start(wg *sync.WaitGroup) {
 
-	f.logger.Debug("Starting...")
+	fm.logger.Debug("Starting...")
 
 	opts := datasource.PrometheusOptions{
 		AppQuery: "",
 		Schedule: "",
 	}
 
-	prom := datasource.NewPrometheus(opts, f.observability, func(ds common.DataSource) {
+	prom := datasource.NewPrometheus(opts, fm.observability, func(ds common.DataSource) {
 		//
 	})
 	prom.Start(wg)
