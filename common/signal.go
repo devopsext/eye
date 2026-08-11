@@ -209,6 +209,7 @@ type Dependencies struct {
 type Signal interface {
 	GetName() Hash
 	Merge(s Signal)
+	ContainsAny(hashes []Hash) bool
 }
 
 /*
@@ -504,6 +505,7 @@ func (ns *Names) NameHash(name string) Hash {
 }
 
 func (ns *Names) AddOrUpdate(name string) Hash {
+
 	hash := ns.NameHash(name)
 	if hash == 0 {
 		return hash
@@ -519,7 +521,7 @@ func (ns *Names) AddOrUpdate(name string) Hash {
 	return hash
 }
 
-func (ns *Names) Find(hash Hash) string {
+func (ns *Names) FindByHash(hash Hash) string {
 
 	if ns.items == nil {
 		return ""
@@ -530,6 +532,24 @@ func (ns *Names) Find(hash Hash) string {
 		return ""
 	}
 	return v
+}
+
+func (ns *Names) FindByName(name string) Hash {
+
+	if ns.items == nil {
+		return 0
+	}
+
+	hash := ns.NameHash(name)
+	if hash == 0 {
+		return 0
+	}
+
+	n := ns.FindByHash(hash)
+	if n != name {
+		return 0
+	}
+	return hash
 }
 
 func NewNames() *Names {
@@ -936,7 +956,7 @@ func (h *Host) GetName(names *Names) string {
 	if lbs == nil {
 		return ""
 	}
-	return names.Find(h.Name)
+	return names.FindByHash(h.Name)
 }
 
 func (h *Host) Same(host *Host) bool {
@@ -1138,7 +1158,7 @@ func (a *Application) GetName(names *Names) string {
 	if lbs == nil {
 		return ""
 	}
-	return names.Find(a.Name)
+	return names.FindByHash(a.Name)
 }
 
 func (a *Application) Same(app *Application) bool {
@@ -1324,10 +1344,20 @@ func (hs *HostSignal) Merge(s Signal) {
 	// should check all fields of HostSignal
 }
 
+func (hs *HostSignal) ContainsAny(hashes []Hash) bool {
+
+	for _, h := range hashes {
+
+		if hs.Name == h {
+			return true
+		}
+	}
+	return false
+}
+
 func NewHostSignal(name Hash) *HostSignal {
 
 	return &HostSignal{
-
 		Name: name,
 	}
 }
@@ -1344,6 +1374,17 @@ func (as *ApplicationSignal) GetApplication() Hash {
 
 func (as *ApplicationSignal) GetHost() Hash {
 	return as.Host
+}
+
+func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
+
+	for _, h := range hashes {
+
+		if as.Application == h || as.Host == h {
+			return true
+		}
+	}
+	return false
 }
 
 func (as *ApplicationSignal) Frontends(stamp Stamp) []*Application {

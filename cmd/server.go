@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/devopsext/eye/common"
@@ -56,11 +57,11 @@ var testModelOptions = model.TestModelOptions{
 }
 
 var forestModelOptions = model.ForestModelOptions{
-	FilePath: envGet("FOREST_MODEL_FILE_PATH", "").(string),
-
+	FilePath:    envGet("FOREST_MODEL_FILE_PATH", "").(string),
 	Retention:   envGet("FOREST_MODEL_RETENTION", "").(string),
 	Schedule:    envGet("FOREST_MODEL_SCHEDULE", "").(string),
-	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
+	Concurrency: envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
+	Filter:      strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
 }
 
 var httpServerOptions = server.HttpServerOptions{
@@ -175,6 +176,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&forestModelOptions.Retention, "forest-model-retention", forestModelOptions.Retention, "Forest model retention")
 	flags.StringVar(&forestModelOptions.Schedule, "forest-model-schedule", forestModelOptions.Schedule, "Forest model schedule")
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
+	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")
 
 	return &serverCmd
 }

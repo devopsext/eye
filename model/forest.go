@@ -7,12 +7,14 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/devopsext/eye/common"
 	"github.com/devopsext/eye/datasource"
 	sreCommon "github.com/devopsext/sre/common"
+	"github.com/devopsext/utils"
 	"github.com/e-XpertSolutions/go-iforest/iforest"
 	"golang.org/x/sync/errgroup"
 )
@@ -22,6 +24,7 @@ type ForestModelOptions struct {
 	Schedule    string
 	Retention   string
 	Concurrency int
+	Filter      []string /// add filter by apps and hosts
 }
 
 type ForestModelDataItems = map[common.Hash]*iforest.Forest
@@ -192,7 +195,7 @@ func (fd *ForestModelData) getSignalData(signal common.Signal) []float64 {
 	return r
 }
 
-func (fd *ForestModelData) prepare(measurements *common.Measurements) (map[common.Hash][][]float64, map[common.Hash][]common.Stamp) {
+func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []common.Hash) (map[common.Hash][][]float64, map[common.Hash][]common.Stamp) {
 
 	md := make(map[common.Hash][][]float64)
 	mt := make(map[common.Hash][]common.Stamp)
@@ -208,6 +211,10 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements) (map[commo
 	for hash, signals := range measurements.GetItems() {
 
 		for stamp, signal := range signals {
+
+			if !signal.ContainsAny(hashes) {
+				continue
+			}
 
 			t := time.UnixMilli(int64(stamp))
 			timeSin, timeCos, daySin, dayCos := fd.getStampFeatures(t)
@@ -249,7 +256,7 @@ type ForestModelFileForest struct {
 	Forest *iforest.Forest
 }
 
-func (fd *ForestModelData) loadForst(path string, hash common.Hash) *iforest.Forest {
+func (fd *ForestModelData) loadForest(path string, hash common.Hash) *iforest.Forest {
 
 	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
 
@@ -341,12 +348,16 @@ func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.F
 	return encoder.Encode(&fmf)
 }
 
-func (fd *ForestModelData) Train(measurements *common.Measurements) {
+func (fd *ForestModelData) train(measurements *common.Measurements, hashes []common.Hash) {
 
 	first := measurements.GetFirst()
 	last := measurements.GetLast()
 
-	data, times := fd.prepare(measurements)
+	data, times := fd.prepare(measurements, hashes)
+	if len(data) == 0 {
+		return
+	}
+
 	path := fd.model.options.FilePath
 
 	gr := &errgroup.Group{}
@@ -392,6 +403,26 @@ func (fm *ForestModel) Schedule() string {
 	return fm.options.Schedule
 }
 
+func (fm *ForestModel) findHashes(names *common.Names) []common.Hash {
+
+	r := []common.Hash{}
+
+	for _, name := range fm.options.Filter {
+
+		name := strings.TrimSpace(name)
+		if utils.IsEmpty(name) {
+			continue
+		}
+
+		hash := names.FindByName(name)
+		if hash == 0 {
+			continue
+		}
+		r = append(r, hash)
+	}
+	return r
+}
+
 func (fm *ForestModel) Train(ds common.DataSource) {
 
 	if !fm.mu.TryLock() {
@@ -399,8 +430,10 @@ func (fm *ForestModel) Train(ds common.DataSource) {
 	}
 	defer fm.mu.Unlock()
 
+	hashes := fm.findHashes(ds.Names())
+
 	fm.data.model = fm
-	fm.data.Train(ds.Measurements())
+	fm.data.train(ds.Measurements(), hashes)
 }
 
 func (fm *ForestModel) Start(wg *sync.WaitGroup) {
