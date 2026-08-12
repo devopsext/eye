@@ -71,6 +71,8 @@ type PrometheusData struct {
 	hosts        *common.Hosts
 	applications *common.Applications
 	measurements *common.Measurements
+	first        common.Stamp
+	last         common.Stamp
 }
 
 type Prometheus struct {
@@ -101,6 +103,14 @@ func (pd *PrometheusData) Applications() *common.Applications {
 
 func (pd *PrometheusData) Measurements() *common.Measurements {
 	return pd.measurements
+}
+
+func (pd *PrometheusData) First() common.Stamp {
+	return pd.first
+}
+
+func (pd *PrometheusData) Last() common.Stamp {
+	return pd.last
 }
 
 // Prometheus
@@ -1084,6 +1094,8 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 			hosts:        common.NewHosts(),
 			applications: common.NewApplications(),
 			measurements: common.NewMeasurements(),
+			first:        common.TimeToStamp(t1),
+			last:         common.TimeToStamp(t2),
 		}
 		err := p.gatherSpans(data, t1, t2, span)
 		if err != nil {

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unsafe"
 
 	"github.com/devopsext/utils"
@@ -226,4 +227,12 @@ func unpackFrom64(packed uint64) (uint32, uint32) {
 	h1 := uint32(packed >> 32)
 	h2 := uint32(packed) // Truncates the upper 32 bits automatically
 	return h1, h2
+}
+
+func StampToTime(stamp Stamp) time.Time {
+	return time.UnixMilli(int64(stamp))
+}
+
+func TimeToStamp(time time.Time) Stamp {
+	return Stamp(time.UnixMilli())
 }

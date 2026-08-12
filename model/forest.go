@@ -215,7 +215,7 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []c
 				continue
 			}
 
-			t := time.UnixMilli(int64(stamp))
+			t := common.StampToTime(stamp)
 			timeSin, timeCos, daySin, dayCos := fd.getStampFeatures(t)
 
 			if fd.stampIsExcluded(t, []timeWindow{}) {
@@ -281,7 +281,7 @@ type ForestModelFileData struct {
 	Times []common.Stamp
 }
 
-func (fd *ForestModelData) loadData(path string, hash common.Hash, first, last common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
+func (fd *ForestModelData) loadData(path string, hash common.Hash, from, to common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
 
 	d1 := [][]float64{}
 	t1 := []common.Stamp{}
@@ -312,10 +312,10 @@ func (fd *ForestModelData) loadData(path string, hash common.Hash, first, last c
 	for k, stamp := range fmfd.Times {
 
 		// add only data outside of time limits
-		if stamp < first {
+		if stamp < from {
 			d1 = append(d1, fmfd.Data[k])
 			t1 = append(t1, stamp)
-		} else if stamp > last {
+		} else if stamp > to {
 			d2 = append(d2, fmfd.Data[k])
 			t2 = append(t2, stamp)
 		}
@@ -356,10 +356,7 @@ func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.F
 	return encoder.Encode(&fmf)
 }
 
-func (fd *ForestModelData) train(measurements *common.Measurements, hashes []common.Hash) {
-
-	first := measurements.GetFirst()
-	last := measurements.GetLast()
+func (fd *ForestModelData) train(measurements *common.Measurements, hashes []common.Hash, from, to common.Stamp) {
 
 	data, times := fd.prepare(measurements, hashes)
 	if len(data) == 0 {
@@ -375,7 +372,7 @@ func (fd *ForestModelData) train(measurements *common.Measurements, hashes []com
 
 		gr.Go(func() error {
 
-			d1, t1, d2, t2 := fd.loadData(path, h, ??? first, last)
+			d1, t1, d2, t2 := fd.loadData(path, h, from, to)
 
 			d := append(d1, d...)
 			d = append(d, d2...)
@@ -446,7 +443,7 @@ func (fm *ForestModel) Train(data common.DataSourceData) {
 	hashes := fm.findHashes(data.Names())
 
 	fm.data.model = fm
-	fm.data.train(data.Measurements(), hashes)
+	fm.data.train(data.Measurements(), hashes, data.First(), data.Last())
 }
 
 func (fm *ForestModel) Start(wg *sync.WaitGroup) {

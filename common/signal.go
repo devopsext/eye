@@ -209,7 +209,7 @@ type Dependencies struct {
 type Signal interface {
 	GetName() Hash
 	Merge(s Signal)
-	ContainsAny(hashes []Hash) bool
+	ContainsAny(hashs []Hash) bool
 }
 
 /*

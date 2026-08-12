@@ -11,6 +11,8 @@ type DataSourceData interface {
 	Hosts() *Hosts
 	Applications() *Applications
 	Measurements() *Measurements
+	First() Stamp
+	Last() Stamp
 }
 
 type DataSource interface {
