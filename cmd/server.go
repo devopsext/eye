@@ -47,6 +47,7 @@ var prometheusOptions = datasource.PrometheusOptions{
 	},
 
 	Span:        envGet("PROMETHEUS_SPAN", "").(string),
+	Window:      envGet("PROMETHEUS_WINDOW", "").(string),
 	Schedule:    envGet("PROMETHEUS_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
 }
@@ -156,12 +157,13 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.IntVar(&prometheusOptions.Prometheus.Timeout, "prometheus-prometheus-timeout", prometheusOptions.Prometheus.Timeout, "Prometheus timeout")
 	flags.BoolVar(&prometheusOptions.Prometheus.Insecure, "prometheus-prometheus-insecure", prometheusOptions.Prometheus.Insecure, "Prometheus insecure")
 
-	flags.StringVar(&prometheusOptions.Prometheus.From, "prometheus-from", prometheusOptions.Prometheus.From, "Forest model from")
-	flags.StringVar(&prometheusOptions.Prometheus.To, "prometheus-to", prometheusOptions.Prometheus.To, "Forest model to")
-	flags.StringVar(&prometheusOptions.Prometheus.Step, "prometheus-step", prometheusOptions.Prometheus.Step, "Forest model step")
-	flags.StringVar(&prometheusOptions.Prometheus.Params, "prometheus-params", prometheusOptions.Prometheus.Params, "Forest model params")
-	flags.StringVar(&prometheusOptions.Span, "prometheus-span", prometheusOptions.Span, "Forest model span")
-	flags.StringVar(&prometheusOptions.Schedule, "prometheus-schedule", prometheusOptions.Schedule, "Forest model schedule")
+	flags.StringVar(&prometheusOptions.Prometheus.From, "prometheus-from", prometheusOptions.Prometheus.From, "Prometheus from")
+	flags.StringVar(&prometheusOptions.Prometheus.To, "prometheus-to", prometheusOptions.Prometheus.To, "Prometheus to")
+	flags.StringVar(&prometheusOptions.Prometheus.Step, "prometheus-step", prometheusOptions.Prometheus.Step, "Prometheus step")
+	flags.StringVar(&prometheusOptions.Prometheus.Params, "prometheus-params", prometheusOptions.Prometheus.Params, "Prometheus params")
+	flags.StringVar(&prometheusOptions.Span, "prometheus-span", prometheusOptions.Span, "Prometheus span")
+	flags.StringVar(&prometheusOptions.Window, "prometheus-window", prometheusOptions.Window, "Prometheus window")
+	flags.StringVar(&prometheusOptions.Schedule, "prometheus-schedule", prometheusOptions.Schedule, "Prometheus schedule")
 
 	flags.IntVar(&prometheusOptions.Concurrency, "prometheus-concurrency", prometheusOptions.Concurrency, "Forest model concurrency")
 

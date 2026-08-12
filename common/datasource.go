@@ -5,10 +5,7 @@ import (
 	"sync"
 )
 
-type DataSource interface {
-	Name() string
-	Schedule() string
-	Start(wg *sync.WaitGroup)
+type DataSourceData interface {
 	Names() *Names
 	Attributes() *Attributes
 	Hosts() *Hosts
@@ -16,11 +13,17 @@ type DataSource interface {
 	Measurements() *Measurements
 }
 
+type DataSource interface {
+	Name() string
+	Schedule() string
+	Start(wg *sync.WaitGroup)
+}
+
 type DataSources struct {
 	list []DataSource
 }
 
-type DataSourceOnData = func(ds DataSource)
+type DataSourceOnData = func(data DataSourceData)
 
 func (ms *DataSources) Items() []DataSource {
 	return ms.list

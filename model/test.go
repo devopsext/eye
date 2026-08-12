@@ -28,7 +28,7 @@ func (t *TestModel) Schedule() string {
 	return t.options.Schedule
 }
 
-func (t *TestModel) Train(common.DataSource) {
+func (t *TestModel) Train(data common.DataSourceData) {
 
 	if !t.mu.TryLock() {
 		return

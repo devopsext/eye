@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/devopsext/eye/common"
-	"github.com/devopsext/eye/datasource"
 	sreCommon "github.com/devopsext/sre/common"
 	"github.com/devopsext/utils"
 	"github.com/e-XpertSolutions/go-iforest/iforest"
@@ -282,15 +281,18 @@ type ForestModelFileData struct {
 	Times []common.Stamp
 }
 
-func (fd *ForestModelData) loadData(path string, hash common.Hash, first, last common.Stamp) ([][]float64, [][]float64) {
+func (fd *ForestModelData) loadData(path string, hash common.Hash, first, last common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
 
-	r1 := [][]float64{}
-	r2 := [][]float64{}
+	d1 := [][]float64{}
+	t1 := []common.Stamp{}
+	d2 := [][]float64{}
+	t2 := []common.Stamp{}
+
 	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
 
 	f, err := os.Open(fpath)
 	if err != nil {
-		return r1, r2
+		return d1, t1, d2, t2
 	}
 	defer f.Close()
 
@@ -300,23 +302,25 @@ func (fd *ForestModelData) loadData(path string, hash common.Hash, first, last c
 	fmfd := ForestModelFileData{}
 	err = decoder.Decode(&fmfd)
 	if err != nil {
-		return r1, r2
+		return d1, t1, d2, t2
 	}
 
 	if len(fmfd.Data) != len(fmfd.Times) {
-		return r1, r2
+		return d1, t1, d2, t2
 	}
 
 	for k, stamp := range fmfd.Times {
 
 		// add only data outside of time limits
 		if stamp < first {
-			r1 = append(r1, fmfd.Data[k])
+			d1 = append(d1, fmfd.Data[k])
+			t1 = append(t1, stamp)
 		} else if stamp > last {
-			r2 = append(r2, fmfd.Data[k])
+			d2 = append(d2, fmfd.Data[k])
+			t2 = append(t2, stamp)
 		}
 	}
-	return r1, r2
+	return d1, t1, d2, t2
 }
 
 type ForestModelFile struct {
@@ -326,6 +330,10 @@ type ForestModelFile struct {
 }
 
 func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.Forest, data [][]float64, times []common.Stamp) error {
+
+	if len(data) != len(times) {
+		return nil
+	}
 
 	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
 
@@ -367,7 +375,7 @@ func (fd *ForestModelData) train(measurements *common.Measurements, hashes []com
 
 		gr.Go(func() error {
 
-			d1, d2 := fd.loadData(path, h, first, last)
+			d1, t1, d2, t2 := fd.loadData(path, h, ??? first, last)
 
 			d := append(d1, d...)
 			d = append(d, d2...)
@@ -380,7 +388,12 @@ func (fd *ForestModelData) train(measurements *common.Measurements, hashes []com
 				return err
 			}
 			fd.AddOrUpdate(h, f)
-			fd.save(path, h, f, d, times[h])
+
+			t := times[h]
+			t = append(t1, t...)
+			t = append(t, t2...)
+
+			fd.save(path, h, f, d, t)
 			return nil
 		})
 	}
@@ -423,24 +436,24 @@ func (fm *ForestModel) findHashes(names *common.Names) []common.Hash {
 	return r
 }
 
-func (fm *ForestModel) Train(ds common.DataSource) {
+func (fm *ForestModel) Train(data common.DataSourceData) {
 
 	if !fm.mu.TryLock() {
 		return
 	}
 	defer fm.mu.Unlock()
 
-	hashes := fm.findHashes(ds.Names())
+	hashes := fm.findHashes(data.Names())
 
 	fm.data.model = fm
-	fm.data.train(ds.Measurements(), hashes)
+	fm.data.train(data.Measurements(), hashes)
 }
 
 func (fm *ForestModel) Start(wg *sync.WaitGroup) {
 
 	fm.logger.Debug("Starting...")
 
-	opts := datasource.PrometheusOptions{
+	/*opts := datasource.PrometheusOptions{
 		AppQuery: "",
 		Schedule: "",
 	}
@@ -448,7 +461,7 @@ func (fm *ForestModel) Start(wg *sync.WaitGroup) {
 	prom := datasource.NewPrometheus(opts, fm.observability, func(ds common.DataSource) {
 		//
 	})
-	prom.Start(wg)
+	prom.Start(wg)*/
 
 	//prom.RunOnSchedule()
 

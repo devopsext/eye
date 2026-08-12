@@ -8,7 +8,7 @@ import (
 type Model interface {
 	Name() string
 	Start(wg *sync.WaitGroup)
-	Train(ds DataSource)
+	Train(data DataSourceData)
 }
 
 type Models struct {
@@ -36,10 +36,10 @@ func (ms *Models) Find(name string) Model {
 	return nil
 }
 
-func (ms *Models) OnData(ds DataSource) {
+func (ms *Models) OnData(data DataSourceData) {
 
 	for _, m := range ms.list {
-		m.Train(ds)
+		m.Train(data)
 	}
 }
 
