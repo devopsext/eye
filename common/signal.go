@@ -212,13 +212,6 @@ type Signal interface {
 	ContainsAny(hashs []Hash) bool
 }
 
-/*
-type Signals struct {
-	mu    sync.Mutex
-	Items map[Hash]Signal
-}
-*/
-
 type MeasurementsItems = map[Hash]map[Stamp]Signal
 type Measurements struct {
 	mu    sync.Mutex

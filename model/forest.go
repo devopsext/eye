@@ -207,11 +207,13 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []c
 
 	timeDayWeights := fd.timeDayWeights()
 
+	lHashes := len(hashes)
+
 	for hash, signals := range measurements.GetItems() {
 
 		for stamp, signal := range signals {
 
-			if !signal.ContainsAny(hashes) {
+			if lHashes > 0 && !signal.ContainsAny(hashes) {
 				continue
 			}
 
@@ -440,10 +442,17 @@ func (fm *ForestModel) Train(data common.DataSourceData) {
 	}
 	defer fm.mu.Unlock()
 
+	when := time.Now()
+	name := fm.Name()
+
+	fm.logger.Info("%s: Training...", name)
+
 	hashes := fm.findHashes(data.Names())
 
 	fm.data.model = fm
 	fm.data.train(data.Measurements(), hashes, data.First(), data.Last())
+
+	fm.logger.Info("%s: Training finished in %s", name, time.Since(when))
 }
 
 func (fm *ForestModel) Start(wg *sync.WaitGroup) {

@@ -63,6 +63,8 @@ type PrometheusOptions struct {
 	Window      string
 	Schedule    string
 	Concurrency int
+
+	TimeFormat string
 }
 
 type PrometheusData struct {
@@ -123,18 +125,39 @@ func (p *Prometheus) Schedule() string {
 	return p.options.Schedule
 }
 
+func (p *Prometheus) setTimeFormat(args ...any) []any {
+
+	arr := args
+
+	for k, v := range arr {
+
+		if v == nil {
+			continue
+		}
+		t, ok := v.(time.Time)
+		if !ok {
+			continue
+		}
+		arr[k] = t.Format(p.options.TimeFormat)
+	}
+	return arr
+}
+
 func (p *Prometheus) info(msg any, args ...any) {
 	gid := utils.GoRoutineID()
+	args = p.setTimeFormat(args...)
 	p.logger.Info(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
 }
 
 func (p *Prometheus) error(msg any, args ...any) {
 	gid := utils.GoRoutineID()
+	args = p.setTimeFormat(args...)
 	p.logger.Error(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
 }
 
 func (p *Prometheus) debug(msg any, args ...any) {
 	gid := utils.GoRoutineID()
+	args = p.setTimeFormat(args...)
 	p.logger.Debug(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
 }
 
@@ -348,7 +371,7 @@ func (p *Prometheus) gatherHostsByQuery(data *PrometheusData, query string, from
 
 	when := time.Now()
 
-	p.debug("Hosts gathering (%s / %s) ...", from, to)
+	p.debug("Hosts gathering (%s / %s)...", from, to)
 	p.debug("Hosts gathering started => %s", query)
 
 	hosts, err := p.loadHosts(data, query, from, to)
@@ -457,7 +480,7 @@ func (p *Prometheus) gatherApplicationsByQuery(data *PrometheusData, query strin
 
 	when := time.Now()
 
-	p.debug("Applications gathering (%s / %s) ...", from, to)
+	p.debug("Applications gathering (%s / %s)...", from, to)
 	p.debug("Applications gathering started => %s", query)
 
 	apps, err := p.loadApplications(data, query, from, to)
@@ -1088,6 +1111,9 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 
 	for t1, t2 := range tt {
 
+		when := time.Now()
+		p.info("Gathering span %s / %s...", t1, t2)
+
 		data := &PrometheusData{
 			attributes:   common.NewAttributes(),
 			names:        common.NewNames(),
@@ -1099,8 +1125,10 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		}
 		err := p.gatherSpans(data, t1, t2, span)
 		if err != nil {
+			p.error("Gathering span %s / %s finished with error: %s", t1, t2, err)
 			return err
 		}
+		p.info("Gathering span %s / %s finished in %s", t1, t2, time.Since(when))
 		if onData != nil {
 			go onData(data)
 		}
@@ -1138,23 +1166,24 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 		}
 	}
 
-	window := to.Sub(from)
+	win := to.Sub(from)
 	if !utils.IsEmpty(p.options.Window) {
 		s, err := time.ParseDuration(p.options.Window)
 		if err == nil {
-			window = s
+			win = s
 		}
 	}
 
 	when := time.Now()
-	p.info("Gathering data...")
 
-	err := p.gatherWindows(from, to, span, window, p.onData)
+	p.info("Gathering window %s / %s...", from, to)
+
+	err := p.gatherWindows(from, to, span, win, p.onData)
 	if err != nil {
-		p.error("Gathering finished with error: %s", err)
+		p.error("Gathering window %s / %s finished with error: %s", from, to, err)
 		return
 	}
-	p.info("Gathering finished in %s", time.Since(when))
+	p.info("Gathering window %s / %s finished in %s", from, to, time.Since(when))
 }
 
 func NewPrometheus(options PrometheusOptions, observability *common.Observability, onData common.DataSourceOnData) *Prometheus {

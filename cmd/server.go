@@ -3,6 +3,7 @@ package cmd
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/devopsext/eye/common"
 	"github.com/devopsext/eye/datasource"
@@ -50,6 +51,8 @@ var prometheusOptions = datasource.PrometheusOptions{
 	Window:      envGet("PROMETHEUS_WINDOW", "").(string),
 	Schedule:    envGet("PROMETHEUS_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
+
+	TimeFormat: envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
 }
 
 var testModelOptions = model.TestModelOptions{
