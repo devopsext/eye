@@ -8,11 +8,10 @@ require (
 	github.com/devopsext/sre v0.7.0
 	github.com/devopsext/tools v0.21.0
 	github.com/devopsext/utils v0.4.8
-	github.com/e-XpertSolutions/go-iforest v1.0.0
+	github.com/e-XpertSolutions/go-iforest/v2 v2.0.0
 	github.com/go-co-op/gocron/v2 v2.22.0
 	github.com/go-playground/form v3.1.4+incompatible
 	github.com/jinzhu/copier v0.4.0
-	github.com/json-iterator/go v1.1.12
 	github.com/puzpuzpuz/xsync/v4 v4.5.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.22.0
@@ -56,6 +55,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

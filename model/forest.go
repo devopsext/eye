@@ -14,7 +14,7 @@ import (
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
 	"github.com/devopsext/utils"
-	"github.com/e-XpertSolutions/go-iforest/iforest"
+	"github.com/e-XpertSolutions/go-iforest/v2/iforest"
 	"golang.org/x/sync/errgroup"
 )
 

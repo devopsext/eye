@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"hash/fnv"
 	"maps"
 	"slices"
@@ -235,4 +236,43 @@ func StampToTime(stamp Stamp) time.Time {
 
 func TimeToStamp(time time.Time) Stamp {
 	return Stamp(time.UnixMilli())
+}
+
+func DurationToString(duration time.Duration) string {
+
+	d := duration.Round(time.Second)
+
+	totalSeconds := int64(d.Seconds())
+
+	// 2. Break down into days, hours, minutes, and seconds
+	days := totalSeconds / (24 * 3600)
+	totalSeconds %= (24 * 3600)
+
+	hours := totalSeconds / 3600
+	totalSeconds %= 3600
+
+	minutes := totalSeconds / 60
+	seconds := totalSeconds % 60
+
+	var result strings.Builder
+	// Only append the unit if the value is strictly greater than 0
+	if days > 0 {
+		result.WriteString(fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		result.WriteString(fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		result.WriteString(fmt.Sprintf("%dm", minutes))
+	}
+	if seconds > 0 {
+		result.WriteString(fmt.Sprintf("%ds", seconds))
+	}
+
+	// TrimSpace removes any trailing space if seconds was 0
+	s := strings.TrimSpace(result.String())
+	if s == "" {
+		s = "0"
+	}
+	return s
 }

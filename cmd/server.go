@@ -52,7 +52,8 @@ var prometheusOptions = datasource.PrometheusOptions{
 	Schedule:    envGet("PROMETHEUS_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
 
-	TimeFormat: envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
+	TimeFormat:     envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
+	DurationFormat: envGet("PROMETHEUS_DURATION_FORMAT", time.TimeOnly).(string),
 }
 
 var testModelOptions = model.TestModelOptions{
@@ -167,8 +168,9 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&prometheusOptions.Span, "prometheus-span", prometheusOptions.Span, "Prometheus span")
 	flags.StringVar(&prometheusOptions.Window, "prometheus-window", prometheusOptions.Window, "Prometheus window")
 	flags.StringVar(&prometheusOptions.Schedule, "prometheus-schedule", prometheusOptions.Schedule, "Prometheus schedule")
-
 	flags.IntVar(&prometheusOptions.Concurrency, "prometheus-concurrency", prometheusOptions.Concurrency, "Forest model concurrency")
+	flags.StringVar(&prometheusOptions.TimeFormat, "prometheus-time-format", prometheusOptions.TimeFormat, "Prometheus log time format")
+	flags.StringVar(&prometheusOptions.DurationFormat, "prometheus-duration-format", prometheusOptions.DurationFormat, "Prometheus log duration format")
 
 	// Test model
 

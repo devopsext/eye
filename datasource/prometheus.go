@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,7 +65,8 @@ type PrometheusOptions struct {
 	Schedule    string
 	Concurrency int
 
-	TimeFormat string
+	TimeFormat     string
+	DurationFormat string
 }
 
 type PrometheusData struct {
@@ -134,11 +136,18 @@ func (p *Prometheus) setTimeFormat(args ...any) []any {
 		if v == nil {
 			continue
 		}
+
 		t, ok := v.(time.Time)
-		if !ok {
+		if ok {
+			arr[k] = t.Format(p.options.TimeFormat)
 			continue
 		}
-		arr[k] = t.Format(p.options.TimeFormat)
+
+		d, ok := v.(time.Duration)
+		if ok {
+			arr[k] = common.DurationToString(d)
+			continue
+		}
 	}
 	return arr
 }
@@ -394,19 +403,23 @@ func (p *Prometheus) gatherHostsBySpan(data *PrometheusData, query string, from,
 	t1 := from
 
 	for t1.Unix() < to.Unix() {
-
 		t2 := t1.Add(span)
 		tt[t1] = t2
 		t1 = t2
 	}
+
+	keys := slices.SortedFunc(maps.Keys(tt), func(a, b time.Time) int {
+		return a.Compare(b)
+	})
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(p.options.Concurrency)
 
 	mp := &sync.Map{}
 
-	for t1, t2 := range tt {
+	for _, t1 := range keys {
 
+		t2 := tt[t1]
 		gr.Go(func() error {
 
 			hsts, err := p.gatherHostsByQuery(data, query, t1, t2)
@@ -503,18 +516,23 @@ func (p *Prometheus) gatherApplicationsBySpan(data *PrometheusData, query string
 	t1 := from
 
 	for t1.Unix() < to.Unix() {
-
 		t2 := t1.Add(span)
 		tt[t1] = t2
 		t1 = t2
 	}
+
+	keys := slices.SortedFunc(maps.Keys(tt), func(a, b time.Time) int {
+		return a.Compare(b)
+	})
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(p.options.Concurrency)
 
 	mp := &sync.Map{}
 
-	for t1, t2 := range tt {
+	for _, t1 := range keys {
+
+		t2 := tt[t1]
 
 		gr.Go(func() error {
 
@@ -780,18 +798,23 @@ func (p *Prometheus) gatherSignalsBySpan(name string, data *PrometheusData,
 	t1 := from
 
 	for t1.Unix() < to.Unix() {
-
 		t2 := t1.Add(span)
 		tt[t1] = t2
 		t1 = t2
 	}
+
+	keys := slices.SortedFunc(maps.Keys(tt), func(a, b time.Time) int {
+		return a.Compare(b)
+	})
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(p.options.Concurrency)
 
 	mp := &sync.Map{}
 
-	for t1, t2 := range tt {
+	for _, t1 := range keys {
+
+		t2 := tt[t1]
 
 		gr.Go(func() error {
 
@@ -1006,21 +1029,21 @@ func (p *Prometheus) hostSignalsOverData(
 
 func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span time.Duration) error {
 
-	p.info("Gathering hosts (%s / %s, span: %s)...", from, to, span)
+	p.info("Gathering hosts (%s / %s) span=%s...", from, to, span)
 
 	err := p.gatherHostsBySpan(data, p.options.HostQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	p.info("Gathering applications (%s / %s, span: %s)...", from, to, span)
+	p.info("Gathering applications (%s / %s) span=%s...", from, to, span)
 
 	err = p.gatherApplicationsBySpan(data, p.options.AppQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
-	p.info("Gathering signals (%s / %s, span: %s)...", from, to, span)
+	p.info("Gathering signals (%s / %s) span=%s...", from, to, span)
 
 	appLabels := utils.MapGetKeyValuesEx(p.options.AppSignalCommonLabels, ";", "=")
 
@@ -1098,7 +1121,7 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 	return nil
 }
 
-func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration, onData common.DataSourceOnData) error {
+func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration) {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -1109,10 +1132,16 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		t1 = t2
 	}
 
-	for t1, t2 := range tt {
+	keys := slices.SortedFunc(maps.Keys(tt), func(a, b time.Time) int {
+		return a.Compare(b)
+	})
+
+	for _, t1 := range keys {
+
+		t2 := tt[t1]
 
 		when := time.Now()
-		p.info("Gathering span %s / %s...", t1, t2)
+		p.info("Gathering span (%s / %s) started duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
 
 		data := &PrometheusData{
 			attributes:   common.NewAttributes(),
@@ -1125,15 +1154,14 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		}
 		err := p.gatherSpans(data, t1, t2, span)
 		if err != nil {
-			p.error("Gathering span %s / %s finished with error: %s", t1, t2, err)
-			return err
+			p.error("Gathering span (%s / %s) finished with error: %s", t1, t2, err)
+			continue
 		}
-		p.info("Gathering span %s / %s finished in %s", t1, t2, time.Since(when))
-		if onData != nil {
-			go onData(data)
+		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
+		if p.onData != nil {
+			go p.onData(data)
 		}
 	}
-	return nil
 }
 
 func (p *Prometheus) Start(wg *sync.WaitGroup) {
@@ -1176,14 +1204,9 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	when := time.Now()
 
-	p.info("Gathering window %s / %s...", from, to)
-
-	err := p.gatherWindows(from, to, span, win, p.onData)
-	if err != nil {
-		p.error("Gathering window %s / %s finished with error: %s", from, to, err)
-		return
-	}
-	p.info("Gathering window %s / %s finished in %s", from, to, time.Since(when))
+	p.info("Gathering window (%s / %s) duration=%s...", from, to, to.Sub(from))
+	p.gatherWindows(from, to, span, win)
+	p.info("Gathering window (%s / %s) finished in %s", from, to, time.Since(when))
 }
 
 func NewPrometheus(options PrometheusOptions, observability *common.Observability, onData common.DataSourceOnData) *Prometheus {
