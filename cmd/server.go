@@ -52,8 +52,8 @@ var prometheusOptions = datasource.PrometheusOptions{
 	Schedule:    envGet("PROMETHEUS_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
 
-	TimeFormat:     envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
-	DurationFormat: envGet("PROMETHEUS_DURATION_FORMAT", time.TimeOnly).(string),
+	TimeFormat: envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
+	StateYaml:  envGet("PROMETHEUS_STATE_YAML", "").(string),
 }
 
 var testModelOptions = model.TestModelOptions{
@@ -62,7 +62,7 @@ var testModelOptions = model.TestModelOptions{
 }
 
 var forestModelOptions = model.ForestModelOptions{
-	FilePath:    envGet("FOREST_MODEL_FILE_PATH", "").(string),
+	Path:        envGet("FOREST_MODEL_PATH", "").(string),
 	Retention:   envGet("FOREST_MODEL_RETENTION", "").(string),
 	Schedule:    envGet("FOREST_MODEL_SCHEDULE", "").(string),
 	Concurrency: envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
@@ -170,7 +170,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&prometheusOptions.Schedule, "prometheus-schedule", prometheusOptions.Schedule, "Prometheus schedule")
 	flags.IntVar(&prometheusOptions.Concurrency, "prometheus-concurrency", prometheusOptions.Concurrency, "Forest model concurrency")
 	flags.StringVar(&prometheusOptions.TimeFormat, "prometheus-time-format", prometheusOptions.TimeFormat, "Prometheus log time format")
-	flags.StringVar(&prometheusOptions.DurationFormat, "prometheus-duration-format", prometheusOptions.DurationFormat, "Prometheus log duration format")
+	flags.StringVar(&prometheusOptions.StateYaml, "prometheus-state-yaml", prometheusOptions.StateYaml, "Prometheus state yaml")
 
 	// Test model
 
@@ -179,7 +179,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 	// Forest model
 
-	flags.StringVar(&forestModelOptions.FilePath, "forest-model-file-path", forestModelOptions.FilePath, "Forest model file path")
+	flags.StringVar(&forestModelOptions.Path, "forest-model-path", forestModelOptions.Path, "Forest model path")
 	flags.StringVar(&forestModelOptions.Retention, "forest-model-retention", forestModelOptions.Retention, "Forest model retention")
 	flags.StringVar(&forestModelOptions.Schedule, "forest-model-schedule", forestModelOptions.Schedule, "Forest model schedule")
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")

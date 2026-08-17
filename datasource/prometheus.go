@@ -1,9 +1,13 @@
 package datasource
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +20,7 @@ import (
 	"github.com/devopsext/utils"
 	"github.com/jinzhu/copier"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v2"
 )
 
 type PrometheusResponseDataVector struct {
@@ -65,8 +70,8 @@ type PrometheusOptions struct {
 	Schedule    string
 	Concurrency int
 
-	TimeFormat     string
-	DurationFormat string
+	TimeFormat string
+	StateYaml  string
 }
 
 type PrometheusData struct {
@@ -77,6 +82,12 @@ type PrometheusData struct {
 	measurements *common.Measurements
 	first        common.Stamp
 	last         common.Stamp
+}
+
+type PrometheusStateItems = map[common.Stamp]common.Stamp
+
+type PrometheusState struct {
+	Items PrometheusStateItems
 }
 
 type Prometheus struct {
@@ -115,6 +126,106 @@ func (pd *PrometheusData) First() common.Stamp {
 
 func (pd *PrometheusData) Last() common.Stamp {
 	return pd.last
+}
+
+// PrometheusState
+
+func (ps *PrometheusState) FirstAndLast() (common.Stamp, common.Stamp) {
+
+	first := common.Stamp(math.MaxUint64)
+	last := common.Stamp(0)
+
+	for t1, t2 := range ps.Items {
+
+		if first > t1 {
+			first = t1
+		}
+		if last < t2 {
+			last = t2
+		}
+	}
+	return first, last
+}
+
+func (ps *PrometheusState) FirstAndLastTimes() (time.Time, time.Time) {
+
+	first, last := ps.FirstAndLast()
+	return common.StampToTime(first), common.StampToTime(last)
+}
+
+func (ps *PrometheusState) AddOrUpdateTimes(t1 time.Time, t2 time.Time) {
+
+	s1 := common.TimeToStamp(t1)
+	s2 := common.TimeToStamp(t2)
+	ps.Items[s1] = s2
+}
+
+func (ps *PrometheusState) FindTimes(t1 time.Time, t2 time.Time) PrometheusStateItems {
+
+	found := make(PrometheusStateItems)
+
+	st1 := common.TimeToStamp(t1)
+	st2 := common.TimeToStamp(t2)
+
+	keys := slices.SortedFunc(maps.Keys(ps.Items), func(a, b common.Stamp) int {
+		return cmp.Compare(a, b)
+	})
+
+	left := common.Stamp(0)
+	right := common.Stamp(0)
+
+	for _, s1 := range keys {
+
+		s2 := ps.Items[s1]
+
+		if s1 > st2 || s2 < st1 {
+			continue
+		}
+
+		if s1 >= st1 {
+			left = s1
+		}
+
+		if s2 <= st2 {
+			right = s1
+		}
+	}
+
+	for _, s1 := range keys {
+
+		if s1 == left || s1 == right {
+			continue
+		}
+		found[s1] = ps.Items[s1]
+	}
+	return found
+}
+
+func (ps *PrometheusState) ExistsTimes(t1 time.Time, t2 time.Time) (time.Time, time.Time, bool) {
+
+	found := ps.FindTimes(t1, t2)
+
+	f := common.Stamp(math.MaxUint64)
+	l := common.Stamp(0)
+
+	for t1, t2 := range found {
+
+		if t1 < f {
+			f = t1
+		}
+
+		if t2 > l {
+			l = t2
+		}
+	}
+
+	return common.StampToTime(f), common.StampToTime(l), len(found) > 0
+}
+
+func NewPrometheusState() *PrometheusState {
+	return &PrometheusState{
+		Items: make(PrometheusStateItems),
+	}
 }
 
 // Prometheus
@@ -1121,7 +1232,7 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 	return nil
 }
 
-func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration) {
+func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration, state *PrometheusState) {
 
 	tt := make(map[time.Time]time.Time)
 	t1 := from
@@ -1140,8 +1251,15 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 
 		t2 := tt[t1]
 
-		when := time.Now()
 		p.info("Gathering span (%s / %s) started duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
+
+		f, l, found := state.ExistsTimes(t1, t2)
+		if found {
+			p.info("Gathering span (%s / %s) in state found (%s / %s) duration=%s", t1, t2, f, l, l.Sub(f))
+			continue
+		}
+
+		when := time.Now()
 
 		data := &PrometheusData{
 			attributes:   common.NewAttributes(),
@@ -1157,11 +1275,39 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 			p.error("Gathering span (%s / %s) finished with error: %s", t1, t2, err)
 			continue
 		}
+		state.AddOrUpdateTimes(t1, t2)
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
 		if p.onData != nil {
 			go p.onData(data)
 		}
 	}
+}
+
+func (p *Prometheus) loadStateFromYaml(path string, state *PrometheusState) error {
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return yaml.NewDecoder(f).Decode(state)
+}
+
+func (p *Prometheus) saveStateToYaml(path string, state *PrometheusState) error {
+
+	dir := filepath.Dir(path)
+	if !utils.DirExists(dir) {
+		os.MkdirAll(dir, os.ModePerm)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return yaml.NewEncoder(f).Encode(state)
 }
 
 func (p *Prometheus) Start(wg *sync.WaitGroup) {
@@ -1202,11 +1348,35 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 		}
 	}
 
-	when := time.Now()
+	state := NewPrometheusState()
+	yaml := p.options.StateYaml
 
+	if utils.FileExists(yaml) {
+		p.info("Loading state from %s...", yaml)
+		err := p.loadStateFromYaml(yaml, state)
+		if err != nil {
+			p.error("Loading state from %s failed with error: %s", yaml, err)
+		} else {
+			t1, t2 := state.FirstAndLastTimes()
+			p.info("Loading state from %s was successful items=%d (%s/%s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
+		}
+	}
+
+	when := time.Now()
 	p.info("Gathering window (%s / %s) duration=%s...", from, to, to.Sub(from))
-	p.gatherWindows(from, to, span, win)
+	p.gatherWindows(from, to, span, win, state)
 	p.info("Gathering window (%s / %s) finished in %s", from, to, time.Since(when))
+
+	if !utils.IsEmpty(yaml) {
+		p.info("Saving state to %s...", yaml)
+		err := p.saveStateToYaml(yaml, state)
+		if err != nil {
+			p.error("Saving state to %s failed with error: %s", yaml, err)
+		} else {
+			t1, t2 := state.FirstAndLastTimes()
+			p.info("Saving state to %s was successful items=%d (%s/%s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
+		}
+	}
 }
 
 func NewPrometheus(options PrometheusOptions, observability *common.Observability, onData common.DataSourceOnData) *Prometheus {

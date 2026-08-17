@@ -19,7 +19,7 @@ import (
 )
 
 type ForestModelOptions struct {
-	FilePath    string
+	Path        string
 	Schedule    string
 	Retention   string
 	Concurrency int
@@ -339,13 +339,13 @@ func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.F
 
 	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
 
-	file, err := os.Create(fpath)
+	f, err := os.Create(fpath)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer f.Close()
 
-	bw := bufio.NewWriter(file)
+	bw := bufio.NewWriter(f)
 	defer bw.Flush()
 
 	encoder := gob.NewEncoder(bw)
@@ -365,7 +365,7 @@ func (fd *ForestModelData) train(measurements *common.Measurements, hashes []com
 		return
 	}
 
-	path := fd.model.options.FilePath
+	path := fd.model.options.Path
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(fd.model.options.Concurrency)
