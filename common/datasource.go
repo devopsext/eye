@@ -25,7 +25,7 @@ type DataSources struct {
 	list []DataSource
 }
 
-type DataSourceOnData = func(data DataSourceData)
+type DataSourceOnData = func(data DataSourceData) error
 
 func (ms *DataSources) Items() []DataSource {
 	return ms.list

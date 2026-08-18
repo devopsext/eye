@@ -28,10 +28,10 @@ func (t *TestModel) Schedule() string {
 	return t.options.Schedule
 }
 
-func (t *TestModel) Train(data common.DataSourceData) {
+func (t *TestModel) Train(data common.DataSourceData) error {
 
 	if !t.mu.TryLock() {
-		return
+		return nil
 	}
 	defer t.mu.Unlock()
 
@@ -43,6 +43,7 @@ func (t *TestModel) Train(data common.DataSourceData) {
 	time.Sleep(d)
 
 	t.logger.Info("%s: Training finished in %s", name, time.Since(when))
+	return nil
 }
 
 func (t *TestModel) Start(wg *sync.WaitGroup) {

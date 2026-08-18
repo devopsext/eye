@@ -87,6 +87,7 @@ type PrometheusData struct {
 type PrometheusStateItems = map[common.Stamp]common.Stamp
 
 type PrometheusState struct {
+	mu    sync.Mutex
 	Items PrometheusStateItems
 }
 
@@ -130,96 +131,167 @@ func (pd *PrometheusData) Last() common.Stamp {
 
 // PrometheusState
 
-func (ps *PrometheusState) FirstAndLast() (common.Stamp, common.Stamp) {
+func (ps *PrometheusState) Load(path string) error {
 
-	first := common.Stamp(math.MaxUint64)
-	last := common.Stamp(0)
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 
-	for t1, t2 := range ps.Items {
-
-		if first > t1 {
-			first = t1
-		}
-		if last < t2 {
-			last = t2
-		}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
 	}
-	return first, last
+	defer f.Close()
+
+	return yaml.NewDecoder(f).Decode(ps.Items)
 }
 
-func (ps *PrometheusState) FirstAndLastTimes() (time.Time, time.Time) {
+func (ps *PrometheusState) Save(path string) error {
 
-	first, last := ps.FirstAndLast()
-	return common.StampToTime(first), common.StampToTime(last)
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	dir := filepath.Dir(path)
+	if !utils.DirExists(dir) {
+		os.MkdirAll(dir, os.ModePerm)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return yaml.NewEncoder(f).Encode(ps.Items)
 }
 
 func (ps *PrometheusState) AddOrUpdateTimes(t1 time.Time, t2 time.Time) {
+
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 
 	s1 := common.TimeToStamp(t1)
 	s2 := common.TimeToStamp(t2)
 	ps.Items[s1] = s2
 }
 
-func (ps *PrometheusState) FindTimes(t1 time.Time, t2 time.Time) PrometheusStateItems {
+func (ps *PrometheusState) MinMax(items PrometheusStateItems) (common.Stamp, common.Stamp) {
 
-	found := make(PrometheusStateItems)
+	min := common.Stamp(math.MaxUint64)
+	max := common.Stamp(0)
 
-	st1 := common.TimeToStamp(t1)
-	st2 := common.TimeToStamp(t2)
+	for t1, t2 := range items {
 
-	keys := slices.SortedFunc(maps.Keys(ps.Items), func(a, b common.Stamp) int {
+		if t1 < min {
+			min = t1
+		}
+
+		if t2 > max {
+			max = t2
+		}
+	}
+	return min, max
+}
+
+func (ps *PrometheusState) MinMaxTimes() (time.Time, time.Time) {
+
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	min, max := ps.MinMax(ps.Items)
+	return common.StampToTime(min), common.StampToTime(max)
+}
+
+func (ps *PrometheusState) FindGaps(items PrometheusStateItems, st1, st2 common.Stamp) PrometheusStateItems {
+
+	keys := slices.SortedFunc(maps.Keys(items), func(a, b common.Stamp) int {
 		return cmp.Compare(a, b)
 	})
 
-	left := common.Stamp(0)
-	right := common.Stamp(0)
-
+	// find all gaps
+	gaps := make(PrometheusStateItems)
+	old := common.Stamp(0)
 	for _, s1 := range keys {
 
-		s2 := ps.Items[s1]
+		s2 := items[s1]
 
-		if s1 > st2 || s2 < st1 {
-			continue
+		if s1 > old && old > 0 {
+			gaps[old] = s1
 		}
-
-		if s1 >= st1 {
-			left = s1
-		}
-
-		if s2 <= st2 {
-			right = s1
-		}
+		old = s2
 	}
 
-	for _, s1 := range keys {
+	gapsKeys := slices.SortedFunc(maps.Keys(gaps), func(a, b common.Stamp) int {
+		return cmp.Compare(a, b)
+	})
 
-		if s1 == left || s1 == right {
-			continue
+	found := make(PrometheusStateItems)
+	for _, s1 := range gapsKeys {
+
+		s2 := gaps[s1]
+
+		if s1 >= st1 && s1 < st2 &&
+			s2 > st1 && s2 <= st2 {
+			found[s1] = s2
 		}
-		found[s1] = ps.Items[s1]
 	}
 	return found
 }
 
-func (ps *PrometheusState) ExistsTimes(t1 time.Time, t2 time.Time) (time.Time, time.Time, bool) {
+func (ps *PrometheusState) RebuildIntervals(from, to time.Time, window time.Duration) PrometheusStateItems {
 
-	found := ps.FindTimes(t1, t2)
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 
-	f := common.Stamp(math.MaxUint64)
-	l := common.Stamp(0)
+	min, max := ps.MinMax(ps.Items)
 
-	for t1, t2 := range found {
+	r := make(PrometheusStateItems)
+	t1 := from
 
-		if t1 < f {
-			f = t1
+	// add windows
+	for t1.Unix() < to.Unix() {
+
+		st1 := common.TimeToStamp(t1)
+
+		t2 := t1.Add(window)
+		st2 := common.TimeToStamp(t2)
+
+		// all from left side
+		if st1 < min && st2 <= min {
+			r[st1] = st2
+			t1 = common.StampToTime(st2)
+			continue
 		}
 
-		if t2 > l {
-			l = t2
+		// all from right side
+		if st1 >= max && st2 > max {
+			r[st1] = st2
+			t1 = common.StampToTime(st2)
+			continue
 		}
+
+		// part from left side
+		if st1 < min && st2 > min {
+			r[st1] = min
+			t1 = common.StampToTime(min)
+			continue
+		}
+
+		// part from right side
+		if st1 < max && st2 > max {
+			r[max] = st2
+			t1 = common.StampToTime(st2)
+			continue
+		}
+		t1 = common.StampToTime(st2)
 	}
 
-	return common.StampToTime(f), common.StampToTime(l), len(found) > 0
+	// in case there are gaps
+	gaps := ps.FindGaps(ps.Items, min, max)
+	for s1, s2 := range gaps {
+		r[s1] = s2
+	}
+
+	return r
 }
 
 func NewPrometheusState() *PrometheusState {
@@ -1232,32 +1304,22 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 	return nil
 }
 
-func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration, state *PrometheusState) {
+func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration, state *PrometheusState, yaml string) {
 
-	tt := make(map[time.Time]time.Time)
-	t1 := from
+	items := state.RebuildIntervals(from, to, window)
 
-	for t1.Unix() < to.Unix() {
-		t2 := t1.Add(window)
-		tt[t1] = t2
-		t1 = t2
-	}
-
-	keys := slices.SortedFunc(maps.Keys(tt), func(a, b time.Time) int {
-		return a.Compare(b)
+	keys := slices.SortedFunc(maps.Keys(items), func(a, b common.Stamp) int {
+		return cmp.Compare(a, b)
 	})
 
-	for _, t1 := range keys {
+	for _, s1 := range keys {
 
-		t2 := tt[t1]
+		s2 := items[s1]
+
+		t1 := common.StampToTime(s1)
+		t2 := common.StampToTime(s2)
 
 		p.info("Gathering span (%s / %s) started duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
-
-		f, l, found := state.ExistsTimes(t1, t2)
-		if found {
-			p.info("Gathering span (%s / %s) in state found (%s / %s) duration=%s", t1, t2, f, l, l.Sub(f))
-			continue
-		}
 
 		when := time.Now()
 
@@ -1267,47 +1329,40 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 			hosts:        common.NewHosts(),
 			applications: common.NewApplications(),
 			measurements: common.NewMeasurements(),
-			first:        common.TimeToStamp(t1),
-			last:         common.TimeToStamp(t2),
+			first:        s1,
+			last:         s2,
 		}
 		err := p.gatherSpans(data, t1, t2, span)
 		if err != nil {
 			p.error("Gathering span (%s / %s) finished with error: %s", t1, t2, err)
 			continue
 		}
-		state.AddOrUpdateTimes(t1, t2)
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
+
 		if p.onData != nil {
-			go p.onData(data)
+			go func() {
+
+				err := p.onData(data)
+				if err != nil {
+					return
+				}
+
+				state.AddOrUpdateTimes(t1, t2)
+
+				if !utils.IsEmpty(yaml) {
+					p.info("Saving state to %s...", yaml)
+					err := state.Save(yaml)
+					if err != nil {
+						p.error("Saving state to %s failed with error: %s", yaml, err)
+					} else {
+						t1, t2 := state.MinMaxTimes()
+						p.info("Saving state to %s was successful items=%d (%s / %s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
+					}
+				}
+
+			}()
 		}
 	}
-}
-
-func (p *Prometheus) loadStateFromYaml(path string, state *PrometheusState) error {
-
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return yaml.NewDecoder(f).Decode(state)
-}
-
-func (p *Prometheus) saveStateToYaml(path string, state *PrometheusState) error {
-
-	dir := filepath.Dir(path)
-	if !utils.DirExists(dir) {
-		os.MkdirAll(dir, os.ModePerm)
-	}
-
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return yaml.NewEncoder(f).Encode(state)
 }
 
 func (p *Prometheus) Start(wg *sync.WaitGroup) {
@@ -1353,30 +1408,19 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	if utils.FileExists(yaml) {
 		p.info("Loading state from %s...", yaml)
-		err := p.loadStateFromYaml(yaml, state)
+		err := state.Load(yaml)
 		if err != nil {
 			p.error("Loading state from %s failed with error: %s", yaml, err)
 		} else {
-			t1, t2 := state.FirstAndLastTimes()
-			p.info("Loading state from %s was successful items=%d (%s/%s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
+			t1, t2 := state.MinMaxTimes()
+			p.info("Loading state from %s was successful items=%d (%s / %s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
 		}
 	}
 
 	when := time.Now()
 	p.info("Gathering window (%s / %s) duration=%s...", from, to, to.Sub(from))
-	p.gatherWindows(from, to, span, win, state)
+	p.gatherWindows(from, to, span, win, state, yaml)
 	p.info("Gathering window (%s / %s) finished in %s", from, to, time.Since(when))
-
-	if !utils.IsEmpty(yaml) {
-		p.info("Saving state to %s...", yaml)
-		err := p.saveStateToYaml(yaml, state)
-		if err != nil {
-			p.error("Saving state to %s failed with error: %s", yaml, err)
-		} else {
-			t1, t2 := state.FirstAndLastTimes()
-			p.info("Saving state to %s was successful items=%d (%s/%s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
-		}
-	}
 }
 
 func NewPrometheus(options PrometheusOptions, observability *common.Observability, onData common.DataSourceOnData) *Prometheus {

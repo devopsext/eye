@@ -337,6 +337,10 @@ func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.F
 		return nil
 	}
 
+	if !utils.DirExists(path) {
+		os.MkdirAll(path, os.ModePerm)
+	}
+
 	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
 
 	f, err := os.Create(fpath)
@@ -358,11 +362,11 @@ func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.F
 	return encoder.Encode(&fmf)
 }
 
-func (fd *ForestModelData) train(measurements *common.Measurements, hashes []common.Hash, from, to common.Stamp) {
+func (fd *ForestModelData) train(measurements *common.Measurements, hashes []common.Hash, from, to common.Stamp) error {
 
 	data, times := fd.prepare(measurements, hashes)
 	if len(data) == 0 {
-		return
+		return nil
 	}
 
 	path := fd.model.options.Path
@@ -392,11 +396,10 @@ func (fd *ForestModelData) train(measurements *common.Measurements, hashes []com
 			t = append(t1, t...)
 			t = append(t, t2...)
 
-			fd.save(path, h, f, d, t)
-			return nil
+			return fd.save(path, h, f, d, t)
 		})
 	}
-	gr.Wait()
+	return gr.Wait()
 }
 
 func NewForestModelData() *ForestModelData {
@@ -435,10 +438,10 @@ func (fm *ForestModel) findHashes(names *common.Names) []common.Hash {
 	return r
 }
 
-func (fm *ForestModel) Train(data common.DataSourceData) {
+func (fm *ForestModel) Train(data common.DataSourceData) error {
 
 	if !fm.mu.TryLock() {
-		return
+		return nil
 	}
 	defer fm.mu.Unlock()
 
@@ -450,9 +453,13 @@ func (fm *ForestModel) Train(data common.DataSourceData) {
 	hashes := fm.findHashes(data.Names())
 
 	fm.data.model = fm
-	fm.data.train(data.Measurements(), hashes, data.First(), data.Last())
-
-	fm.logger.Info("%s: Training finished in %s", name, time.Since(when))
+	err := fm.data.train(data.Measurements(), hashes, data.First(), data.Last())
+	if err != nil {
+		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
+		return err
+	}
+	fm.logger.Info("%s: Training sucessful in %s", name, time.Since(when))
+	return nil
 }
 
 func (fm *ForestModel) Start(wg *sync.WaitGroup) {

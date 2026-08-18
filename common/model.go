@@ -8,7 +8,7 @@ import (
 type Model interface {
 	Name() string
 	Start(wg *sync.WaitGroup)
-	Train(data DataSourceData)
+	Train(data DataSourceData) error
 }
 
 type Models struct {
@@ -36,11 +36,16 @@ func (ms *Models) Find(name string) Model {
 	return nil
 }
 
-func (ms *Models) OnData(data DataSourceData) {
+func (ms *Models) OnData(data DataSourceData) error {
 
+	var err error
 	for _, m := range ms.list {
-		m.Train(data)
+		e := m.Train(data)
+		if e != nil {
+			err = e
+		}
 	}
+	return err
 }
 
 func NewModels() *Models {

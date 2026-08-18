@@ -27,4 +27,5 @@ docs/
 cpu.pprof
 alpha-v1.data
 heap.pprof
-.data
+.forest
+.prometheus.yaml
