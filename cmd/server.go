@@ -64,7 +64,6 @@ var testModelOptions = model.TestModelOptions{
 
 var forestModelOptions = model.ForestModelOptions{
 	Path:        envGet("FOREST_MODEL_PATH", "").(string),
-	Retention:   envGet("FOREST_MODEL_RETENTION", "").(string),
 	Schedule:    envGet("FOREST_MODEL_SCHEDULE", "").(string),
 	Concurrency: envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
 	Filter:      strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
@@ -98,12 +97,17 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			obs := common.NewObservability(logs, metrics)
 
+			testModel := model.NewTestModel(testModelOptions, obs)
+			forestModel := model.NewForestModel(forestModelOptions, obs)
+
 			models := common.NewModels()
-			models.Add(model.NewTestModel(testModelOptions, obs))
-			models.Add(model.NewForestModel(forestModelOptions, obs))
+			models.Add(testModel)
+			models.Add(forestModel)
 
 			schedules := common.NewSchedules()
 			schedules.Add(datasource.NewPrometheus(prometheusOptions, obs, models.OnData))
+			schedules.Add(testModel)
+			schedules.Add(forestModel)
 			scheduler := server.NewScheduler(schedules, obs)
 
 			handlers := common.NewHandlers()
@@ -182,7 +186,6 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	// Forest model
 
 	flags.StringVar(&forestModelOptions.Path, "forest-model-path", forestModelOptions.Path, "Forest model path")
-	flags.StringVar(&forestModelOptions.Retention, "forest-model-retention", forestModelOptions.Retention, "Forest model retention")
 	flags.StringVar(&forestModelOptions.Schedule, "forest-model-schedule", forestModelOptions.Schedule, "Forest model schedule")
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
 	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")

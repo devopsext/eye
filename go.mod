@@ -2,7 +2,9 @@ module github.com/devopsext/eye
 
 go 1.26
 
-replace github.com/e-XpertSolutions/go-iforest => ../../devopsext/go-iforest
+//replace github.com/e-XpertSolutions/go-iforest/v2 => github.com/devopsext/go-iforest/v2 v2.0.1
+
+replace github.com/e-XpertSolutions/go-iforest/v2 => ../../devopsext/go-iforest
 
 require (
 	github.com/devopsext/sre v0.7.0

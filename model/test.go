@@ -47,7 +47,15 @@ func (t *TestModel) Train(data common.DataSourceData) error {
 }
 
 func (t *TestModel) Start(wg *sync.WaitGroup) {
-	t.logger.Debug("Starting...")
+
+	name := t.Name()
+	t.logger.Info("%s: Starting...", name)
+
+	when := time.Now()
+	d, _ := time.ParseDuration(t.options.WaitInterval)
+	time.Sleep(d)
+
+	t.logger.Info("%s: Started in %s", name, time.Since(when))
 }
 
 func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {

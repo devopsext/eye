@@ -3,6 +3,7 @@ package model
 import (
 	"bufio"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -21,7 +22,6 @@ import (
 type ForestModelOptions struct {
 	Path        string
 	Schedule    string
-	Retention   string
 	Concurrency int
 	Filter      []string /// add filter by apps and hosts
 }
@@ -385,6 +385,8 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 	gr := &errgroup.Group{}
 	gr.SetLimit(fd.model.options.Concurrency)
 
+	errs := make(chan error, len(data))
+
 	for h, d := range data {
 
 		gr.Go(func() error {
@@ -397,9 +399,11 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 			f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForstModelOutlierRatio)
 
 			f.Train(d)
+
 			err := f.Test(d)
 			if err != nil {
-				return err
+				errs <- err
+				return nil
 			}
 			fd.AddOrUpdate(h, f)
 
@@ -410,7 +414,14 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 			return fd.save(path, h, f, d, t)
 		})
 	}
-	return gr.Wait()
+	gr.Wait()
+	close(errs)
+
+	all := []error{}
+	for e := range errs {
+		all = append(all, e)
+	}
+	return errors.Join(all...)
 }
 
 func NewForestModelData() *ForestModelData {
@@ -476,6 +487,8 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 func (fm *ForestModel) Start(wg *sync.WaitGroup) {
 
 	fm.logger.Debug("Starting...")
+
+	fm.logger.Debug("Started...")
 
 	/*opts := datasource.PrometheusOptions{
 		AppQuery: "",
