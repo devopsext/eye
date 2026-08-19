@@ -52,8 +52,9 @@ var prometheusOptions = datasource.PrometheusOptions{
 	Schedule:    envGet("PROMETHEUS_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_CONCURRENCY", 100).(int),
 
-	TimeFormat: envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
-	StateYaml:  envGet("PROMETHEUS_STATE_YAML", "").(string),
+	TimeFormat:  envGet("PROMETHEUS_TIME_FORMAT", time.DateTime).(string),
+	StateYaml:   envGet("PROMETHEUS_STATE_YAML", "").(string),
+	StateRetain: envGet("PROMETHEUS_STATE_RETAIN", false).(bool),
 }
 
 var testModelOptions = model.TestModelOptions{
@@ -171,6 +172,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.IntVar(&prometheusOptions.Concurrency, "prometheus-concurrency", prometheusOptions.Concurrency, "Forest model concurrency")
 	flags.StringVar(&prometheusOptions.TimeFormat, "prometheus-time-format", prometheusOptions.TimeFormat, "Prometheus log time format")
 	flags.StringVar(&prometheusOptions.StateYaml, "prometheus-state-yaml", prometheusOptions.StateYaml, "Prometheus state yaml")
+	flags.BoolVar(&prometheusOptions.StateRetain, "prometheus-state-retain", prometheusOptions.StateRetain, "Prometheus state retain old")
 
 	// Test model
 

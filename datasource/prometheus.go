@@ -70,8 +70,9 @@ type PrometheusOptions struct {
 	Schedule    string
 	Concurrency int
 
-	TimeFormat string
-	StateYaml  string
+	TimeFormat  string
+	StateYaml   string
+	StateRetain bool
 }
 
 type PrometheusData struct {
@@ -80,6 +81,7 @@ type PrometheusData struct {
 	hosts        *common.Hosts
 	applications *common.Applications
 	measurements *common.Measurements
+	from         common.Stamp
 	first        common.Stamp
 	last         common.Stamp
 }
@@ -87,8 +89,9 @@ type PrometheusData struct {
 type PrometheusStateItems = map[common.Stamp]common.Stamp
 
 type PrometheusState struct {
-	mu    sync.Mutex
-	Items PrometheusStateItems
+	mu     sync.Mutex
+	retain bool
+	Items  PrometheusStateItems
 }
 
 type Prometheus struct {
@@ -119,6 +122,10 @@ func (pd *PrometheusData) Applications() *common.Applications {
 
 func (pd *PrometheusData) Measurements() *common.Measurements {
 	return pd.measurements
+}
+
+func (pd *PrometheusData) From() common.Stamp {
+	return pd.from
 }
 
 func (pd *PrometheusData) First() common.Stamp {
@@ -164,6 +171,41 @@ func (ps *PrometheusState) Save(path string) error {
 	return yaml.NewEncoder(f).Encode(ps.Items)
 }
 
+func (ps *PrometheusState) TryPurgeUntil(t time.Time) bool {
+
+	if ps.retain {
+		return false
+	}
+
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	keys := slices.SortedFunc(maps.Keys(ps.Items), func(a, b common.Stamp) int {
+		return cmp.Compare(a, b)
+	})
+
+	st := common.TimeToStamp(t)
+
+	for _, s1 := range keys {
+
+		s2, ok := ps.Items[s1]
+		if !ok {
+			continue
+		}
+
+		if s1 < st && s2 < st {
+			delete(ps.Items, s1)
+			continue
+		}
+
+		if s1 < st && s2 > st {
+			ps.Items[st] = s2
+			continue
+		}
+	}
+	return len(keys) > len(ps.Items)
+}
+
 func (ps *PrometheusState) AddOrUpdateTimes(t1 time.Time, t2 time.Time) {
 
 	ps.mu.Lock()
@@ -171,6 +213,7 @@ func (ps *PrometheusState) AddOrUpdateTimes(t1 time.Time, t2 time.Time) {
 
 	s1 := common.TimeToStamp(t1)
 	s2 := common.TimeToStamp(t2)
+
 	ps.Items[s1] = s2
 }
 
@@ -294,9 +337,10 @@ func (ps *PrometheusState) RebuildIntervals(from, to time.Time, window time.Dura
 	return r
 }
 
-func NewPrometheusState() *PrometheusState {
+func NewPrometheusState(retain bool) *PrometheusState {
 	return &PrometheusState{
-		Items: make(PrometheusStateItems),
+		retain: retain,
+		Items:  make(PrometheusStateItems),
 	}
 }
 
@@ -1308,6 +1352,13 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 
 	items := state.RebuildIntervals(from, to, window)
 
+	state.TryPurgeUntil(from)
+
+	min, max := state.MinMaxTimes()
+	if min.UnixMilli() > 0 && max.UnixMilli() > 0 {
+		p.info("Gathering span (%s / %s) considering state (%s / %s)...", from, to, min, max)
+	}
+
 	keys := slices.SortedFunc(maps.Keys(items), func(a, b common.Stamp) int {
 		return cmp.Compare(a, b)
 	})
@@ -1329,6 +1380,7 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 			hosts:        common.NewHosts(),
 			applications: common.NewApplications(),
 			measurements: common.NewMeasurements(),
+			from:         common.TimeToStamp(from),
 			first:        s1,
 			last:         s2,
 		}
@@ -1403,7 +1455,7 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 		}
 	}
 
-	state := NewPrometheusState()
+	state := NewPrometheusState(p.options.StateRetain)
 	yaml := p.options.StateYaml
 
 	if utils.FileExists(yaml) {

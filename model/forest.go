@@ -14,7 +14,7 @@ import (
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
 	"github.com/devopsext/utils"
-	"github.com/e-XpertSolutions/go-iforest/v2/iforest"
+	iforest "github.com/e-XpertSolutions/go-iforest/v2/iforest"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -283,7 +283,8 @@ type ForestModelFileData struct {
 	Times []common.Stamp
 }
 
-func (fd *ForestModelData) loadData(path string, hash common.Hash, from, to common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
+func (fd *ForestModelData) loadData(path string, hash common.Hash,
+	from, first, last common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
 
 	d1 := [][]float64{}
 	t1 := []common.Stamp{}
@@ -313,11 +314,16 @@ func (fd *ForestModelData) loadData(path string, hash common.Hash, from, to comm
 
 	for k, stamp := range fmfd.Times {
 
-		// add only data outside of time limits
+		// skip outdated data
 		if stamp < from {
+			continue
+		}
+
+		// add only data outside of time limits
+		if stamp < first {
 			d1 = append(d1, fmfd.Data[k])
 			t1 = append(t1, stamp)
-		} else if stamp > to {
+		} else if stamp > last {
 			d2 = append(d2, fmfd.Data[k])
 			t2 = append(t2, stamp)
 		}
@@ -362,7 +368,12 @@ func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.F
 	return encoder.Encode(&fmf)
 }
 
-func (fd *ForestModelData) train(measurements *common.Measurements, hashes []common.Hash, from, to common.Stamp) error {
+func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash) error {
+
+	measurements := dsd.Measurements()
+	from := dsd.From()
+	first := dsd.First()
+	last := dsd.Last()
 
 	data, times := fd.prepare(measurements, hashes)
 	if len(data) == 0 {
@@ -378,7 +389,7 @@ func (fd *ForestModelData) train(measurements *common.Measurements, hashes []com
 
 		gr.Go(func() error {
 
-			d1, t1, d2, t2 := fd.loadData(path, h, from, to)
+			d1, t1, d2, t2 := fd.loadData(path, h, from, first, last)
 
 			d := append(d1, d...)
 			d = append(d, d2...)
@@ -453,7 +464,7 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 	hashes := fm.findHashes(data.Names())
 
 	fm.data.model = fm
-	err := fm.data.train(data.Measurements(), hashes, data.First(), data.Last())
+	err := fm.data.train(data, hashes)
 	if err != nil {
 		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
 		return err

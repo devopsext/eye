@@ -2,7 +2,7 @@ module github.com/devopsext/eye
 
 go 1.26
 
-//replace github.com/devopsext/tools => ../../devopsext/tools
+replace github.com/e-XpertSolutions/go-iforest => ../../devopsext/go-iforest
 
 require (
 	github.com/devopsext/sre v0.7.0
@@ -15,6 +15,7 @@ require (
 	github.com/puzpuzpuz/xsync/v4 v4.5.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.22.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -103,7 +104,6 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.33.3 // indirect
 	k8s.io/apimachinery v0.33.3 // indirect

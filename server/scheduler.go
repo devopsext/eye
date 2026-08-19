@@ -18,10 +18,11 @@ type Scheduler struct {
 }
 
 const (
-	ScheduleOnce = "once"
+	ScheduleOnce       = "once"
+	ScheduleContinuous = "continuous"
 )
 
-func (s *Scheduler) startOnce(wg *sync.WaitGroup, schedule common.Schedule) {
+func (s *Scheduler) once(wg *sync.WaitGroup, schedule common.Schedule) {
 
 	wg.Add(1)
 	go func() {
@@ -56,38 +57,43 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 		}
 
 		if schedule == ScheduleOnce {
-			sr.startOnce(wg, s)
+			sr.once(wg, s)
 			continue
 		}
 
 		var def gocron.JobDefinition
-
-		if len(strings.Split(schedule, " ")) == 1 {
-
-			d, err := time.ParseDuration(schedule)
-			if err != nil {
-				sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
-				continue
-			}
-			def = gocron.DurationJob(d)
-
-		} else {
-			def = gocron.CronJob(schedule, false)
-		}
-
 		task := gocron.NewTask(s.Start, wg)
 
 		opts := []gocron.JobOption{}
 		opts = append(opts, gocron.WithName(name))
 		opts = append(opts, gocron.JobOption(gocron.WithStartImmediately()))
-		opts = append(opts, gocron.WithSingletonMode(gocron.LimitModeReschedule))
+		limitMode := gocron.LimitModeReschedule
+
+		if len(strings.Split(schedule, " ")) == 1 {
+
+			if schedule == ScheduleContinuous {
+				def = gocron.DurationJob(1 * time.Millisecond)
+				limitMode = gocron.LimitModeWait
+			} else {
+				d, err := time.ParseDuration(schedule)
+				if err != nil {
+					sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
+					continue
+				}
+				def = gocron.DurationJob(d)
+			}
+		} else {
+			def = gocron.CronJob(schedule, false)
+		}
+
+		opts = append(opts, gocron.WithSingletonMode(limitMode))
 
 		job, err := scheduler.NewJob(def, task, opts...)
 		if err != nil {
 			sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
 			continue
 		}
-		sr.logger.Info("Scheduler scheduled model %s with id %s", name, job.ID())
+		sr.logger.Info("Scheduler scheduled %s with id %s", name, job.ID())
 	}
 
 	scheduler.Start()
