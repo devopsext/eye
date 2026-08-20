@@ -16,21 +16,21 @@ import (
 	sreCommon "github.com/devopsext/sre/common"
 	"github.com/devopsext/utils"
 	iforest "github.com/e-XpertSolutions/go-iforest/v2/iforest"
+	"github.com/jellydator/ttlcache/v3"
 	"golang.org/x/sync/errgroup"
 )
 
 type ForestModelOptions struct {
 	Path        string
-	Schedule    string
 	Concurrency int
 	Filter      []string /// add filter by apps and hosts
+	TTL         string
 }
 
-type ForestModelDataItems = map[common.Hash]*iforest.Forest
 type ForestModelData struct {
-	mu    sync.Mutex
-	model *ForestModel
-	items map[common.Hash]*iforest.Forest
+	path        string
+	concurrency int
+	items       *ttlcache.Cache[common.Hash, *iforest.Forest]
 }
 
 type ForestModel struct {
@@ -45,26 +45,10 @@ type ForestModel struct {
 const (
 	ForestModelTreesNumber   = 100
 	ForestModelSubsampleSize = 256
-	ForstModelOutlierRatio   = 0.01
+	ForestModelOutlierRatio  = 0.01
 )
 
 // ForestModelData
-
-func (fd *ForestModelData) GetItems() ForestModelDataItems {
-
-	fd.mu.Lock()
-	defer fd.mu.Unlock()
-
-	return fd.items
-}
-
-func (fd *ForestModelData) AddOrUpdate(hash common.Hash, forest *iforest.Forest) {
-
-	fd.mu.Lock()
-	defer fd.mu.Unlock()
-
-	fd.items[hash] = forest
-}
 
 func (fd *ForestModelData) getStampFeatures(stamp time.Time) (float64, float64, float64, float64) {
 
@@ -253,37 +237,12 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []c
 	return md, mt
 }
 
-type ForestModelFileForest struct {
-	Forest *iforest.Forest
-}
-
-func (fd *ForestModelData) loadForest(path string, hash common.Hash) *iforest.Forest {
-
-	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
-
-	f, err := os.Open(fpath)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	br := bufio.NewReader(f)
-	decoder := gob.NewDecoder(br)
-
-	fmff := ForestModelFileForest{}
-	err = decoder.Decode(&fmff)
-	if err != nil {
-		return nil
-	}
-	return fmff.Forest
-}
-
 type ForestModelFileData struct {
 	Data  [][]float64
 	Times []common.Stamp
 }
 
-func (fd *ForestModelData) loadData(path string, hash common.Hash,
+func (fd *ForestModelData) loadData(hash common.Hash,
 	from, first, last common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
 
 	d1 := [][]float64{}
@@ -291,7 +250,7 @@ func (fd *ForestModelData) loadData(path string, hash common.Hash,
 	d2 := [][]float64{}
 	t2 := []common.Stamp{}
 
-	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
+	fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", hash))
 
 	f, err := os.Open(fpath)
 	if err != nil {
@@ -337,17 +296,17 @@ type ForestModelFile struct {
 	Times  []common.Stamp
 }
 
-func (fd *ForestModelData) save(path string, hash common.Hash, forest *iforest.Forest, data [][]float64, times []common.Stamp) error {
+func (fd *ForestModelData) save(hash common.Hash, forest *iforest.Forest, data [][]float64, times []common.Stamp) error {
 
 	if len(data) != len(times) {
 		return nil
 	}
 
-	if !utils.DirExists(path) {
-		os.MkdirAll(path, os.ModePerm)
+	if !utils.DirExists(fd.path) {
+		os.MkdirAll(fd.path, os.ModePerm)
 	}
 
-	fpath := filepath.Join(path, fmt.Sprintf("%d.data", hash))
+	fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", hash))
 
 	f, err := os.Create(fpath)
 	if err != nil {
@@ -380,10 +339,8 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 		return nil
 	}
 
-	path := fd.model.options.Path
-
 	gr := &errgroup.Group{}
-	gr.SetLimit(fd.model.options.Concurrency)
+	gr.SetLimit(fd.concurrency)
 
 	errs := make(chan error, len(data))
 
@@ -391,12 +348,12 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 
 		gr.Go(func() error {
 
-			d1, t1, d2, t2 := fd.loadData(path, h, from, first, last)
+			d1, t1, d2, t2 := fd.loadData(h, from, first, last)
 
 			d := append(d1, d...)
 			d = append(d, d2...)
 
-			f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForstModelOutlierRatio)
+			f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForestModelOutlierRatio)
 
 			f.Train(d)
 
@@ -405,13 +362,13 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 				errs <- err
 				return nil
 			}
-			fd.AddOrUpdate(h, f)
+			fd.items.Set(h, f, ttlcache.DefaultTTL)
 
 			t := times[h]
 			t = append(t1, t...)
 			t = append(t, t2...)
 
-			return fd.save(path, h, f, d, t)
+			return fd.save(h, f, d, t)
 		})
 	}
 	gr.Wait()
@@ -424,20 +381,53 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 	return errors.Join(all...)
 }
 
-func NewForestModelData() *ForestModelData {
-	return &ForestModelData{
-		items: make(ForestModelDataItems),
+type ForestModelFileForest struct {
+	Forest *iforest.Forest
+}
+
+func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Forest], key common.Hash) *ttlcache.Item[common.Hash, *iforest.Forest] {
+
+	fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", key))
+
+	f, err := os.Open(fpath)
+	if err != nil {
+		return nil
 	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+	decoder := gob.NewDecoder(br)
+
+	fmff := ForestModelFileForest{}
+	err = decoder.Decode(&fmff)
+	if err != nil {
+		return nil
+	}
+
+	item := c.Set(key, fmff.Forest, ttlcache.DefaultTTL)
+	return item
+}
+
+func NewForestModelData(path string, ttl time.Duration, concurrency int) *ForestModelData {
+
+	fd := &ForestModelData{
+		path:        path,
+		concurrency: concurrency,
+	}
+
+	loader := ttlcache.LoaderFunc[common.Hash, *iforest.Forest](fd.loadForest)
+
+	fd.items = ttlcache.New(
+		ttlcache.WithTTL[common.Hash, *iforest.Forest](ttl),
+		ttlcache.WithLoader(ttlcache.NewSuppressedLoader(loader, nil)),
+	)
+	return fd
 }
 
 // ForestModel
 
 func (fm *ForestModel) Name() string {
 	return "ForestModel"
-}
-
-func (fm *ForestModel) Schedule() string {
-	return fm.options.Schedule
 }
 
 func (fm *ForestModel) findHashes(names *common.Names) []common.Hash {
@@ -474,7 +464,6 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 
 	hashes := fm.findHashes(data.Names())
 
-	fm.data.model = fm
 	err := fm.data.train(data, hashes)
 	if err != nil {
 		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
@@ -484,57 +473,30 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 	return nil
 }
 
-func (fm *ForestModel) Start(wg *sync.WaitGroup) {
+func (fm *ForestModel) Detect(data common.DataSourceData) error {
 
 	fm.logger.Debug("Starting...")
 
+	//fm.data.loadData()
+
 	fm.logger.Debug("Started...")
-
-	/*opts := datasource.PrometheusOptions{
-		AppQuery: "",
-		Schedule: "",
-	}
-
-	prom := datasource.NewPrometheus(opts, fm.observability, func(ds common.DataSource) {
-		//
-	})
-	prom.Start(wg)*/
-
-	//prom.RunOnSchedule()
-
-	/*
-		m.history.AddOrUpdate(measurements)
-
-		l1, l2 = m.history.Sizes()
-		min, max = m.history.Times()
-		tmin = time.UnixMilli(int64(min))
-		tmax = time.UnixMilli(int64(max))
-		m.debug("Updated history for %d items / %d samples (min: %s, max: %s, diff: %s)", l1, l2, tmin, tmax, tmax.Sub(tmin))
-
-		when = time.Now()
-		m.info("Training data...")
-
-		m.debug("Initial forest for %d items", len(m.forests.GetItems()))
-		m.forests.Train(m.history)
-		m.debug("Updated forest for %d items", len(m.forests.GetItems()))
-
-		m.info("Training finished in %s", time.Since(when))
-
-		when = time.Now()
-		m.info("Saving data...")
-		m.forests.SaveToPath(m.options.FilePath)
-		m.info("Saving finished in %s", time.Since(when))
-
-		// time.Sleep(time.Duration(time.Minute * 10))
-	*/
+	return nil
 }
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
+
+	ttl := 1 * time.Hour
+	if !utils.IsEmpty(options.TTL) {
+		d, err := time.ParseDuration(options.TTL)
+		if err == nil {
+			ttl = d
+		}
+	}
 
 	return &ForestModel{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
-		data:          NewForestModelData(),
+		data:          NewForestModelData(options.Path, ttl, options.Concurrency),
 	}
 }

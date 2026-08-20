@@ -2,12 +2,11 @@ package common
 
 import (
 	"reflect"
-	"sync"
 )
 
 type Model interface {
 	Name() string
-	Start(wg *sync.WaitGroup)
+	Detect(data DataSourceData) error
 	Train(data DataSourceData) error
 }
 
@@ -36,11 +35,23 @@ func (ms *Models) Find(name string) Model {
 	return nil
 }
 
-func (ms *Models) OnData(data DataSourceData) error {
+func (ms *Models) OnTrain(data DataSourceData) error {
 
 	var err error
 	for _, m := range ms.list {
 		e := m.Train(data)
+		if e != nil {
+			err = e
+		}
+	}
+	return err
+}
+
+func (ms *Models) OnDetect(data DataSourceData) error {
+
+	var err error
+	for _, m := range ms.list {
+		e := m.Detect(data)
 		if e != nil {
 			err = e
 		}

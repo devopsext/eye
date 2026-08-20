@@ -9,7 +9,6 @@ import (
 )
 
 type TestModelOptions struct {
-	Schedule     string
 	WaitInterval string
 }
 
@@ -22,10 +21,6 @@ type TestModel struct {
 
 func (t *TestModel) Name() string {
 	return "TestModel"
-}
-
-func (t *TestModel) Schedule() string {
-	return t.options.Schedule
 }
 
 func (t *TestModel) Train(data common.DataSourceData) error {
@@ -46,7 +41,7 @@ func (t *TestModel) Train(data common.DataSourceData) error {
 	return nil
 }
 
-func (t *TestModel) Start(wg *sync.WaitGroup) {
+func (t *TestModel) Detect(data common.DataSourceData) error {
 
 	name := t.Name()
 	t.logger.Info("%s: Starting...", name)
@@ -56,6 +51,7 @@ func (t *TestModel) Start(wg *sync.WaitGroup) {
 	time.Sleep(d)
 
 	t.logger.Info("%s: Started in %s", name, time.Since(when))
+	return nil
 }
 
 func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {

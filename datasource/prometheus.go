@@ -45,7 +45,9 @@ type PrometheusSeriesValue struct {
 
 type PrometheusSeries = map[common.Stamp][]PrometheusSeriesValue
 
-type PrometheusOptions struct {
+type PrometheusSignalOptions struct {
+
+	// app related
 	AppQuery                 string
 	AppTolerance             int
 	AppSignalCommonLabels    string
@@ -57,22 +59,23 @@ type PrometheusOptions struct {
 	AppSignalOutLatencyQuery string
 	AppSignalSaturationQuery string
 	AppSignalTolerance       int
-
+	// host relates
 	HostQuery                 string
 	HostTolerance             int
 	HostSignalCommonLabels    string
 	HostSignalSaturationQuery string
 	HostSignalTolerance       int
+}
 
+type PrometheusOptions struct {
+	Name        string
 	Prometheus  toolsVendors.PrometheusOptions
 	Span        string
 	Window      string
 	Schedule    string
 	Concurrency int
-
 	TimeFormat  string
-	StateYaml   string
-	StateRetain bool
+	State       string
 }
 
 type PrometheusData struct {
@@ -89,14 +92,14 @@ type PrometheusData struct {
 type PrometheusStateItems = map[common.Stamp]common.Stamp
 
 type PrometheusState struct {
-	mu     sync.Mutex
-	retain bool
-	Items  PrometheusStateItems
+	mu    sync.Mutex
+	Items PrometheusStateItems
 }
 
 type Prometheus struct {
 	mu            sync.Mutex
-	options       PrometheusOptions
+	signalOptions PrometheusSignalOptions
+	promOptions   PrometheusOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 	onData        common.DataSourceOnData
@@ -171,16 +174,9 @@ func (ps *PrometheusState) Save(path string) error {
 	return yaml.NewEncoder(f).Encode(ps.Items)
 }
 
-func (ps *PrometheusState) TryPurgeUntil(t time.Time) bool {
+func (ps *PrometheusState) TryPurgeUntil(items PrometheusStateItems, t time.Time) bool {
 
-	if ps.retain {
-		return false
-	}
-
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
-	keys := slices.SortedFunc(maps.Keys(ps.Items), func(a, b common.Stamp) int {
+	keys := slices.SortedFunc(maps.Keys(items), func(a, b common.Stamp) int {
 		return cmp.Compare(a, b)
 	})
 
@@ -188,22 +184,22 @@ func (ps *PrometheusState) TryPurgeUntil(t time.Time) bool {
 
 	for _, s1 := range keys {
 
-		s2, ok := ps.Items[s1]
+		s2, ok := items[s1]
 		if !ok {
 			continue
 		}
 
 		if s1 < st && s2 < st {
-			delete(ps.Items, s1)
+			delete(items, s1)
 			continue
 		}
 
 		if s1 < st && s2 > st {
-			ps.Items[st] = s2
+			items[st] = s2
 			continue
 		}
 	}
-	return len(keys) > len(ps.Items)
+	return len(keys) > len(items)
 }
 
 func (ps *PrometheusState) AddOrUpdateTimes(t1 time.Time, t2 time.Time) {
@@ -337,21 +333,20 @@ func (ps *PrometheusState) RebuildIntervals(from, to time.Time, window time.Dura
 	return r
 }
 
-func NewPrometheusState(retain bool) *PrometheusState {
+func NewPrometheusState() *PrometheusState {
 	return &PrometheusState{
-		retain: retain,
-		Items:  make(PrometheusStateItems),
+		Items: make(PrometheusStateItems),
 	}
 }
 
 // Prometheus
 
 func (p *Prometheus) Name() string {
-	return "Prometheus"
+	return p.promOptions.Name
 }
 
 func (p *Prometheus) Schedule() string {
-	return p.options.Schedule
+	return p.promOptions.Schedule
 }
 
 func (p *Prometheus) setTimeFormat(args ...any) []any {
@@ -366,7 +361,7 @@ func (p *Prometheus) setTimeFormat(args ...any) []any {
 
 		t, ok := v.(time.Time)
 		if ok {
-			arr[k] = t.Format(p.options.TimeFormat)
+			arr[k] = t.Format(p.promOptions.TimeFormat)
 			continue
 		}
 
@@ -441,7 +436,7 @@ func (p *Prometheus) sliceCommonLabels(parent, labels map[string]string) []map[s
 func (p *Prometheus) loadData(q string, from, to time.Time) (*common.PrometheusResponseData, error) {
 
 	opts := toolsVendors.PrometheusOptions{}
-	copier.Copy(&opts, &p.options.Prometheus)
+	copier.Copy(&opts, &p.promOptions.Prometheus)
 
 	opts.Query = q
 	opts.From = strconv.Itoa(int(from.UTC().Unix()))
@@ -640,7 +635,7 @@ func (p *Prometheus) gatherHostsBySpan(data *PrometheusData, query string, from,
 	})
 
 	gr := &errgroup.Group{}
-	gr.SetLimit(p.options.Concurrency)
+	gr.SetLimit(p.promOptions.Concurrency)
 
 	mp := &sync.Map{}
 
@@ -753,7 +748,7 @@ func (p *Prometheus) gatherApplicationsBySpan(data *PrometheusData, query string
 	})
 
 	gr := &errgroup.Group{}
-	gr.SetLimit(p.options.Concurrency)
+	gr.SetLimit(p.promOptions.Concurrency)
 
 	mp := &sync.Map{}
 
@@ -825,7 +820,7 @@ func (p *Prometheus) loadModelData(data *PrometheusData, q string, from, to time
 func (p *Prometheus) gatherSignals(data *PrometheusData, queries map[common.SignalKind]string, from, to time.Time) (map[common.SignalKind]PrometheusSeries, error) {
 
 	gr := &errgroup.Group{}
-	gr.SetLimit(p.options.Concurrency)
+	gr.SetLimit(p.promOptions.Concurrency)
 
 	mp := &sync.Map{}
 
@@ -898,7 +893,7 @@ func (p *Prometheus) gatherSignalsByQueries(name string, data *PrometheusData,
 	if len(labels) > 0 {
 
 		gr := &errgroup.Group{}
-		gr.SetLimit(p.options.Concurrency)
+		gr.SetLimit(p.promOptions.Concurrency)
 
 		mp := &sync.Map{}
 		arr := p.sliceCommonLabels(nil, labels)
@@ -1035,7 +1030,7 @@ func (p *Prometheus) gatherSignalsBySpan(name string, data *PrometheusData,
 	})
 
 	gr := &errgroup.Group{}
-	gr.SetLimit(p.options.Concurrency)
+	gr.SetLimit(p.promOptions.Concurrency)
 
 	mp := &sync.Map{}
 
@@ -1112,14 +1107,14 @@ func (p *Prometheus) getApplicationHost(
 
 	// find application & hosts in the dictionaries
 	appHash := data.names.AddOrUpdate(appName)
-	app := data.applications.FindWithTolerance(stamp, appHash, p.options.AppTolerance)
+	app := data.applications.FindWithTolerance(stamp, appHash, p.signalOptions.AppTolerance)
 
 	hostHash := data.names.AddOrUpdate(hostName)
-	host := data.hosts.FindWithTolerance(stamp, hostHash, p.options.HostTolerance)
+	host := data.hosts.FindWithTolerance(stamp, hostHash, p.signalOptions.HostTolerance)
 
 	// find application signal in measurements
 	if app == nil || host == nil {
-		signal := data.measurements.FindApplicationSignalWithTolerance(stamp, appHostHash, p.options.AppSignalTolerance)
+		signal := data.measurements.FindApplicationSignalWithTolerance(stamp, appHostHash, p.signalOptions.AppSignalTolerance)
 		if app == nil && signal != nil {
 			appHash = signal.GetApplication()
 			app = data.applications.Find(stamp, appHash)
@@ -1196,12 +1191,12 @@ func (p *Prometheus) getHost(
 	}
 
 	// find hosts in the dictionaries
-	host := data.hosts.FindWithTolerance(stamp, hostHash, p.options.HostTolerance)
+	host := data.hosts.FindWithTolerance(stamp, hostHash, p.signalOptions.HostTolerance)
 
 	// find host signal in measurements
 
 	if host == nil {
-		signal := data.measurements.FindHostSignalWithTolerance(stamp, hostHash, p.options.HostSignalTolerance)
+		signal := data.measurements.FindHostSignalWithTolerance(stamp, hostHash, p.signalOptions.HostSignalTolerance)
 		if signal != nil {
 			hostHash = signal.GetName()
 			host = data.hosts.Find(stamp, hostHash)
@@ -1258,26 +1253,26 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 	p.info("Gathering hosts (%s / %s) span=%s...", from, to, span)
 
-	err := p.gatherHostsBySpan(data, p.options.HostQuery, from, to, span)
+	err := p.gatherHostsBySpan(data, p.signalOptions.HostQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	p.info("Gathering applications (%s / %s) span=%s...", from, to, span)
 
-	err = p.gatherApplicationsBySpan(data, p.options.AppQuery, from, to, span)
+	err = p.gatherApplicationsBySpan(data, p.signalOptions.AppQuery, from, to, span)
 	if err != nil {
 		return err
 	}
 
 	p.info("Gathering signals (%s / %s) span=%s...", from, to, span)
 
-	appLabels := utils.MapGetKeyValuesEx(p.options.AppSignalCommonLabels, ";", "=")
+	appLabels := utils.MapGetKeyValuesEx(p.signalOptions.AppSignalCommonLabels, ";", "=")
 
 	queries := make(map[common.SignalKind]string)
-	queries[common.SignalTraffic] = p.options.AppSignalInTrafficQuery
-	queries[common.SignalErrors] = p.options.AppSignalInErrorsQuery
-	queries[common.SignalLatency] = p.options.AppSignalInLatencyQuery
+	queries[common.SignalTraffic] = p.signalOptions.AppSignalInTrafficQuery
+	queries[common.SignalErrors] = p.signalOptions.AppSignalInErrorsQuery
+	queries[common.SignalLatency] = p.signalOptions.AppSignalInLatencyQuery
 
 	series, err := p.gatherSignalsBySpan("apps incoming", data, queries, appLabels, from, to, span)
 	if err != nil {
@@ -1299,10 +1294,10 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 		})
 
 	queries = make(map[common.SignalKind]string)
-	queries[common.SignalTraffic] = p.options.AppSignalOutTrafficQuery
-	queries[common.SignalErrors] = p.options.AppSignalOutErrorsQuery
-	queries[common.SignalLatency] = p.options.AppSignalOutLatencyQuery
-	queries[common.SignalSaturation] = p.options.AppSignalSaturationQuery
+	queries[common.SignalTraffic] = p.signalOptions.AppSignalOutTrafficQuery
+	queries[common.SignalErrors] = p.signalOptions.AppSignalOutErrorsQuery
+	queries[common.SignalLatency] = p.signalOptions.AppSignalOutLatencyQuery
+	queries[common.SignalSaturation] = p.signalOptions.AppSignalSaturationQuery
 
 	series, err = p.gatherSignalsBySpan("apps outgoing & saturation", data, queries, appLabels, from, to, span)
 	if err != nil {
@@ -1325,10 +1320,10 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 			}
 		})
 
-	hostLabels := utils.MapGetKeyValuesEx(p.options.HostSignalCommonLabels, ";", "=")
+	hostLabels := utils.MapGetKeyValuesEx(p.signalOptions.HostSignalCommonLabels, ";", "=")
 
 	queries = make(map[common.SignalKind]string)
-	queries[common.SignalSaturation] = p.options.HostSignalSaturationQuery
+	queries[common.SignalSaturation] = p.signalOptions.HostSignalSaturationQuery
 
 	series, err = p.gatherSignalsBySpan("hosts", data, queries, hostLabels, from, to, span)
 	if err != nil {
@@ -1352,7 +1347,7 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 
 	items := state.RebuildIntervals(from, to, window)
 
-	state.TryPurgeUntil(from)
+	state.TryPurgeUntil(items, from)
 
 	min, max := state.MinMaxTimes()
 	if min.UnixMilli() > 0 && max.UnixMilli() > 0 {
@@ -1427,36 +1422,36 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
 
-	if utils.IsEmpty(p.options.Prometheus.From) {
-		p.error("Cannot train due to from is not defined")
+	if utils.IsEmpty(p.promOptions.Prometheus.From) {
+		p.error("Cannot train gathering data due to from is not defined")
 		return
 	}
 
-	from := p.string2Time(p.options.Prometheus.From)
+	from := p.string2Time(p.promOptions.Prometheus.From)
 
 	to := time.Now()
-	if !utils.IsEmpty(p.options.Prometheus.To) {
-		to = p.string2Time(p.options.Prometheus.To)
+	if !utils.IsEmpty(p.promOptions.Prometheus.To) {
+		to = p.string2Time(p.promOptions.Prometheus.To)
 	}
 
 	span := to.Sub(from)
-	if !utils.IsEmpty(p.options.Span) {
-		s, err := time.ParseDuration(p.options.Span)
+	if !utils.IsEmpty(p.promOptions.Span) {
+		s, err := time.ParseDuration(p.promOptions.Span)
 		if err == nil {
 			span = s
 		}
 	}
 
 	win := to.Sub(from)
-	if !utils.IsEmpty(p.options.Window) {
-		s, err := time.ParseDuration(p.options.Window)
+	if !utils.IsEmpty(p.promOptions.Window) {
+		s, err := time.ParseDuration(p.promOptions.Window)
 		if err == nil {
 			win = s
 		}
 	}
 
-	state := NewPrometheusState(p.options.StateRetain)
-	yaml := p.options.StateYaml
+	state := NewPrometheusState()
+	yaml := p.promOptions.State
 
 	if utils.FileExists(yaml) {
 		p.info("Loading state from %s...", yaml)
@@ -1475,10 +1470,12 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 	p.info("Gathering window (%s / %s) finished in %s", from, to, time.Since(when))
 }
 
-func NewPrometheus(options PrometheusOptions, observability *common.Observability, onData common.DataSourceOnData) *Prometheus {
+func NewPrometheus(options PrometheusOptions, signalOptions PrometheusSignalOptions,
+	observability *common.Observability, onData common.DataSourceOnData) *Prometheus {
 
 	return &Prometheus{
-		options:       options,
+		promOptions:   options,
+		signalOptions: signalOptions,
 		observability: observability,
 		logger:        observability.Logs(),
 		onData:        onData,
