@@ -381,6 +381,10 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 	return errors.Join(all...)
 }
 
+func (fd *ForestModelData) detect(dsd common.DataSourceData, hashes []common.Hash) ([]common.Hash, error) {
+	return hashes, nil
+}
+
 type ForestModelFileForest struct {
 	Forest *iforest.Forest
 }
@@ -452,34 +456,40 @@ func (fm *ForestModel) findHashes(names *common.Names) []common.Hash {
 
 func (fm *ForestModel) Train(data common.DataSourceData) error {
 
-	if !fm.mu.TryLock() {
-		return nil
-	}
-	defer fm.mu.Unlock()
-
 	when := time.Now()
 	name := fm.Name()
 
 	fm.logger.Info("%s: Training...", name)
 
 	hashes := fm.findHashes(data.Names())
-
 	err := fm.data.train(data, hashes)
 	if err != nil {
 		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
 		return err
 	}
-	fm.logger.Info("%s: Training sucessful in %s", name, time.Since(when))
+	fm.logger.Info("%s: Training successful in %s", name, time.Since(when))
 	return nil
 }
 
-func (fm *ForestModel) Detect(data common.DataSourceData) error {
+func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfterDetect) error {
 
-	fm.logger.Debug("Starting...")
+	when := time.Now()
+	name := fm.Name()
 
-	//fm.data.loadData()
+	fm.logger.Info("%s: Detecting...", name)
 
-	fm.logger.Debug("Started...")
+	hashes := fm.findHashes(data.Names())
+	hashes, err := fm.data.detect(data, hashes)
+	if err != nil {
+		fm.logger.Error("%s: Detecting failed in %s error %s", name, time.Since(when), err)
+		return err
+	}
+
+	if after != nil {
+		go after(hashes)
+	}
+
+	fm.logger.Info("%s: Detecting finished found=%d in %s", name, len(hashes), time.Since(when))
 	return nil
 }
 

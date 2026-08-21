@@ -9,10 +9,22 @@ import (
 	"github.com/devopsext/eye/datasource"
 	"github.com/devopsext/eye/handler"
 	"github.com/devopsext/eye/model"
+	"github.com/devopsext/eye/notifier"
 	"github.com/devopsext/eye/server"
+	"github.com/devopsext/tools/vendors"
 	toolsVendors "github.com/devopsext/tools/vendors"
 	"github.com/spf13/cobra"
 )
+
+var slackOptions = notifier.SlackOptions{
+	SlackOptions: vendors.SlackOptions{
+		Timeout:  envGet("SLACK_TIMEOUT", 30).(int),
+		Insecure: envGet("SLACK_INSECURE", false).(bool),
+		Token:    envGet("SLACK_TOKEN", "").(string),
+	},
+	Channel: envGet("SLACK_CHANNEL", "").(string),
+	Message: envFileContentExpand("SLACK_MESSAGE", ""),
+}
 
 var promSignalOptions = datasource.PrometheusSignalOptions{
 
@@ -116,7 +128,10 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			obs := common.NewObservability(logs, metrics)
 
-			models := common.NewModels()
+			notifiers := common.NewNotifiers()
+			notifiers.Add(notifier.NewSlack(slackOptions, obs))
+
+			models := common.NewModels(notifiers)
 			models.Add(model.NewTestModel(testModelOptions, obs))
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 

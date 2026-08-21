@@ -25,11 +25,6 @@ func (t *TestModel) Name() string {
 
 func (t *TestModel) Train(data common.DataSourceData) error {
 
-	if !t.mu.TryLock() {
-		return nil
-	}
-	defer t.mu.Unlock()
-
 	name := t.Name()
 	t.logger.Info("%s: Training...", name)
 
@@ -41,16 +36,16 @@ func (t *TestModel) Train(data common.DataSourceData) error {
 	return nil
 }
 
-func (t *TestModel) Detect(data common.DataSourceData) error {
+func (t *TestModel) Detect(data common.DataSourceData, after common.ModelAfterDetect) error {
 
 	name := t.Name()
-	t.logger.Info("%s: Starting...", name)
+	t.logger.Info("%s: Detecting...", name)
 
 	when := time.Now()
 	d, _ := time.ParseDuration(t.options.WaitInterval)
 	time.Sleep(d)
 
-	t.logger.Info("%s: Started in %s", name, time.Since(when))
+	t.logger.Info("%s: Detecting finished in %s", name, time.Since(when))
 	return nil
 }
 

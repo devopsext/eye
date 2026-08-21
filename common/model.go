@@ -4,14 +4,17 @@ import (
 	"reflect"
 )
 
+type ModelAfterDetect = func(hashes []Hash)
+
 type Model interface {
 	Name() string
-	Detect(data DataSourceData) error
 	Train(data DataSourceData) error
+	Detect(data DataSourceData, after ModelAfterDetect) error
 }
 
 type Models struct {
-	list []Model
+	list      []Model
+	notifiers *Notifiers
 }
 
 func (ms *Models) Items() []Model {
@@ -47,11 +50,19 @@ func (ms *Models) OnTrain(data DataSourceData) error {
 	return err
 }
 
+func (ms *Models) afterDetect(hashes []Hash) {
+
+	list := ms.notifiers.Items()
+	for _, n := range list {
+		n.Notify(hashes)
+	}
+}
+
 func (ms *Models) OnDetect(data DataSourceData) error {
 
 	var err error
 	for _, m := range ms.list {
-		e := m.Detect(data)
+		e := m.Detect(data, ms.afterDetect)
 		if e != nil {
 			err = e
 		}
@@ -59,6 +70,8 @@ func (ms *Models) OnDetect(data DataSourceData) error {
 	return err
 }
 
-func NewModels() *Models {
-	return &Models{}
+func NewModels(notifiers *Notifiers) *Models {
+	return &Models{
+		notifiers: notifiers,
+	}
 }
