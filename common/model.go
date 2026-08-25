@@ -5,9 +5,9 @@ import (
 )
 
 type Anomaly interface {
+	ID() string
 	Start() Stamp
 	End() Stamp
-	Hash() Hash
 }
 
 type ModelAfterDetect = func(anomalies []Anomaly)

@@ -34,7 +34,7 @@ type Slack struct {
 	logger   sreCommon.Logger
 	client   *vendors.Slack
 	message  *toolsRender.TextTemplate
-	notifies *ttlcache.Cache[common.Hash, *SlackNotify]
+	notifies *ttlcache.Cache[string, *SlackNotify]
 }
 
 func (s *Slack) Name() string {
@@ -84,9 +84,9 @@ func (s *Slack) notifyAnomaly(anomaly common.Anomaly, channel, thread string) (*
 	return mr, nil
 }
 
-func (s *Slack) findNotify(hash common.Hash) *SlackNotify {
+func (s *Slack) findNotify(id string) *SlackNotify {
 
-	item := s.notifies.Get(hash)
+	item := s.notifies.Get(id)
 	if item == nil {
 		return nil
 	}
@@ -113,14 +113,14 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 
 		gr.Go(func() error {
 
-			hash := a.Hash()
+			id := a.ID()
 			start := a.Start()
 			end := a.End()
 
 			channel := s.options.Channel
 			thread := ""
 
-			n := s.findNotify(hash)
+			n := s.findNotify(id)
 			if n == nil {
 				n = &SlackNotify{
 					start: start,
@@ -133,7 +133,7 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 					n.end = end
 				}
 				if mr.OK {
-					s.notifies.Set(hash, n, ttlcache.DefaultTTL)
+					s.notifies.Set(id, n, ttlcache.DefaultTTL)
 					return nil
 				}
 				thread = mr.TS
@@ -149,7 +149,7 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 			}
 
 			n.response = mr
-			s.notifies.Set(hash, n, ttlcache.DefaultTTL)
+			s.notifies.Set(id, n, ttlcache.DefaultTTL)
 			return nil
 		})
 	}
@@ -204,7 +204,7 @@ func NewSlack(options SlackOptions, observability *common.Observability) *Slack 
 
 	ttl := common.DefaultTTL(options.NotifyTTL, 5*time.Minute)
 	r.notifies = ttlcache.New(
-		ttlcache.WithTTL[common.Hash, *SlackNotify](ttl),
+		ttlcache.WithTTL[string, *SlackNotify](ttl),
 	)
 	return r
 }

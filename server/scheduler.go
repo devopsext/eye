@@ -33,7 +33,7 @@ func (s *Scheduler) once(wg *sync.WaitGroup, schedule common.Schedule) {
 
 func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 
-	sr.logger.Info("Start train server...")
+	sr.logger.Info("Scheduler starting...")
 
 	opts := []gocron.SchedulerOption{}
 	opts = append(opts, gocron.WithLocation(time.UTC))
