@@ -24,7 +24,8 @@ type ForestModelOptions struct {
 	Path        string
 	Concurrency int
 	Filter      []string /// add filter by apps and hosts
-	TTL         string
+	DataTTL     string
+	AnomalyTTL  string
 }
 
 type ForestModelData struct {
@@ -33,13 +34,27 @@ type ForestModelData struct {
 	items       *ttlcache.Cache[common.Hash, *iforest.Forest]
 }
 
+type ForestModelDetection struct {
+	start common.Stamp
+	end   common.Stamp
+	hash  common.Hash
+	bound float64
+	score float64
+}
+
+type ForestModelDetections struct {
+	mu    sync.Mutex
+	items *ttlcache.Cache[common.Hash, *ForestModelDetection]
+}
+
 type ForestModel struct {
 	mu            sync.Mutex
 	options       ForestModelOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 
-	data *ForestModelData
+	data       *ForestModelData
+	detections *ForestModelDetections
 }
 
 const (
@@ -381,8 +396,66 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, hashes []common.Hash
 	return errors.Join(all...)
 }
 
-func (fd *ForestModelData) detect(dsd common.DataSourceData, hashes []common.Hash) ([]common.Hash, error) {
-	return hashes, nil
+func (fd *ForestModelData) detect(dsd common.DataSourceData, hashes []common.Hash, detections *ForestModelDetections) error {
+
+	measurements := dsd.Measurements()
+
+	data, times := fd.prepare(measurements, hashes)
+	if len(data) == 0 {
+		return nil
+	}
+
+	gr := &errgroup.Group{}
+	gr.SetLimit(fd.concurrency)
+
+	errs := make(chan error, len(data))
+
+	for h, d := range data {
+
+		gr.Go(func() error {
+
+			item := fd.items.Get(h)
+			if item == nil {
+				return nil
+			}
+
+			f := item.Value()
+			if f == nil {
+				return nil
+			}
+
+			labels, scores, err := f.Predict(d)
+			if err != nil {
+				errs <- err
+				return nil
+			}
+
+			for i, label := range labels {
+
+				detected := label == 1
+				if !detected {
+					continue
+				}
+
+				timeExists := len(times[h]) > i
+				scoreExists := len(scores) > i
+
+				if !timeExists || !scoreExists {
+					continue
+				}
+				detections.AddOrUpdate(h, times[h][i], f.AnomalyBound, scores[i])
+			}
+			return nil
+		})
+	}
+	gr.Wait()
+	close(errs)
+
+	all := []error{}
+	for e := range errs {
+		all = append(all, e)
+	}
+	return errors.Join(all...)
 }
 
 type ForestModelFileForest struct {
@@ -428,6 +501,98 @@ func NewForestModelData(path string, ttl time.Duration, concurrency int) *Forest
 	return fd
 }
 
+// ForestModelDetection
+
+func (fd *ForestModelDetection) Start() common.Stamp {
+	return fd.start
+}
+
+func (fd *ForestModelDetection) End() common.Stamp {
+	return fd.end
+}
+
+func (fd *ForestModelDetection) Hash() common.Hash {
+	return fd.hash
+}
+
+func NewForestModelDetection(hash common.Hash, start common.Stamp, bound, score float64) *ForestModelDetection {
+	return &ForestModelDetection{
+		start: start,
+		hash:  hash,
+		bound: bound,
+		score: score,
+	}
+}
+
+// ForestModelDetections
+
+func (fd *ForestModelDetections) Anomalies() []common.Anomaly {
+
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+
+	r := []common.Anomaly{}
+	fd.items.Range(func(item *ttlcache.Item[common.Hash, *ForestModelDetection]) bool {
+
+		d := item.Value()
+		if d == nil {
+			return true
+		}
+		r = append(r, d)
+		return true
+	})
+	return r
+}
+
+func (fd *ForestModelDetections) find(hash common.Hash) *ForestModelDetection {
+
+	item := fd.items.Get(hash)
+	if item != nil {
+		a := item.Value()
+		if a != nil {
+			return a
+		}
+	}
+	return nil
+}
+
+func (fd *ForestModelDetections) AddOrUpdate(hash common.Hash, stamp common.Stamp, bound, score float64) {
+
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+
+	d := fd.find(hash)
+	if d == nil {
+		d = NewForestModelDetection(hash, stamp, bound, score)
+	} else {
+		if d.start > stamp {
+			d.start = stamp
+		}
+		if d.end < stamp {
+			d.end = stamp
+		}
+		if d.start > d.end {
+			old := d.end
+			d.end = d.start
+			d.start = old
+		}
+	}
+	fd.items.Set(hash, d, ttlcache.DefaultTTL)
+}
+
+func (fd *ForestModelDetections) Size() int {
+	return fd.items.Len()
+}
+
+func NewForestModelDetections(ttl time.Duration) *ForestModelDetections {
+
+	fd := &ForestModelDetections{}
+	fd.items = ttlcache.New(
+		ttlcache.WithTTL[common.Hash, *ForestModelDetection](ttl),
+	)
+	return fd
+}
+
 // ForestModel
 
 func (fm *ForestModel) Name() string {
@@ -461,8 +626,8 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 
 	fm.logger.Info("%s: Training...", name)
 
-	hashes := fm.findHashes(data.Names())
-	err := fm.data.train(data, hashes)
+	filter := fm.findHashes(data.Names())
+	err := fm.data.train(data, filter)
 	if err != nil {
 		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
 		return err
@@ -478,35 +643,28 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 
 	fm.logger.Info("%s: Detecting...", name)
 
-	hashes := fm.findHashes(data.Names())
-	hashes, err := fm.data.detect(data, hashes)
+	filter := fm.findHashes(data.Names())
+	err := fm.data.detect(data, filter, fm.detections)
 	if err != nil {
 		fm.logger.Error("%s: Detecting failed in %s error %s", name, time.Since(when), err)
 		return err
 	}
 
 	if after != nil {
-		go after(hashes)
+		go after(fm.detections.Anomalies())
 	}
 
-	fm.logger.Info("%s: Detecting finished found=%d in %s", name, len(hashes), time.Since(when))
+	fm.logger.Info("%s: Detecting finished found=%d in %s", name, fm.detections.Size(), time.Since(when))
 	return nil
 }
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
 
-	ttl := 1 * time.Hour
-	if !utils.IsEmpty(options.TTL) {
-		d, err := time.ParseDuration(options.TTL)
-		if err == nil {
-			ttl = d
-		}
-	}
-
 	return &ForestModel{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
-		data:          NewForestModelData(options.Path, ttl, options.Concurrency),
+		data:          NewForestModelData(options.Path, common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency),
+		detections:    NewForestModelDetections(common.DefaultTTL(options.AnomalyTTL, 5*time.Minute)),
 	}
 }

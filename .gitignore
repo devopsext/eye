@@ -29,3 +29,4 @@ alpha-v1.data
 heap.pprof
 .forest
 .prometheus.yaml
+.slack.tpl

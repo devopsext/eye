@@ -2,6 +2,7 @@ package notifier
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -10,19 +11,30 @@ import (
 	toolsRender "github.com/devopsext/tools/render"
 	vendors "github.com/devopsext/tools/vendors"
 	"github.com/devopsext/utils"
+	"github.com/jellydator/ttlcache/v3"
+	"golang.org/x/sync/errgroup"
 )
 
 type SlackOptions struct {
 	vendors.SlackOptions
-	Channel string
-	Message string
+	Channel     string
+	Message     string
+	NotifyTTL   string
+	Concurrency int
+}
+
+type SlackNotify struct {
+	start    common.Stamp
+	end      common.Stamp
+	response *vendors.SlackMessageResponse
 }
 
 type Slack struct {
-	options SlackOptions
-	logger  sreCommon.Logger
-	client  *vendors.Slack
-	message *toolsRender.TextTemplate
+	options  SlackOptions
+	logger   sreCommon.Logger
+	client   *vendors.Slack
+	message  *toolsRender.TextTemplate
+	notifies *ttlcache.Cache[common.Hash, *SlackNotify]
 }
 
 func (s *Slack) Name() string {
@@ -38,41 +50,123 @@ func (s *Slack) renderTemplate(template *toolsRender.TextTemplate, obj interface
 	return b, nil
 }
 
-func (s *Slack) Notify(hashes []common.Hash) {
+func (s *Slack) notifyAnomaly(anomaly common.Anomaly, channel, thread string) (*vendors.SlackMessageResponse, error) {
 
-	name := s.Name()
-	s.logger.Debug("%s: Notifying...", name)
+	if utils.IsEmpty(anomaly) {
+		return nil, nil
+	}
 
-	when := time.Now()
-
-	d, err := s.renderTemplate(s.message, nil)
+	d, err := s.renderTemplate(s.message, anomaly)
 	if err != nil {
-		s.logger.Error("%s: Rendering template error %s", name, err)
-		return
+		return nil, err
 	}
 
 	sd := strings.TrimSpace(string(d))
 	if utils.IsEmpty(sd) {
-		s.logger.Error("%s: No result from template", name)
-		return
+		return nil, err
 	}
 
 	opts := vendors.SlackMessageOptions{
-		Channel: s.options.Channel, Text: string(d),
+		Channel: channel,
+		Thread:  thread,
+		Text:    string(d),
 	}
 	r, err := s.client.SendMessage(opts)
 	if err != nil {
-		s.logger.Error("%s: Cannot send message error %s", name, err)
+		return nil, err
+	}
+
+	mr := &vendors.SlackMessageResponse{}
+	err = json.Unmarshal(r, mr)
+	if err != nil {
+		return nil, err
+	}
+	return mr, nil
+}
+
+func (s *Slack) findNotify(hash common.Hash) *SlackNotify {
+
+	item := s.notifies.Get(hash)
+	if item == nil {
+		return nil
+	}
+	return item.Value()
+}
+
+func (s *Slack) Notify(anomalies []common.Anomaly) {
+
+	if len(anomalies) == 0 {
 		return
 	}
 
-	mr := vendors.SlackMessageResponse{}
-	err = json.Unmarshal(r, &mr)
+	name := s.Name()
+	when := time.Now()
+
+	s.logger.Debug("%s: Notifying anomalies %d...", name, len(anomalies))
+
+	gr := &errgroup.Group{}
+	gr.SetLimit(s.options.Concurrency)
+
+	errs := make(chan error, len(anomalies))
+
+	for _, a := range anomalies {
+
+		gr.Go(func() error {
+
+			hash := a.Hash()
+			start := a.Start()
+			end := a.End()
+
+			channel := s.options.Channel
+			thread := ""
+
+			n := s.findNotify(hash)
+			if n == nil {
+				n = &SlackNotify{
+					start: start,
+					end:   end,
+				}
+			} else {
+				mr := n.response
+				if n.start != start || n.end != end {
+					n.start = start
+					n.end = end
+				}
+				if mr.OK {
+					s.notifies.Set(hash, n, ttlcache.DefaultTTL)
+					return nil
+				}
+				thread = mr.TS
+			}
+
+			mr, err := s.notifyAnomaly(a, channel, thread)
+			if err != nil {
+				errs <- err
+				return nil
+			}
+			if mr == nil {
+				return nil
+			}
+
+			n.response = mr
+			s.notifies.Set(hash, n, ttlcache.DefaultTTL)
+			return nil
+		})
+	}
+	gr.Wait()
+	close(errs)
+
+	all := []error{}
+	for e := range errs {
+		all = append(all, e)
+	}
+	err := errors.Join(all...)
 	if err != nil {
-		s.logger.Error("%s: Cannot unmarshall response error %s", name, err)
+		s.logger.Error("%s: Notifying failed error %s", name, err)
 		return
 	}
-	s.logger.Debug("%s: Notify finished in %s", name, time.Since(when))
+
+	s.logger.Debug("%s: Notifying finished in %s", name, time.Since(when))
 }
 
 func NewSlack(options SlackOptions, observability *common.Observability) *Slack {
@@ -108,5 +202,9 @@ func NewSlack(options SlackOptions, observability *common.Observability) *Slack 
 	r.client = vendors.NewSlack(options.SlackOptions)
 	r.message = message
 
+	ttl := common.DefaultTTL(options.NotifyTTL, 5*time.Minute)
+	r.notifies = ttlcache.New(
+		ttlcache.WithTTL[common.Hash, *SlackNotify](ttl),
+	)
 	return r
 }

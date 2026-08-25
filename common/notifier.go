@@ -6,7 +6,7 @@ import (
 
 type Notifier interface {
 	Name() string
-	Notify(hashes []Hash)
+	Notify(anomalies []Anomaly)
 }
 
 type Notifiers struct {

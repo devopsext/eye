@@ -276,3 +276,15 @@ func DurationToString(duration time.Duration) string {
 	}
 	return s
 }
+
+func DefaultTTL(ttl string, def time.Duration) time.Duration {
+
+	r := def
+	if !utils.IsEmpty(ttl) {
+		d, err := time.ParseDuration(ttl)
+		if err == nil {
+			r = d
+		}
+	}
+	return r
+}

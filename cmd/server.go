@@ -22,8 +22,10 @@ var slackOptions = notifier.SlackOptions{
 		Insecure: envGet("SLACK_INSECURE", false).(bool),
 		Token:    envGet("SLACK_TOKEN", "").(string),
 	},
-	Channel: envGet("SLACK_CHANNEL", "").(string),
-	Message: envFileContentExpand("SLACK_MESSAGE", ""),
+	Channel:     envGet("SLACK_CHANNEL", "").(string),
+	Message:     envFileContentExpand("SLACK_MESSAGE", ""),
+	NotifyTTL:   envGet("SLACK_NOTIFY_TTL", "5m").(string),
+	Concurrency: envGet("SLACK_CONCURRENCY", 5).(int),
 }
 
 var promSignalOptions = datasource.PrometheusSignalOptions{
@@ -98,6 +100,8 @@ var forestModelOptions = model.ForestModelOptions{
 	Path:        envGet("FOREST_MODEL_PATH", "").(string),
 	Concurrency: envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
 	Filter:      strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
+	DataTTL:     envGet("FOREST_MODEL_DATA_TTL", "1h").(string),
+	AnomalyTTL:  envGet("FOREST_MODEL_DATA_TTL", "5m").(string),
 }
 
 var httpServerOptions = server.HttpServerOptions{
@@ -227,6 +231,17 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&forestModelOptions.Path, "forest-model-path", forestModelOptions.Path, "Forest model path")
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
 	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")
+	flags.StringVar(&forestModelOptions.DataTTL, "forest-model-data-ttl", forestModelOptions.DataTTL, "Forest model data ttl")
+	flags.StringVar(&forestModelOptions.AnomalyTTL, "forest-model-anomaly-ttl", forestModelOptions.AnomalyTTL, "Forest model anomaly ttl")
+
+	// Slack
+	flags.IntVar(&slackOptions.SlackOptions.Timeout, "slack-timeout", slackOptions.SlackOptions.Timeout, "Slack timeout")
+	flags.BoolVar(&slackOptions.SlackOptions.Insecure, "slack-insecure", slackOptions.SlackOptions.Insecure, "Slack insecure")
+	flags.StringVar(&slackOptions.SlackOptions.Token, "slack-token", slackOptions.SlackOptions.Token, "Slack token")
+	flags.StringVar(&slackOptions.Channel, "slack-channel", slackOptions.Channel, "Slack channel")
+	flags.StringVar(&slackOptions.Message, "slack-message", slackOptions.Message, "Slack message")
+	flags.StringVar(&slackOptions.NotifyTTL, "slack-notify-ttl", slackOptions.NotifyTTL, "Slack notify ttl")
+	flags.IntVar(&slackOptions.Concurrency, "slack-concurrency", slackOptions.Concurrency, "Slack concurrency")
 
 	return &serverCmd
 }

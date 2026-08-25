@@ -4,7 +4,13 @@ import (
 	"reflect"
 )
 
-type ModelAfterDetect = func(hashes []Hash)
+type Anomaly interface {
+	Start() Stamp
+	End() Stamp
+	Hash() Hash
+}
+
+type ModelAfterDetect = func(anomalies []Anomaly)
 
 type Model interface {
 	Name() string
@@ -50,11 +56,11 @@ func (ms *Models) OnTrain(data DataSourceData) error {
 	return err
 }
 
-func (ms *Models) afterDetect(hashes []Hash) {
+func (ms *Models) afterDetect(anomalies []Anomaly) {
 
 	list := ms.notifiers.Items()
 	for _, n := range list {
-		n.Notify(hashes)
+		n.Notify(anomalies)
 	}
 }
 

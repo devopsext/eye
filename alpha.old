@@ -1,3 +1,31 @@
+	
+	
+	
+		var found *ForestModelAnomaly
+
+	keys := fa.items.Keys()
+	slices.SortFunc(keys, func(a, b common.Stamp) int {
+		return cmp.Compare(b, a)
+	})
+
+	// find stamp backwards
+	for _, s := range keys {
+
+		if s <= stamp {
+			continue
+		}
+		item := fa.items.Get(stamp)
+		if item == nil {
+			continue
+		}
+		a := item.Value()
+		if a != nil && a.hash == hash {
+			found = a
+			break
+		}
+	}
+	return found
+	
 	func (h *ForestModelHistory) Times() (common.Stamp, common.Stamp) {
 
 	h.mu.Lock()
