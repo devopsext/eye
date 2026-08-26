@@ -203,7 +203,7 @@ type ApplicationSignal struct {
 }
 
 type Dependencies struct {
-	items map[*Application]*Dependencies
+	items map[Hash]*Dependencies
 }
 
 type Signal interface {
@@ -1424,14 +1424,27 @@ func NewApplicationSignal(name Hash, app Hash, host Hash) *ApplicationSignal {
 
 // Dependencies
 
-func (ds *Dependencies) Items() map[*Application]*Dependencies {
+func (ds *Dependencies) Items() map[Hash]*Dependencies {
 	return ds.items
+}
+
+func (ds *Dependencies) Contains(hash Hash) bool {
+
+	d, ok := ds.items[hash]
+	if d == nil || !ok {
+		return false
+	}
+	return ok
+}
+
+func (ds *Dependencies) AddOrUpdate(hash Hash, child *Dependencies) {
+	ds.items[hash] = child
 }
 
 func NewDependencies() *Dependencies {
 
 	return &Dependencies{
-		items: make(map[*Application]*Dependencies),
+		items: make(map[Hash]*Dependencies),
 	}
 }
 
@@ -1547,7 +1560,6 @@ func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 	ms.items[hash] = ss
 }
 
-/*
 func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
 
 	tb := stamp
@@ -1562,7 +1574,7 @@ func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance i
 		if ss == nil {
 			return nil
 		}
-		s := ss[hash]
+		s := ss[stamp]
 		if utils.IsEmpty(s) {
 			continue
 		}
@@ -1573,7 +1585,6 @@ func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance i
 		return nil
 	}
 }
-*/
 
 func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
 
@@ -1590,14 +1601,18 @@ func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, hash Hash, to
 		return nil
 	}
 
-	/*if tolerance < 0 {
+	if tolerance < 0 {
 		s := ms.unsafeLookBackByType(stamp, hash, tolerance, typ)
 		if utils.IsEmpty(s) {
 			return s
 		}
-	}*/
-
+	}
 	return ss[stamp]
+}
+
+func (ms *Measurements) FindSignal(stamp Stamp, hash Hash) Signal {
+	typ := reflect.TypeFor[Signal]()
+	return ms.FindSignalWithToleranceByType(stamp, hash, 0, typ)
 }
 
 func (ms *Measurements) FindApplicationSignalWithTolerance(stamp Stamp, hash Hash, tolerance int) *ApplicationSignal {

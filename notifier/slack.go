@@ -24,7 +24,7 @@ type SlackOptions struct {
 }
 
 type SlackNotify struct {
-	start    common.Stamp
+	begin    common.Stamp
 	end      common.Stamp
 	response *vendors.SlackMessageResponse
 }
@@ -114,7 +114,7 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 		gr.Go(func() error {
 
 			id := a.ID()
-			start := a.Start()
+			begin := a.Begin()
 			end := a.End()
 
 			channel := s.options.Channel
@@ -123,13 +123,13 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 			n := s.findNotify(id)
 			if n == nil {
 				n = &SlackNotify{
-					start: start,
+					begin: begin,
 					end:   end,
 				}
 			} else {
 				mr := n.response
-				if n.start != start || n.end != end {
-					n.start = start
+				if n.begin != begin || n.end != end {
+					n.begin = begin
 					n.end = end
 				}
 				if mr.OK {

@@ -6,7 +6,7 @@ import (
 
 type Anomaly interface {
 	ID() string
-	Start() Stamp
+	Begin() Stamp
 	End() Stamp
 }
 

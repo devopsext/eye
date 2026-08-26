@@ -13,6 +13,7 @@ require (
 	github.com/e-XpertSolutions/go-iforest/v2 v2.0.0
 	github.com/go-co-op/gocron/v2 v2.22.0
 	github.com/go-playground/form v3.1.4+incompatible
+	github.com/google/uuid v1.6.0
 	github.com/jellydator/ttlcache/v3 v3.4.1
 	github.com/jinzhu/copier v0.4.0
 	github.com/puzpuzpuz/xsync/v4 v4.5.0
@@ -56,7 +57,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gravitational/teleport/api v0.0.0-20250910081127-aa3d778287d5 // indirect
 	github.com/gravitational/trace v1.5.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect

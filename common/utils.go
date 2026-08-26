@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/devopsext/utils"
+	"github.com/google/uuid"
 )
 
 func RemoveEmptyStrings(items []string) []string {
@@ -287,4 +288,9 @@ func DefaultTTL(ttl string, def time.Duration) time.Duration {
 		}
 	}
 	return r
+}
+
+func UniqueID() string {
+	id := uuid.New()
+	return id.String()
 }
