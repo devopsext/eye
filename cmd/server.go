@@ -40,13 +40,10 @@ var promSignalOptions = datasource.PrometheusSignalOptions{
 	AppSignalOutErrorsQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
 	AppSignalOutLatencyQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
 	AppSignalSaturationQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_SATURATION_QUERY", ""),
-	AppSignalTolerance:       envGet("PROMETHEUS_APP_SIGNAL_TOLERANCE", 0).(int),
 
 	HostQuery:                 envFileContentExpand("PROMETHEUS_HOST_QUERY", ""),
-	HostTolerance:             envGet("PROMETHEUS_HOST_TOLERANCE", 0).(int),
 	HostSignalCommonLabels:    envStringExpand("PROMETHEUS_HOST_SIGNAL_COMMON_LABELS", ""),
 	HostSignalSaturationQuery: envFileContentExpand("PROMETHEUS_HOST_SIGNAL_SATURATION_QUERY", ""),
-	HostSignalTolerance:       envGet("PROMETHEUS_HOST_SIGNAL_TOLERANCE", 0).(int),
 }
 
 var promLongOptions = datasource.PrometheusOptions{
@@ -186,12 +183,9 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&promSignalOptions.AppSignalOutErrorsQuery, "prometheus-app-signal-out-errors-query", promSignalOptions.AppSignalOutErrorsQuery, "Prometheus app outgoing errors query")
 	flags.StringVar(&promSignalOptions.AppSignalOutLatencyQuery, "prometheus-app-signal-out-latency-query", promSignalOptions.AppSignalOutLatencyQuery, "Prometheus app outgoing latency query")
 	flags.StringVar(&promSignalOptions.AppSignalSaturationQuery, "prometheus-app-signal-saturation-query", promSignalOptions.AppSignalSaturationQuery, "Prometheus app saturation query")
-	flags.IntVar(&promSignalOptions.AppSignalTolerance, "prometheus-app-signal-tolerance", promSignalOptions.AppSignalTolerance, "Prometheus app signal tolerance")
 	flags.StringVar(&promSignalOptions.HostQuery, "prometheus-host-query", promSignalOptions.HostQuery, "Prometheus host query")
-	flags.IntVar(&promSignalOptions.HostTolerance, "prometheus-host-tolerance", promSignalOptions.HostTolerance, "Prometheus host tolerance")
 	flags.StringVar(&promSignalOptions.HostSignalCommonLabels, "prometheus-host-signal-common-labels", promSignalOptions.HostSignalCommonLabels, "Prometheus host common labels")
 	flags.StringVar(&promSignalOptions.HostSignalSaturationQuery, "prometheus-host-signal-saturation-query", promSignalOptions.HostSignalSaturationQuery, "Prometheus host saturation query")
-	flags.IntVar(&promSignalOptions.HostSignalTolerance, "prometheus-host-signal-tolerance", promSignalOptions.HostSignalTolerance, "Prometheus host signal tolerance")
 	// Prometheus long term
 	flags.StringVar(&promLongOptions.Name, "prometheus-long-name", promLongOptions.Name, "Prometheus long term name")
 	flags.StringVar(&promLongOptions.Prometheus.URL, "prometheus-long-url", promLongOptions.Prometheus.URL, "Prometheus long term url")

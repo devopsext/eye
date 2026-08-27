@@ -33,6 +33,8 @@ type ForestModelOptions struct {
 }
 
 type ForestModelData struct {
+	logger      sreCommon.Logger
+	name        string
 	path        string
 	concurrency int
 	mass        float64
@@ -186,13 +188,13 @@ func (fd *ForestModelData) getSignalData(signal common.Signal) []float64 {
 
 	var r []float64
 
-	as, ok := signal.(*common.ApplicationSignal)
-	if ok {
+	as := signal.AsApplicationSignal()
+	if as != nil {
 		return fd.getApplicationSignalData(as)
 	}
 
-	hs, ok := signal.(*common.HostSignal)
-	if ok {
+	hs := signal.AsHostSignal()
+	if hs != nil {
 		return fd.getHostSignalData(hs)
 	}
 	return r
@@ -211,13 +213,13 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []c
 
 	timeDayWeights := fd.timeDayWeights()
 
-	lHashes := len(hashes)
+	l := len(hashes)
 
 	for hash, signals := range measurements.GetItems() {
 
 		for stamp, signal := range signals {
 
-			if lHashes > 0 && !signal.ContainsAny(hashes) {
+			if l > 0 && !signal.ContainsAny(hashes) {
 				continue
 			}
 
@@ -450,71 +452,111 @@ func (fd *ForestModelData) setMassDetections(found []*ForestModelDetection, dete
 	}
 	detections.AddOrUpdate(hash, min, max, deps)
 }
-func (fd *ForestModelData) findSimilar(measurements *common.Measurements, found []*ForestModelDetection, hash common.Hash, stamp common.Stamp) []common.Hash {
+
+func (fd *ForestModelData) findSimilar(measurements *common.Measurements, hash common.Hash, stamp common.Stamp) []common.Hash {
 
 	r := []common.Hash{}
-
 	hashes := []common.Hash{}
 
+	// find signal for hash
 	signal := measurements.FindSignal(stamp, hash)
 	if utils.IsEmpty(signal) {
 		return r
 	}
 
-	as, ok := signal.(*common.ApplicationSignal)
-	if ok && as != nil {
-		if as.Application > 0 {
-			hashes = append(hashes, as.Application)
+	// gather all similar hashes, apps mostly
+	as := signal.AsApplicationSignal()
+	if as != nil {
+		if as.Application() > 0 {
+			hashes = append(hashes, as.Application())
 		}
-		if as.Host > 0 {
-			hashes = append(hashes, as.Host)
+		/*if as.Host() > 0 {
+			hashes = append(hashes, as.Host())
+		}*/
+	}
+
+	hs := signal.AsHostSignal()
+	if hs != nil {
+		if hs.Hash() > 0 {
+			hashes = append(hashes, hs.Hash())
 		}
 	}
 
-	hs, ok := signal.(*common.HostSignal)
-	if ok && hs != nil {
-		if hs.Name > 0 {
-			hashes = append(hashes, hs.Name)
-		}
+	if len(hashes) == 0 {
+		return r
 	}
 
-	/*
-		for h, signals := range measurements.GetItems() {
+	// find similar signals based on similar hashes
+	signals := measurements.FindSignals(stamp, hashes)
 
-			for s, signal := range signals {
+	for _, signal := range signals {
+		r = append(r, signal.Hash())
+	}
+	return r
+}
 
-				if lHashes > 0 && !signal.ContainsAny(hashes) {
-					continue
-				}
+func (fd *ForestModelData) findSimilars(measurements *common.Measurements, hash common.Hash, stamps []common.Stamp) []common.Hash {
+
+	r := []common.Hash{}
+
+	for _, stamp := range stamps {
+
+		similars := fd.findSimilar(measurements, hash, stamp)
+		for _, h := range similars {
+			if utils.Contains(r, h) {
+				continue
 			}
+			r = append(r, h)
 		}
-	*/
+	}
+	return r
+}
 
+func (fd *ForestModelData) findDependecies(measurements *common.Measurements, hashes []common.Hash, stamps []common.Stamp) *common.Dependencies {
+
+	if len(hashes) == 0 {
+		return nil
+	}
+
+	r := common.NewDependencies()
+
+	for _, stamp := range stamps {
+
+		deps := measurements.Dependencies(stamp, hashes)
+		if deps == nil {
+			continue
+		}
+
+		for h, ds := range deps.Items() {
+			r.AddOrUpdate(h, ds)
+		}
+	}
 	return r
 }
 
 func (fd *ForestModelData) setHashDetections(found []*ForestModelDetection, detections *ForestModelDetections, dsd common.DataSourceData) {
 
 	measurements := dsd.Measurements()
+	names := dsd.Names()
 
 	for _, d := range found {
 
 		hash := d.hash
+
 		min := d.begin
 		max := d.end
 
-		var deps *common.Dependencies
+		t1 := common.StampToTime(min)
+		t2 := common.StampToTime(max)
 
-		similar := fd.findSimilar(measurements, found, hash, min)
+		hn := names.FindByHash(hash)
+		fd.logger.Debug("%s: Found detection %s duration %s...", fd.name, hn, t2.Sub(t1))
 
-		if len(similar) > 0 {
-			deps = common.NewDependencies()
-			for _, h := range similar {
-				deps.AddOrUpdate(h, nil)
-			}
-		}
+		similars := fd.findSimilars(measurements, hash, []common.Stamp{min, max})
+		fd.logger.Debug("%s: Found similars %s...", fd.name, names.FindByHashes(similars))
 
-		detections.AddOrUpdate(hash, min, max, deps)
+		dependecies := fd.findDependecies(measurements, similars, []common.Stamp{min, max})
+		detections.AddOrUpdate(hash, min, max, dependecies)
 	}
 }
 
@@ -661,9 +703,11 @@ func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Fo
 	return item
 }
 
-func NewForestModelData(path string, ttl time.Duration, concurrency int, mass, false float64) *ForestModelData {
+func NewForestModelData(logger sreCommon.Logger, name, path string, ttl time.Duration, concurrency int, mass, false float64) *ForestModelData {
 
 	fd := &ForestModelData{
+		logger:      logger,
+		name:        name,
 		path:        path,
 		concurrency: concurrency,
 		mass:        mass,
@@ -836,11 +880,16 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
 
-	return &ForestModel{
+	logger := observability.Logs()
+
+	model := &ForestModel{
 		options:       options,
 		observability: observability,
-		logger:        observability.Logs(),
-		data:          NewForestModelData(options.Path, common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency, options.DetectionMass, options.DetectionFalse),
+		logger:        logger,
 		detections:    NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
 	}
+
+	model.data = NewForestModelData(logger, model.Name(), options.Path, common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency, options.DetectionMass, options.DetectionFalse)
+
+	return model
 }

@@ -2,7 +2,6 @@ package common
 
 import (
 	"math"
-	"reflect"
 	"sync"
 
 	"github.com/devopsext/utils"
@@ -52,9 +51,9 @@ type Attributes struct {
 }
 
 type Host struct {
-	On     *Host
-	Name   Hash
-	Labels Hash
+	on     *Host
+	hash   Hash
+	labels Hash
 }
 
 type HostsItems = map[Stamp]map[Hash]*Host
@@ -68,8 +67,8 @@ const (
 )
 
 type Application struct {
-	Name   Hash
-	Labels Hash
+	hash   Hash
+	labels Hash
 }
 
 type ApplicationsItems = map[Stamp]map[Hash]*Application
@@ -173,7 +172,7 @@ const (
 )
 
 type HostSignal struct {
-	Name       Hash
+	hash       Hash
 	Saturation HostSaturation
 }
 
@@ -187,9 +186,9 @@ const (
 )
 
 type ApplicationSignal struct {
-	Name        Hash
-	Application Hash
-	Host        Hash
+	hash        Hash
+	application Hash
+	host        Hash
 
 	IncomingTraffic IncomingTraffic
 	IncomingErrors  IncomingErrors
@@ -207,9 +206,11 @@ type Dependencies struct {
 }
 
 type Signal interface {
-	GetName() Hash
+	Hash() Hash
 	Merge(s Signal)
 	ContainsAny(hashs []Hash) bool
+	AsApplicationSignal() *ApplicationSignal
+	AsHostSignal() *HostSignal
 }
 
 type MeasurementsItems = map[Hash]map[Stamp]Signal
@@ -525,6 +526,17 @@ func (ns *Names) FindByHash(hash Hash) string {
 		return ""
 	}
 	return v
+}
+
+func (ns *Names) FindByHashes(hashes []Hash) []string {
+
+	r := []string{}
+
+	for _, h := range hashes {
+		n := ns.FindByHash(h)
+		r = append(r, n)
+	}
+	return r
 }
 
 func (ns *Names) FindByName(name string) Hash {
@@ -930,26 +942,26 @@ func (hs *HostSaturation) AddOrUpdate(value float64, hash Hash) {
 
 // Host
 
-func (h *Host) GetLabels(attributes *Attributes) Labels {
+func (h *Host) Labels(attributes *Attributes) Labels {
 
 	lhs := attributes
 	if lhs == nil {
 		return nil
 	}
-	lbs := lhs.Find(h.Labels)
+	lbs := lhs.Find(h.labels)
 	if lbs == nil {
 		return nil
 	}
 	return lbs
 }
 
-func (h *Host) GetName(names *Names) string {
+func (h *Host) Name(names *Names) string {
 
 	lbs := names
 	if lbs == nil {
 		return ""
 	}
-	return names.FindByHash(h.Name)
+	return names.FindByHash(h.hash)
 }
 
 func (h *Host) Same(host *Host) bool {
@@ -962,7 +974,7 @@ func (h *Host) Same(host *Host) bool {
 		return true
 	}
 
-	if h.Name != host.Name {
+	if h.hash != host.hash {
 		return false
 	}
 	return true
@@ -975,31 +987,23 @@ func (h *Host) Copy(host *Host) {
 	}
 }
 
-func NewHost(name, labels Hash, on *Host) *Host {
+func NewHost(hash, labels Hash, on *Host) *Host {
 
 	return &Host{
-		Name:   name,
-		Labels: labels,
-		On:     on,
+		hash:   hash,
+		labels: labels,
+		on:     on,
 	}
 }
 
 // Hosts
 
-func (hs *Hosts) GetItems() HostsItems {
+func (hs *Hosts) Items() HostsItems {
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	return hs.items
-}
-
-func (hs *Hosts) SetItems(items HostsItems) {
-
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	hs.items = items
 }
 
 func (hs *Hosts) AddOrUpdate(stamp Stamp, h *Host) {
@@ -1011,7 +1015,7 @@ func (hs *Hosts) AddOrUpdate(stamp Stamp, h *Host) {
 		return
 	}
 
-	n := h.Name
+	n := h.hash
 	if n == 0 {
 		return
 	}
@@ -1034,56 +1038,26 @@ func (hs *Hosts) AddOrUpdate(stamp Stamp, h *Host) {
 	}
 }
 
-func (hs *Hosts) unsafeLookBack(stamp Stamp, hash Hash, tolerance int) *Host {
-
-	tb := stamp
-	abs := math.Abs(float64(tolerance))
-	for {
-		tb--
-		m := hs.items[tb]
-		diff := stamp - tb
-		if m == nil && diff < Stamp(abs) {
-			continue
-		}
-		if m == nil {
-			return nil
-		}
-		a := m[hash]
-		if a != nil {
-			return a
-		}
-		return nil
-	}
-}
-
-func (hs *Hosts) FindWithTolerance(stamp Stamp, hash Hash, tolerance int) *Host {
+func (hs *Hosts) unsafeFind(stamp Stamp, hash Hash) *Host {
 
 	if hash == 0 {
 		return nil
 	}
 
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
 	tc := hs.items[stamp]
 
-	if tolerance == 0 && tc == nil {
+	if tc == nil {
 		return nil
 	}
-
-	if tolerance < 0 {
-		h := hs.unsafeLookBack(stamp, hash, tolerance)
-		if h != nil {
-			return h
-		}
-	}
-
 	return tc[hash]
 }
 
 func (hs *Hosts) Find(stamp Stamp, hash Hash) *Host {
 
-	return hs.FindWithTolerance(stamp, hash, 0)
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	return hs.unsafeFind(stamp, hash)
 }
 
 func (hs *Hosts) Sizes() (int, int) {
@@ -1132,26 +1106,26 @@ func NewHosts() *Hosts {
 
 // Application
 
-func (a *Application) GetLabels(attributes *Attributes) Labels {
+func (a *Application) Labels(attributes *Attributes) Labels {
 
 	lhs := attributes
 	if lhs == nil {
 		return nil
 	}
-	lbs := lhs.Find(a.Labels)
+	lbs := lhs.Find(a.labels)
 	if lbs == nil {
 		return nil
 	}
 	return lbs
 }
 
-func (a *Application) GetName(names *Names) string {
+func (a *Application) Name(names *Names) string {
 
 	lbs := names
 	if lbs == nil {
 		return ""
 	}
-	return names.FindByHash(a.Name)
+	return names.FindByHash(a.hash)
 }
 
 func (a *Application) Same(app *Application) bool {
@@ -1164,7 +1138,7 @@ func (a *Application) Same(app *Application) bool {
 		return true
 	}
 
-	if a.Name != app.Name {
+	if a.hash != app.hash {
 		return false
 	}
 	return true
@@ -1177,30 +1151,22 @@ func (a *Application) Copy(app *Application) {
 	}
 }
 
-func NewApplication(name, labels Hash) *Application {
+func NewApplication(hash, labels Hash) *Application {
 
 	return &Application{
-		Name:   name,
-		Labels: labels,
+		hash:   hash,
+		labels: labels,
 	}
 }
 
 // Applications
 
-func (as *Applications) GetItems() map[Stamp]map[Hash]*Application {
+func (as *Applications) Items() map[Stamp]map[Hash]*Application {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	return as.items
-}
-
-func (as *Applications) SetItems(items map[Stamp]map[Hash]*Application) {
-
-	as.mu.Lock()
-	defer as.mu.Unlock()
-
-	as.items = items
 }
 
 func (as *Applications) AddOrUpdate(stamp Stamp, a *Application) {
@@ -1212,7 +1178,7 @@ func (as *Applications) AddOrUpdate(stamp Stamp, a *Application) {
 		return
 	}
 
-	n := a.Name
+	n := a.hash
 	if n == 0 {
 		return
 	}
@@ -1235,56 +1201,29 @@ func (as *Applications) AddOrUpdate(stamp Stamp, a *Application) {
 	}
 }
 
-func (as *Applications) unsafeLookBack(stamp Stamp, hash Hash, tolerance int) *Application {
-
-	tb := stamp
-	abs := math.Abs(float64(tolerance))
-	for {
-		tb--
-		m := as.items[tb]
-		diff := stamp - tb
-		if m == nil && diff < Stamp(abs) {
-			continue
-		}
-		if m == nil {
-			return nil
-		}
-		a := m[hash]
-		if a != nil {
-			return a
-		}
-		return nil
-	}
-}
-
-func (as *Applications) FindWithTolerance(stamp Stamp, hash Hash, tolerance int) *Application {
+func (as *Applications) unsafeFind(stamp Stamp, hash Hash) *Application {
 
 	if hash == 0 {
 		return nil
 	}
 
-	as.mu.Lock()
-	defer as.mu.Unlock()
-
 	tc := as.items[stamp]
-	if tolerance == 0 && tc == nil {
+	if tc == nil {
 		return nil
-	}
-
-	if tolerance < 0 {
-		a := as.unsafeLookBack(stamp, hash, tolerance)
-		if a != nil {
-			return a
-		}
 	}
 	return tc[hash]
 }
 
 func (as *Applications) Find(stamp Stamp, hash Hash) *Application {
-	return as.FindWithTolerance(stamp, hash, 0)
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	return as.unsafeFind(stamp, hash)
 }
 
 func (as *Applications) Sizes() (int, int) {
+
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
@@ -1329,8 +1268,8 @@ func NewApplications() *Applications {
 
 // HostSignal
 
-func (hs *HostSignal) GetName() Hash {
-	return hs.Name
+func (hs *HostSignal) Hash() Hash {
+	return hs.hash
 }
 
 func (hs *HostSignal) Merge(s Signal) {
@@ -1341,39 +1280,47 @@ func (hs *HostSignal) ContainsAny(hashes []Hash) bool {
 
 	for _, h := range hashes {
 
-		if hs.Name == h {
+		if hs.hash == h {
 			return true
 		}
 	}
 	return false
 }
 
-func NewHostSignal(name Hash) *HostSignal {
+func (hs *HostSignal) AsApplicationSignal() *ApplicationSignal {
+	return nil
+}
+
+func (hs *HostSignal) AsHostSignal() *HostSignal {
+	return hs
+}
+
+func NewHostSignal(hash Hash) *HostSignal {
 
 	return &HostSignal{
-		Name: name,
+		hash: hash,
 	}
 }
 
 // ApplicationSignal
 
-func (as *ApplicationSignal) GetName() Hash {
-	return as.Name
+func (as *ApplicationSignal) Hash() Hash {
+	return as.hash
 }
 
-func (as *ApplicationSignal) GetApplication() Hash {
-	return as.Application
+func (as *ApplicationSignal) Application() Hash {
+	return as.application
 }
 
-func (as *ApplicationSignal) GetHost() Hash {
-	return as.Host
+func (as *ApplicationSignal) Host() Hash {
+	return as.host
 }
 
 func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
 
 	for _, h := range hashes {
 
-		if as.Application == h || as.Host == h {
+		if as.application == h || as.host == h {
 			return true
 		}
 	}
@@ -1412,13 +1359,20 @@ func (as *ApplicationSignal) Merge(s Signal) {
 	// should check all fields of ApplicationSignal
 }
 
-func NewApplicationSignal(name Hash, app Hash, host Hash) *ApplicationSignal {
+func (as *ApplicationSignal) AsApplicationSignal() *ApplicationSignal {
+	return as
+}
+
+func (as *ApplicationSignal) AsHostSignal() *HostSignal {
+	return nil
+}
+
+func NewApplicationSignal(hash Hash, app Hash, host Hash) *ApplicationSignal {
 
 	return &ApplicationSignal{
-
-		Name:        name,
-		Application: app,
-		Host:        host,
+		hash:        hash,
+		application: app,
+		host:        host,
 	}
 }
 
@@ -1430,15 +1384,15 @@ func (ds *Dependencies) Items() map[Hash]*Dependencies {
 
 func (ds *Dependencies) Contains(hash Hash) bool {
 
-	d, ok := ds.items[hash]
-	if d == nil || !ok {
-		return false
+	_, ok := ds.items[hash]
+	if ok {
+		return true
 	}
-	return ok
+	return false
 }
 
-func (ds *Dependencies) AddOrUpdate(hash Hash, child *Dependencies) {
-	ds.items[hash] = child
+func (ds *Dependencies) AddOrUpdate(hash Hash, children *Dependencies) {
+	ds.items[hash] = children
 }
 
 func NewDependencies() *Dependencies {
@@ -1539,7 +1493,7 @@ func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 		ms.first = stamp
 	}
 
-	hash := s.GetName()
+	hash := s.Hash()
 	if hash == 0 {
 		return
 	}
@@ -1560,7 +1514,7 @@ func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 	ms.items[hash] = ss
 }
 
-func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
+/*func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
 
 	tb := stamp
 	abs := math.Abs(float64(tolerance))
@@ -1584,74 +1538,84 @@ func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance i
 		}
 		return nil
 	}
-}
+}*/
 
-func (ms *Measurements) FindSignalWithToleranceByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
+func (ms *Measurements) unsafeFindSignal(stamp Stamp, hash Hash) Signal {
 
 	if hash == 0 {
 		return nil
 	}
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
 	ss := ms.items[hash]
 
-	if ss == nil || len(ss) == 0 {
+	if len(ss) == 0 {
 		return nil
-	}
-
-	if tolerance < 0 {
-		s := ms.unsafeLookBackByType(stamp, hash, tolerance, typ)
-		if utils.IsEmpty(s) {
-			return s
-		}
 	}
 	return ss[stamp]
 }
 
 func (ms *Measurements) FindSignal(stamp Stamp, hash Hash) Signal {
-	typ := reflect.TypeFor[Signal]()
-	return ms.FindSignalWithToleranceByType(stamp, hash, 0, typ)
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	return ms.unsafeFindSignal(stamp, hash)
 }
 
-func (ms *Measurements) FindApplicationSignalWithTolerance(stamp Stamp, hash Hash, tolerance int) *ApplicationSignal {
+func (ms *Measurements) unsafeFindSignals(stamp Stamp, hashes []Hash) []Signal {
 
-	typ := reflect.TypeFor[*ApplicationSignal]()
-	s := ms.FindSignalWithToleranceByType(stamp, hash, tolerance, typ)
-	if utils.IsEmpty(s) {
-		return nil
+	r := []Signal{}
+	l := len(hashes)
+
+	for _, signals := range ms.items {
+
+		s, ok := signals[stamp]
+		if !ok || utils.IsEmpty(s) {
+			continue
+		}
+
+		if l > 0 && !s.ContainsAny(hashes) {
+			continue
+		}
+		r = append(r, s)
 	}
-	as, ok := s.(*ApplicationSignal)
-	if !ok {
-		return nil
-	}
-	return as
+
+	return r
+}
+
+func (ms *Measurements) FindSignals(stamp Stamp, hashes []Hash) []Signal {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	return ms.unsafeFindSignals(stamp, hashes)
 }
 
 func (ms *Measurements) FindApplicationSignal(stamp Stamp, hash Hash) *ApplicationSignal {
-	return ms.FindApplicationSignalWithTolerance(stamp, hash, 0)
-}
 
-func (ms *Measurements) FindHostSignalWithTolerance(stamp Stamp, hash Hash, tolerance int) *HostSignal {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 
-	typ := reflect.TypeFor[*HostSignal]()
-	s := ms.FindSignalWithToleranceByType(stamp, hash, tolerance, typ)
-	if utils.IsEmpty(s) {
+	s := ms.unsafeFindSignal(stamp, hash)
+	if s == nil {
 		return nil
 	}
-	hs, ok := s.(*HostSignal)
-	if !ok {
-		return nil
-	}
-	return hs
+	return s.AsApplicationSignal()
 }
 
 func (ms *Measurements) FindHostSignal(stamp Stamp, hash Hash) *HostSignal {
-	return ms.FindHostSignalWithTolerance(stamp, hash, 0)
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	s := ms.unsafeFindSignal(stamp, hash)
+	if s == nil {
+		return nil
+	}
+
+	return s.AsHostSignal()
 }
 
-func (ms *Measurements) GetFirst() Stamp {
+func (ms *Measurements) First() Stamp {
 
 	if ms.first == math.MaxUint64 {
 		return 0
@@ -1659,316 +1623,83 @@ func (ms *Measurements) GetFirst() Stamp {
 	return ms.first
 }
 
-func (ms *Measurements) SetFirst(stamp Stamp) {
-	ms.first = stamp
-}
-
-func (ms *Measurements) GetLast() Stamp {
+func (ms *Measurements) Last() Stamp {
 	return ms.last
 }
 
-func (ms *Measurements) SetLast(stamp Stamp) {
-	ms.last = stamp
-}
+func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []Hash, exclude []Hash) *Dependencies {
 
-/*func (ms *Measurements) LastApplicationSignal(name string) *ApplicationSignal {
-
-	stamp := ms.LastStamp()
-	if stamp == 0 {
+	if len(parents) == 0 {
 		return nil
 	}
-	return ms.FindApplicationSignal(stamp, name)
-}*/
 
-/*
-func (ms *Measurements) unsafeApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
+	m := NewDependencies()
 
-	m := []*ApplicationSignal{}
-
-	signals := ms.items[stamp]
-	if signals == nil {
-		return m
-	}
-
-	// improve performance
-	mm := make(map[*Application]struct{}, len(apps))
-	for _, a := range apps {
-		mm[a] = struct{}{}
-	}
-
-	for _, s := range signals.GetItems() {
-
-		as, ok := s.(*ApplicationSignal)
-		if !ok {
-			continue
-		}
-
-		_, exists := mm[as.application]
-		if len(apps) == 0 || exists {
-			if !utils.Contains(m, as) {
-				m = append(m, as)
-			}
+	// initialize parent dependencies
+	for _, h := range parents {
+		m.items[h] = nil
+		if !utils.Contains(exclude, h) {
+			exclude = append(exclude, h)
 		}
 	}
-	return m
-}
 
-func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	return ms.unsafeApplicationSignals(stamp, apps)
-}
-*/
-/*func (ms *Measurements) ApplicationSignalsByNames(stamp Stamp, names []string) []*ApplicationSignal {
-
-	apps := []*Application{}
-	for _, n := range names {
-		app := ms.applications.Find(stamp, n)
-		if app == nil {
-			continue
-		}
-		apps = append(apps, app)
-	}
-
-	return ms.unsafeApplicationSignals(stamp, apps)
-}*/
-
-/*
-func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	m := []*HostSignal{}
-
-	signals := ms.items[stamp]
-	if signals == nil {
-		return m
-	}
-
-	// improve performance
-	mm := make(map[*Host]struct{}, len(hosts))
-	for _, h := range hosts {
-		mm[h] = struct{}{}
-	}
-
+	signals := ms.unsafeFindSignals(stamp, parents)
 	for _, s := range signals {
 
-		hs, ok := s.(*HostSignal)
-		if !ok {
-			continue
-		}
-		_, exists := mm[hs.Host]
-		if len(hosts) == 0 || exists {
-			if !utils.Contains(m, hs) {
-				m = append(m, hs)
-			}
-		}
-	}
-	return m
-}
-*/
+		var new *Dependencies = nil
+		h := Hash(0)
 
-/*func (ms *Measurements) HostSignalsByNames(stamp Stamp, names []string) []*HostSignal {
+		as := s.AsApplicationSignal()
+		if as != nil {
 
-	hosts := []*Host{}
-	for _, n := range names {
-		app := ms.hosts.Find(stamp, n)
-		if app == nil {
-			continue
-		}
-		hosts = append(hosts, app)
-	}
-
-	return ms.HostSignals(stamp, hosts)
-}*/
-
-/*
-func (ms *Measurements) Applications(stamp Stamp, hosts []*Host) []*Application {
-
-		ms.mu.Lock()
-		defer ms.mu.Unlock()
-
-		m := []*Application{}
-		signals := ms.items[stamp]
-		if signals == nil {
-			return m
-		}
-
-		// improve performance
-		mm := make(map[*Host]struct{}, len(hosts))
-		for _, h := range hosts {
-			mm[h] = struct{}{}
-		}
-
-		for _, s := range signals.GetItems() {
-
-			as, ok := s.(*ApplicationSignal)
-			if !ok {
-				continue
-			}
-			a := as.application
-			if a == nil {
-				continue
-			}
-			_, exists := mm[as.host]
-			if len(hosts) == 0 || exists {
-				if !utils.Contains(m, a) {
-					m = append(m, a)
-				}
-			}
-		}
-		return m
-	}
-
-func (ms *Measurements) Hosts(stamp Stamp, apps []*Application) []*Host {
-
-		ms.mu.Lock()
-		defer ms.mu.Unlock()
-
-		m := []*Host{}
-		signals := ms.items[stamp]
-		if signals == nil {
-			return m
-		}
-
-		// improve performance
-		ma := make(map[*Application]struct{}, len(apps))
-		for _, a := range apps {
-			ma[a] = struct{}{}
-		}
-
-		if len(apps) > 0 {
-			for _, s := range signals.GetItems() {
-
-				as, ok := s.(*ApplicationSignal)
-				if !ok {
-					continue
-				}
-				h := as.host
-				if h == nil {
-					continue
-				}
-				if _, exists := ma[as.application]; exists {
-					if !utils.Contains(m, h) {
-						m = append(m, h)
-					}
-				}
-			}
-			return m
-		}
-
-		for _, s := range signals.GetItems() {
-
-			hs, ok1 := s.(*HostSignal)
-			if ok1 {
-				h := hs.host
-				if h == nil {
-					continue
-				}
-				if !utils.Contains(m, h) {
-					m = append(m, h)
-				}
-				continue
-			}
-
-			as, ok2 := s.(*ApplicationSignal)
-			if ok2 {
-				h := as.host
-				if h == nil {
-					continue
-				}
-				if !utils.Contains(m, h) {
-					m = append(m, h)
-				}
-			}
-		}
-		return m
-	}
-
-func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []*Application, exclude []*Application) *Dependencies {
-
-		m := NewDependencies()
-
-		// initialize parent dependencies
-		for _, a := range parents {
-			m.items[a] = nil
-			if !utils.Contains(exclude, a) {
-				exclude = append(exclude, a)
-			}
-		}
-
-		arr := ms.unsafeApplicationSignals(stamp, parents)
-		for _, as := range arr {
-
-			a := as.application
-			if a == nil {
-				continue
-			}
-
-			var new *Dependencies = nil
-
+			h = as.Hash()
 			backends := as.Backends(stamp)
 			if len(backends) > 0 {
 
-				newbacks := []*Application{}
+				newparents := []Hash{}
 				for _, b := range backends {
 					if utils.Contains(exclude, b) {
 						continue
 					}
-					newbacks = append(newbacks, b)
+					newparents = append(newparents, b.hash)
 				}
-
-				if len(newbacks) > 0 {
-					new = ms.unsafeDependencies(stamp, newbacks, exclude)
-				}
-			}
-
-			old, ok := m.items[a]
-			if !ok {
-				m.items[a] = new
-			} else {
-				if old != nil && new != nil {
-					deps := NewDependencies()
-					deps.items = MergeMaps(old.items, new.items)
-					m.items[a] = deps
-				} else if new != nil {
-					m.items[a] = new
-				}
+				new = ms.unsafeDependencies(stamp, newparents, exclude)
 			}
 		}
 
-		if len(m.items) > 0 {
-			return m
+		if h == 0 {
+			continue
 		}
 
-		return nil
-	}
-
-func (ms *Measurements) Dependencies(stamp Stamp, parents []*Application) *Dependencies {
-
-		ms.mu.Lock()
-		defer ms.mu.Unlock()
-
-		exclude := []*Application{}
-		return ms.unsafeDependencies(stamp, parents, exclude)
-	}
-
-func (ms *Measurements) DependenciesByNames(applications *Applications, stamp Stamp, hashes []Hash) *Dependencies {
-
-		apps := []*Application{}
-		for _, n := range hashes {
-			app := applications.Find(stamp, n)
-			if app == nil {
-				continue
+		old, ok := m.items[h]
+		if !ok {
+			m.items[h] = new
+		} else {
+			if old != nil && new != nil {
+				deps := NewDependencies()
+				deps.items = MergeMaps(old.items, new.items)
+				m.items[h] = deps
+			} else if new != nil {
+				m.items[h] = new
 			}
-			apps = append(apps, app)
 		}
-		return ms.Dependencies(stamp, apps)
 	}
-*/
+
+	if len(m.items) > 0 {
+		return m
+	}
+	return nil
+}
+
+func (ms *Measurements) Dependencies(stamp Stamp, parents []Hash) *Dependencies {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	exclude := []Hash{}
+	return ms.unsafeDependencies(stamp, parents, exclude)
+}
+
 func (ms *Measurements) BuildApplicationSignalName(app, host string) string {
 
 	if app == "" {

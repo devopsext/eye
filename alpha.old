@@ -1,6 +1,311 @@
 	
 	
-	
+	/*func (ms *Measurements) LastApplicationSignal(name string) *ApplicationSignal {
+
+	stamp := ms.LastStamp()
+	if stamp == 0 {
+		return nil
+	}
+	return ms.FindApplicationSignal(stamp, name)
+}*/
+
+/*
+func (ms *Measurements) unsafeApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
+
+	m := []*ApplicationSignal{}
+
+	signals := ms.FindSignals()
+	if signals == nil {
+		return m
+	}
+
+	// improve performance
+	mm := make(map[*Application]struct{}, len(apps))
+	for _, a := range apps {
+		mm[a] = struct{}{}
+	}
+
+	for _, s := range signals {
+
+		as, ok := s.(*ApplicationSignal)
+		if !ok {
+			continue
+		}
+
+		_, exists := mm[as.application]
+		if len(apps) == 0 || exists {
+			if !utils.Contains(m, as) {
+				m = append(m, as)
+			}
+		}
+	}
+	return m
+}
+
+/*
+func (ms *Measurements) ApplicationSignals(stamp Stamp, apps []*Application) []*ApplicationSignal {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	return ms.unsafeApplicationSignals(stamp, apps)
+}
+*/
+/*func (ms *Measurements) ApplicationSignalsByNames(stamp Stamp, names []string) []*ApplicationSignal {
+
+	apps := []*Application{}
+	for _, n := range names {
+		app := ms.applications.Find(stamp, n)
+		if app == nil {
+			continue
+		}
+		apps = append(apps, app)
+	}
+
+	return ms.unsafeApplicationSignals(stamp, apps)
+}*/
+
+/*
+func (ms *Measurements) HostSignals(stamp Stamp, hosts []*Host) []*HostSignal {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	m := []*HostSignal{}
+
+	signals := ms.items[stamp]
+	if signals == nil {
+		return m
+	}
+
+	// improve performance
+	mm := make(map[*Host]struct{}, len(hosts))
+	for _, h := range hosts {
+		mm[h] = struct{}{}
+	}
+
+	for _, s := range signals {
+
+		hs, ok := s.(*HostSignal)
+		if !ok {
+			continue
+		}
+		_, exists := mm[hs.Host]
+		if len(hosts) == 0 || exists {
+			if !utils.Contains(m, hs) {
+				m = append(m, hs)
+			}
+		}
+	}
+	return m
+}
+*/
+
+/*func (ms *Measurements) HostSignalsByNames(stamp Stamp, names []string) []*HostSignal {
+
+	hosts := []*Host{}
+	for _, n := range names {
+		app := ms.hosts.Find(stamp, n)
+		if app == nil {
+			continue
+		}
+		hosts = append(hosts, app)
+	}
+
+	return ms.HostSignals(stamp, hosts)
+}*/
+
+/*
+func (ms *Measurements) Applications(stamp Stamp, hosts []*Host) []*Application {
+
+		ms.mu.Lock()
+		defer ms.mu.Unlock()
+
+		m := []*Application{}
+		signals := ms.items[stamp]
+		if signals == nil {
+			return m
+		}
+
+		// improve performance
+		mm := make(map[*Host]struct{}, len(hosts))
+		for _, h := range hosts {
+			mm[h] = struct{}{}
+		}
+
+		for _, s := range signals.GetItems() {
+
+			as, ok := s.(*ApplicationSignal)
+			if !ok {
+				continue
+			}
+			a := as.application
+			if a == nil {
+				continue
+			}
+			_, exists := mm[as.host]
+			if len(hosts) == 0 || exists {
+				if !utils.Contains(m, a) {
+					m = append(m, a)
+				}
+			}
+		}
+		return m
+	}
+
+func (ms *Measurements) Hosts(stamp Stamp, apps []*Application) []*Host {
+
+		ms.mu.Lock()
+		defer ms.mu.Unlock()
+
+		m := []*Host{}
+		signals := ms.items[stamp]
+		if signals == nil {
+			return m
+		}
+
+		// improve performance
+		ma := make(map[*Application]struct{}, len(apps))
+		for _, a := range apps {
+			ma[a] = struct{}{}
+		}
+
+		if len(apps) > 0 {
+			for _, s := range signals.GetItems() {
+
+				as, ok := s.(*ApplicationSignal)
+				if !ok {
+					continue
+				}
+				h := as.host
+				if h == nil {
+					continue
+				}
+				if _, exists := ma[as.application]; exists {
+					if !utils.Contains(m, h) {
+						m = append(m, h)
+					}
+				}
+			}
+			return m
+		}
+
+		for _, s := range signals.GetItems() {
+
+			hs, ok1 := s.(*HostSignal)
+			if ok1 {
+				h := hs.host
+				if h == nil {
+					continue
+				}
+				if !utils.Contains(m, h) {
+					m = append(m, h)
+				}
+				continue
+			}
+
+			as, ok2 := s.(*ApplicationSignal)
+			if ok2 {
+				h := as.host
+				if h == nil {
+					continue
+				}
+				if !utils.Contains(m, h) {
+					m = append(m, h)
+				}
+			}
+		}
+		return m
+	}
+
+*/
+
+/*
+func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []*Application, exclude []*Application) *Dependencies {
+
+	m := NewDependencies()
+
+	// initialize parent dependencies
+	for _, a := range parents {
+		m.items[a] = nil
+		if !utils.Contains(exclude, a) {
+			exclude = append(exclude, a)
+		}
+	}
+
+	arr := ms.unsafeApplicationSignals(stamp, parents)
+	for _, as := range arr {
+
+		a := as.application
+		if a == nil {
+			continue
+		}
+
+		var new *Dependencies = nil
+
+		backends := as.Backends(stamp)
+		if len(backends) > 0 {
+
+			newbacks := []*Application{}
+			for _, b := range backends {
+				if utils.Contains(exclude, b) {
+					continue
+				}
+				newbacks = append(newbacks, b)
+			}
+
+			if len(newbacks) > 0 {
+				new = ms.unsafeDependencies(stamp, newbacks, exclude)
+			}
+		}
+
+		old, ok := m.items[a]
+		if !ok {
+			m.items[a] = new
+		} else {
+			if old != nil && new != nil {
+				deps := NewDependencies()
+				deps.items = MergeMaps(old.items, new.items)
+				m.items[a] = deps
+			} else if new != nil {
+				m.items[a] = new
+			}
+		}
+	}
+
+	if len(m.items) > 0 {
+		return m
+	}
+
+	return nil
+}
+
+func (ms *Measurements) Dependencies(stamp Stamp, parents []*Application) *Dependencies {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	exclude := []*Application{}
+	return ms.unsafeDependencies(stamp, parents, exclude)
+}
+*/
+
+/*
+func (ms *Measurements) DependenciesByNames(applications *Applications, stamp Stamp, hashes []Hash) *Dependencies {
+
+		apps := []*Application{}
+		for _, n := range hashes {
+			app := applications.Find(stamp, n)
+			if app == nil {
+				continue
+			}
+			apps = append(apps, app)
+		}
+		return ms.Dependencies(stamp, apps)
+	}
+*/
+		
+		
 		var found *ForestModelAnomaly
 
 	keys := fa.items.Keys()

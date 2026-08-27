@@ -58,13 +58,10 @@ type PrometheusSignalOptions struct {
 	AppSignalOutErrorsQuery  string
 	AppSignalOutLatencyQuery string
 	AppSignalSaturationQuery string
-	AppSignalTolerance       int
 	// host relates
 	HostQuery                 string
-	HostTolerance             int
 	HostSignalCommonLabels    string
 	HostSignalSaturationQuery string
-	HostSignalTolerance       int
 }
 
 type PrometheusOptions struct {
@@ -1107,20 +1104,20 @@ func (p *Prometheus) getApplicationHost(
 
 	// find application & hosts in the dictionaries
 	appHash := data.names.AddOrUpdate(appName)
-	app := data.applications.FindWithTolerance(stamp, appHash, p.signalOptions.AppTolerance)
+	app := data.applications.Find(stamp, appHash)
 
 	hostHash := data.names.AddOrUpdate(hostName)
-	host := data.hosts.FindWithTolerance(stamp, hostHash, p.signalOptions.HostTolerance)
+	host := data.hosts.Find(stamp, hostHash)
 
 	// find application signal in measurements
 	if app == nil || host == nil {
-		signal := data.measurements.FindApplicationSignalWithTolerance(stamp, appHostHash, p.signalOptions.AppSignalTolerance)
+		signal := data.measurements.FindApplicationSignal(stamp, appHostHash)
 		if app == nil && signal != nil {
-			appHash = signal.GetApplication()
+			appHash = signal.Application()
 			app = data.applications.Find(stamp, appHash)
 		}
 		if host == nil && signal != nil {
-			hostHash = signal.GetHost()
+			hostHash = signal.Host()
 			host = data.hosts.Find(stamp, hostHash)
 		}
 	}
@@ -1191,14 +1188,14 @@ func (p *Prometheus) getHost(
 	}
 
 	// find hosts in the dictionaries
-	host := data.hosts.FindWithTolerance(stamp, hostHash, p.signalOptions.HostTolerance)
+	host := data.hosts.Find(stamp, hostHash)
 
 	// find host signal in measurements
 
 	if host == nil {
-		signal := data.measurements.FindHostSignalWithTolerance(stamp, hostHash, p.signalOptions.HostSignalTolerance)
+		signal := data.measurements.FindHostSignal(stamp, hostHash)
 		if signal != nil {
-			hostHash = signal.GetName()
+			hostHash = signal.Hash()
 			host = data.hosts.Find(stamp, hostHash)
 		}
 	}
