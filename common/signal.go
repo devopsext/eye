@@ -1396,7 +1396,6 @@ func (ds *Dependencies) AddOrUpdate(hash Hash, children *Dependencies) {
 }
 
 func NewDependencies() *Dependencies {
-
 	return &Dependencies{
 		items: make(map[Hash]*Dependencies),
 	}
@@ -1692,6 +1691,10 @@ func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []Hash, exclude 
 }
 
 func (ms *Measurements) Dependencies(stamp Stamp, parents []Hash) *Dependencies {
+
+	if len(parents) == 0 {
+		return nil
+	}
 
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
