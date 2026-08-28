@@ -102,7 +102,7 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 	name := s.Name()
 	when := time.Now()
 
-	s.logger.Debug("%s: Notifying anomalies %d...", name, len(anomalies))
+	s.logger.Debug("%s: Notifying %d...", name, len(anomalies))
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(s.options.Concurrency)
@@ -122,11 +122,13 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 
 			n := s.findNotify(id)
 			if n == nil {
+				s.logger.Debug("%s: Notify NOT found %s (%s / %s)...", name, id, begin, end)
 				n = &SlackNotify{
 					begin: begin,
 					end:   end,
 				}
 			} else {
+				s.logger.Debug("%s: Notify found %s (%s / %s)...", name, id, n.begin, n.end)
 				mr := n.response
 				if n.begin != begin || n.end != end {
 					n.begin = begin

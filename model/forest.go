@@ -150,11 +150,13 @@ func (fd *ForestModelData) timeDayWeights() []int {
 	return weights
 }
 
-func (fd *ForestModelData) getApplicationSignalData(signal *common.ApplicationSignal) []float64 {
+func (fd *ForestModelData) getApplicationSignalData(stamp common.Stamp, signal *common.ApplicationSignal) []float64 {
+
+	//frontends := signal.Frontends()
 
 	inTraffic := 0.0
 	inTrafficKind := 0.0
-	inErrors := 0.0
+	inErrors := 0.0 //signal.IncomingErrors.Value()
 	inLatency := 0.0
 	outTraffic := 0.0
 	outTrafficKind := 0.0
@@ -172,7 +174,7 @@ func (fd *ForestModelData) getApplicationSignalData(signal *common.ApplicationSi
 	return data
 }
 
-func (fd *ForestModelData) getHostSignalData(signal *common.HostSignal) []float64 {
+func (fd *ForestModelData) getHostSignalData(stamp common.Stamp, signal *common.HostSignal) []float64 {
 
 	cpuSaturation := 0.0
 	memorySaturation := 0.0
@@ -184,18 +186,18 @@ func (fd *ForestModelData) getHostSignalData(signal *common.HostSignal) []float6
 	return data
 }
 
-func (fd *ForestModelData) getSignalData(signal common.Signal) []float64 {
+func (fd *ForestModelData) getSignalData(stamp common.Stamp, signal common.Signal) []float64 {
 
 	var r []float64
 
 	as := signal.AsApplicationSignal()
 	if as != nil {
-		return fd.getApplicationSignalData(as)
+		return fd.getApplicationSignalData(stamp, as)
 	}
 
 	hs := signal.AsHostSignal()
 	if hs != nil {
-		return fd.getHostSignalData(hs)
+		return fd.getHostSignalData(stamp, hs)
 	}
 	return r
 }
@@ -230,7 +232,7 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []c
 				continue
 			}
 
-			data := fd.getSignalData(signal)
+			data := fd.getSignalData(stamp, signal)
 
 			l := len(data)
 			if l != appSignalsLen && l != hostSignalsLen {

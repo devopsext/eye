@@ -1,7 +1,6 @@
 package common
 
 import (
-	"cmp"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/devopsext/utils"
 	"github.com/google/uuid"
@@ -199,7 +197,7 @@ func String2Hash32(s string) uint32 {
 	return hash
 }
 
-func ApplicationsCompact(apps []*Application) []*Application {
+/*func ApplicationsCompact(apps []*Application) []*Application {
 
 	slices.SortFunc(apps, func(a, b *Application) int {
 
@@ -218,7 +216,7 @@ func ApplicationsCompact(apps []*Application) []*Application {
 		return cmp.Compare(aInt, bInt)
 	})
 	return slices.Compact(apps)
-}
+}*/
 
 func packTo64(h1, h2 uint32) uint64 {
 	return (uint64(h1) << 32) | uint64(h2)
@@ -293,4 +291,35 @@ func DefaultTTL(ttl string, def time.Duration) time.Duration {
 func UniqueID() string {
 	id := uuid.New()
 	return id.String()
+}
+
+type Number interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float32 | ~float64
+}
+
+func Sum[T Number](slice []T) T {
+	var total T
+	for _, v := range slice {
+		total += v
+	}
+	return total
+}
+
+func Len[T any](s []T) int {
+	return len(s)
+}
+
+func Avg[T Number](slice []T) T {
+
+	var avg T
+	l := Len(slice)
+	if l == 0 {
+		return avg
+	}
+
+	total := Sum(slice)
+	avg = total / T(l)
+	return avg
 }

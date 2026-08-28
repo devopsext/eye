@@ -1,7 +1,9 @@
 package common
 
 import (
+	"maps"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/devopsext/utils"
@@ -125,34 +127,34 @@ const (
 	HostSaturationKindDiskName   = "disk"
 )
 
-type IncomingTrafficItems = map[TrafficKind]map[Hash]Traffic
+type IncomingTrafficItems = map[TrafficKind]map[Hash][]Traffic
 type IncomingTraffic struct {
-	Items IncomingTrafficItems
+	items IncomingTrafficItems
 }
 
-type IncomingErrorsItems = map[Hash]Errors
+type IncomingErrorsItems = map[Hash][]Errors
 type IncomingErrors struct {
-	Items IncomingErrorsItems
+	items IncomingErrorsItems
 }
 
-type IncomingLatencyItems = map[Hash]Latency
+type IncomingLatencyItems = map[Hash][]Latency
 type IncomingLatency struct {
-	Items IncomingLatencyItems
+	items IncomingLatencyItems
 }
 
-type OutgoingTrafficItems = map[TrafficKind]map[Hash]Traffic
+type OutgoingTrafficItems = map[TrafficKind]map[Hash][]Traffic
 type OutgoingTraffic struct {
-	Items OutgoingTrafficItems
+	items OutgoingTrafficItems
 }
 
-type OutgoingErrorsItems = map[Hash]Errors
+type OutgoingErrorsItems = map[Hash][]Errors
 type OutgoingErrors struct {
-	Items OutgoingErrorsItems
+	items OutgoingErrorsItems
 }
 
-type OutgoingLatencyItems = map[Hash]Latency
+type OutgoingLatencyItems = map[Hash][]Latency
 type OutgoingLatency struct {
-	Items OutgoingLatencyItems
+	items OutgoingLatencyItems
 }
 
 type ApplicationSaturationItems = map[ApplicationSaturationKind]map[Hash]Saturation
@@ -396,6 +398,16 @@ func (as *Attributes) Find(hash Hash) Labels {
 	return v
 }
 
+func (as *Attributes) FindTrafficKind(hash Hash) TrafficKind {
+
+	kind := TrafficKindUnknown
+	lbs := as.Find(hash)
+	if lbs != nil {
+		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
+	}
+	return kind
+}
+
 func NewAttributes() *Attributes {
 	return &Attributes{
 		items: xsync.NewMap[Hash, Labels](),
@@ -565,311 +577,246 @@ func NewNames() *Names {
 
 // IncomingTraffic
 
-func (it *IncomingTraffic) Frontends(stamp Stamp, kinds []TrafficKind) []*Application {
+func (it *IncomingTraffic) Frontends(kinds []TrafficKind) []Hash {
 
-	apps := []*Application{}
-	/*
-		for _, kind := range kinds {
-			for hash := range it.items[kind] {
+	hashes := []Hash{}
 
-				lbs := it.Attributes.Find(hash)
-				if lbs == nil {
-					continue
-				}
+	for _, kind := range kinds {
+		for hash := range it.items[kind] {
+			hashes = append(hashes, hash)
+		}
+	}
+	return hashes
+}
 
-				name := lbs[ApplicationSignalFrontend]
-				if utils.IsEmpty(name) {
-					continue
-				}
-
-				app := it.applications.Find(stamp, name)
-				if app == nil {
-					continue
-				}
-
-				if !utils.Contains(apps, app) {
-					apps = append(apps, app)
-				}
-			}
-		}*/
-	return apps
+func (it *IncomingTraffic) Values(kind TrafficKind) map[Hash][]Traffic {
+	return it.items[kind]
 }
 
 func (it *IncomingTraffic) Value(kind TrafficKind) map[Hash]Traffic {
 
-	return it.Items[kind]
+	r := make(map[Hash]Traffic)
+
+	for h, vls := range it.items[kind] {
+		r[h] = Avg(vls)
+	}
+	return r
 }
 
-func (it *IncomingTraffic) AddOrUpdate(value float64, hash Hash) {
+func (it *IncomingTraffic) AddOrUpdate(value float64, hash Hash, kind TrafficKind) {
 
-	if it.Items == nil {
-		it.Items = make(map[TrafficKind]map[Hash]Traffic)
+	if it.items == nil {
+		it.items = make(IncomingTrafficItems)
 	}
-	/*
-	   kind := TrafficKindUnknown
-	   lbs := it.Attributes.Find(hash)
 
-	   	if lbs != nil {
-	   		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
-	   	}
+	values := it.items[kind]
 
-	   values := it.items[kind]
+	if values == nil {
+		values = make(map[Hash][]Traffic)
+		values[hash] = append(values[hash], value)
+	} else {
 
-	   	if values == nil {
-	   		values = make(map[Hash]Traffic)
-	   		values[hash] = value
-	   	} else {
-
-	   		traffic, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (traffic + value) / 2
-	   		}
-	   	}
-
-	   it.items[kind] = values
-	*/
+		traffic, ok := values[hash]
+		if !ok {
+			traffic = []Traffic{value}
+		} else {
+			traffic = append(traffic, value)
+		}
+		values[hash] = traffic
+	}
+	it.items[kind] = values
 }
 
 // IncomingErrors
 
-func (ie *IncomingErrors) Frontends(stamp Stamp) []*Application {
+func (ie *IncomingErrors) Frontends() []Hash {
+	return slices.Collect(maps.Keys(ie.items))
+}
 
-	apps := []*Application{}
-	/*
-		for hash := range ie.items {
+func (ie *IncomingErrors) Values() map[Hash][]Errors {
+	return ie.items
+}
 
-			lbs := ie.Attributes.Find(hash)
-			if lbs == nil {
-				continue
-			}
+func (ie *IncomingErrors) Value() map[Hash]Errors {
 
-			name := lbs[ApplicationSignalFrontend]
-			if utils.IsEmpty(name) {
-				continue
-			}
+	r := make(map[Hash]Errors)
 
-			app := ie.applications.Find(stamp, name)
-			if app == nil {
-				continue
-			}
-
-			if !utils.Contains(apps, app) {
-				apps = append(apps, app)
-			}
-		}*/
-	return apps
+	for h, vls := range ie.items {
+		r[h] = Avg(vls)
+	}
+	return r
 }
 
 func (ie *IncomingErrors) AddOrUpdate(value float64, hash Hash) {
 
-	if ie.Items == nil {
-		ie.Items = make(map[Hash]Errors)
+	if ie.items == nil {
+		ie.items = make(IncomingErrorsItems)
 	}
 
-	errors, ok := ie.Items[hash]
+	errors, ok := ie.items[hash]
 	if !ok {
-		ie.Items[hash] = value
+		errors = []Errors{value}
 	} else {
-		ie.Items[hash] = (errors + value) / 2
+		errors = append(errors, value)
 	}
+	ie.items[hash] = errors
 }
 
 // IncomingLatency
 
-func (il *IncomingLatency) Frontends(stamp Stamp) []*Application {
+func (il *IncomingLatency) Frontends() []Hash {
+	return slices.Collect(maps.Keys(il.items))
+}
 
-	apps := []*Application{}
-	/*
-		for hash := range il.items {
+func (il *IncomingLatency) Values() map[Hash][]Latency {
+	return il.items
+}
 
-			lbs := il.Attributes.Find(hash)
-			if lbs == nil {
-				continue
-			}
+func (il *IncomingLatency) Value() map[Hash]Latency {
 
-			name := lbs[ApplicationSignalFrontend]
-			if utils.IsEmpty(name) {
-				continue
-			}
+	r := make(map[Hash]Latency)
 
-			app := il.applications.Find(stamp, name)
-			if app == nil {
-				continue
-			}
-
-			if !utils.Contains(apps, app) {
-				apps = append(apps, app)
-			}
-		}*/
-	return apps
+	for h, vls := range il.items {
+		r[h] = Avg(vls)
+	}
+	return r
 }
 
 func (il *IncomingLatency) AddOrUpdate(value float64, hash Hash) {
 
-	if il.Items == nil {
-		il.Items = make(map[Hash]Latency)
+	if il.items == nil {
+		il.items = make(IncomingLatencyItems)
 	}
 
-	errors, ok := il.Items[hash]
+	latency, ok := il.items[hash]
 	if !ok {
-		il.Items[hash] = value
+		latency = []Latency{value}
 	} else {
-		il.Items[hash] = (errors + value) / 2
+		latency = append(latency, value)
 	}
+	il.items[hash] = latency
 }
 
 // OutgoingTraffic
 
-func (ot *OutgoingTraffic) Backends(stamp Stamp, kinds []TrafficKind) []*Application {
+func (ot *OutgoingTraffic) Backends(kinds []TrafficKind) []Hash {
 
-	apps := []*Application{}
-	/*
-		for _, kind := range kinds {
-			for hash := range ot.items[kind] {
+	hashes := []Hash{}
 
-				lbs := ot.Attributes.Find(hash)
-				if lbs == nil {
-					continue
-				}
-
-				name := lbs[ApplicationSignalBackend]
-				if utils.IsEmpty(name) {
-					continue
-				}
-
-				app := ot.applications.Find(stamp, name)
-				if app == nil {
-					continue
-				}
-
-				if !utils.Contains(apps, app) {
-					apps = append(apps, app)
-				}
-			}
-		}*/
-	return apps
+	for _, kind := range kinds {
+		for hash := range ot.items[kind] {
+			hashes = append(hashes, hash)
+		}
+	}
+	return hashes
 }
 
-func (ot *OutgoingTraffic) AddOrUpdate(value float64, hash Hash) {
+func (ot *OutgoingTraffic) Values(kind TrafficKind) map[Hash][]Traffic {
+	return ot.items[kind]
+}
 
-	if ot.Items == nil {
-		ot.Items = make(map[TrafficKind]map[Hash]Traffic)
+func (ot *OutgoingTraffic) Value(kind TrafficKind) map[Hash]Traffic {
+
+	r := make(map[Hash]Traffic)
+
+	for h, vls := range ot.items[kind] {
+		r[h] = Avg(vls)
 	}
-	/*
-	   kind := TrafficKindUnknown
-	   lbs := ot.Attributes.Find(hash)
+	return r
+}
 
-	   	if lbs != nil {
-	   		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
-	   	}
+func (ot *OutgoingTraffic) AddOrUpdate(value float64, hash Hash, kind TrafficKind) {
 
-	   values := ot.items[kind]
+	if ot.items == nil {
+		ot.items = make(OutgoingTrafficItems)
+	}
 
-	   	if values == nil {
-	   		values = make(map[Hash]Traffic)
-	   		values[hash] = value
-	   	} else {
+	values := ot.items[kind]
 
-	   		traffic, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (traffic + value) / 2
-	   		}
-	   	}
+	if values == nil {
+		values = make(map[Hash][]Traffic)
+		values[hash] = append(values[hash], value)
+	} else {
 
-	   ot.items[kind] = values
-	*/
+		traffic, ok := values[hash]
+		if !ok {
+			traffic = []Traffic{value}
+		} else {
+			traffic = append(traffic, value)
+		}
+		values[hash] = traffic
+	}
+	ot.items[kind] = values
 }
 
 // OutgoingErrors
 
-func (oe *OutgoingErrors) Backends(stamp Stamp) []*Application {
+func (oe *OutgoingErrors) Backends() []Hash {
+	return slices.Collect(maps.Keys(oe.items))
+}
 
-	apps := []*Application{}
-	/*
-		for hash := range oe.items {
+func (oe *OutgoingErrors) Values() map[Hash][]Errors {
+	return oe.items
+}
 
-			lbs := oe.Attributes.Find(hash)
-			if lbs == nil {
-				continue
-			}
+func (oe *OutgoingErrors) Value() map[Hash]Errors {
 
-			name := lbs[ApplicationSignalBackend]
-			if utils.IsEmpty(name) {
-				continue
-			}
+	r := make(map[Hash]Errors)
 
-			app := oe.applications.Find(stamp, name)
-			if app == nil {
-				continue
-			}
-
-			if !utils.Contains(apps, app) {
-				apps = append(apps, app)
-			}
-		}*/
-	return apps
+	for h, vls := range oe.items {
+		r[h] = Avg(vls)
+	}
+	return r
 }
 
 func (oe *OutgoingErrors) AddOrUpdate(value float64, hash Hash) {
 
-	if oe.Items == nil {
-		oe.Items = make(map[Hash]Errors)
+	if oe.items == nil {
+		oe.items = make(OutgoingErrorsItems)
 	}
 
-	errors, ok := oe.Items[hash]
+	errors, ok := oe.items[hash]
 	if !ok {
-		oe.Items[hash] = value
+		errors = []Errors{value}
 	} else {
-		oe.Items[hash] = (errors + value) / 2
+		errors = append(errors, value)
 	}
+	oe.items[hash] = errors
 }
 
 // OutgoingLatency
 
-func (ol *OutgoingLatency) Backends(stamp Stamp) []*Application {
+func (ol *OutgoingLatency) Backends() []Hash {
+	return slices.Collect(maps.Keys(ol.items))
+}
 
-	apps := []*Application{}
-	/*
-		for hash := range ol.items {
+func (ol *OutgoingLatency) Values() map[Hash][]Latency {
+	return ol.items
+}
 
-			lbs := ol.Attributes.Find(hash)
-			if lbs == nil {
-				continue
-			}
+func (ol *OutgoingLatency) Value() map[Hash]Latency {
 
-			name := lbs[ApplicationSignalBackend]
-			if utils.IsEmpty(name) {
-				continue
-			}
+	r := make(map[Hash]Latency)
 
-			app := ol.applications.Find(stamp, name)
-			if app == nil {
-				continue
-			}
-
-			if !utils.Contains(apps, app) {
-				apps = append(apps, app)
-			}
-		}*/
-	return apps
+	for h, vls := range ol.items {
+		r[h] = Avg(vls)
+	}
+	return r
 }
 
 func (ol *OutgoingLatency) AddOrUpdate(value float64, hash Hash) {
 
-	if ol.Items == nil {
-		ol.Items = make(map[Hash]Latency)
+	if ol.items == nil {
+		ol.items = make(OutgoingLatencyItems)
 	}
 
-	errors, ok := ol.Items[hash]
+	latency, ok := ol.items[hash]
 	if !ok {
-		ol.Items[hash] = value
+		latency = []Latency{value}
 	} else {
-		ol.Items[hash] = (errors + value) / 2
+		latency = append(latency, value)
 	}
+	ol.items[hash] = latency
 }
 
 // ApplicationSaturation
@@ -1327,32 +1274,32 @@ func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
 	return false
 }
 
-func (as *ApplicationSignal) Frontends(stamp Stamp) []*Application {
+func (as *ApplicationSignal) Frontends() []Hash {
 
-	traffic := as.IncomingTraffic.Frontends(stamp, allTrafficKinds)
-	errors := as.IncomingErrors.Frontends(stamp)
-	latency := as.IncomingLatency.Frontends(stamp)
+	traffic := as.IncomingTraffic.Frontends(allTrafficKinds)
+	errors := as.IncomingErrors.Frontends()
+	latency := as.IncomingLatency.Frontends()
 
-	arr := []*Application{}
-	arr = append(arr, traffic...)
-	arr = append(arr, errors...)
-	arr = append(arr, latency...)
+	hashes := []Hash{}
+	hashes = append(hashes, traffic...)
+	hashes = append(hashes, errors...)
+	hashes = append(hashes, latency...)
 
-	return ApplicationsCompact(arr)
+	return slices.Compact(hashes)
 }
 
-func (as *ApplicationSignal) Backends(stamp Stamp) []*Application {
+func (as *ApplicationSignal) Backends() []Hash {
 
-	traffic := as.OutgoingTraffic.Backends(stamp, allTrafficKinds)
-	errors := as.OutgoingErrors.Backends(stamp)
-	latency := as.OutgoingLatency.Backends(stamp)
+	traffic := as.OutgoingTraffic.Backends(allTrafficKinds)
+	errors := as.OutgoingErrors.Backends()
+	latency := as.OutgoingLatency.Backends()
 
-	arr := []*Application{}
-	arr = append(arr, traffic...)
-	arr = append(arr, errors...)
-	arr = append(arr, latency...)
+	hashes := []Hash{}
+	hashes = append(hashes, traffic...)
+	hashes = append(hashes, errors...)
+	hashes = append(hashes, latency...)
 
-	return ApplicationsCompact(arr)
+	return slices.Compact(hashes)
 }
 
 func (as *ApplicationSignal) Merge(s Signal) {
@@ -1652,7 +1599,7 @@ func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []Hash, exclude 
 		if as != nil {
 
 			h = as.Hash()
-			backends := as.Backends(stamp)
+			backends := as.Backends()
 			if len(backends) > 0 {
 
 				newparents := []Hash{}
@@ -1660,7 +1607,7 @@ func (ms *Measurements) unsafeDependencies(stamp Stamp, parents []Hash, exclude 
 					if utils.Contains(exclude, b) {
 						continue
 					}
-					newparents = append(newparents, b.hash)
+					newparents = append(newparents, b)
 				}
 				new = ms.unsafeDependencies(stamp, newparents, exclude)
 			}

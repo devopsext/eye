@@ -1282,7 +1282,7 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 			switch kind {
 			case common.SignalTraffic:
-				as.IncomingTraffic.AddOrUpdate(value, hash)
+				as.IncomingTraffic.AddOrUpdate(value, hash, data.attributes.FindTrafficKind(hash))
 			case common.SignalErrors:
 				as.IncomingErrors.AddOrUpdate(value, hash)
 			case common.SignalLatency:
@@ -1307,7 +1307,7 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 			switch kind {
 			case common.SignalTraffic:
-				as.OutgoingTraffic.AddOrUpdate(value, hash)
+				as.OutgoingTraffic.AddOrUpdate(value, hash, data.attributes.FindTrafficKind(hash))
 			case common.SignalErrors:
 				as.OutgoingErrors.AddOrUpdate(value, hash)
 			case common.SignalLatency:
