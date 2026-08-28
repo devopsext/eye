@@ -150,9 +150,100 @@ func (fd *ForestModelData) timeDayWeights() []int {
 	return weights
 }
 
+/*
+
+good case: app incoming normal -> app outgoing normal
+- app incoming traffic normal (rps, bps)
+- app incoming latency normal
+- app incoming errors normal
+- app saturation normal
+- host saturation normal
+- app outgoing traffic normal
+- app outgoing latency normal
+- app outgoing errors normal
+
+good case: app incoming load -> app outgoing load
+- app incoming traffic grows (rps, bps)
+- app incoming latency normal
+- app incoming errors normal
+- app saturation normal
+- host saturation normal
+- app outgoing traffic grows
+- app outgoing latency normal
+- app outgoing errors normal
+
+good case: app incoming drop -> app outgoing drop
+- app incoming traffic drop (rps, bps)
+- app incoming latency normal
+- app incoming errors normal
+- app saturation normal
+- host saturation normal
+- app outgoing traffic normal
+- app outgoing latency normal
+- app outgoing errors normal
+
+bad case: app incoming load -> app outgoing drop
+reason: bottleneck in app or resources app limitations
+- app incoming traffic grows (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation grows
+- host saturation normal
+- app outgoing traffic drops
+- app outgoing latency drops
+- app outgoing errors drops
+
+bad case: app incoming load -> app outgoing drop
+reason: bottleneck on host, no resources by app load
+- app incoming traffic grows (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation grows
+- host saturation grows
+- app outgoing traffic drops
+- app outgoing latency drops
+- app outgoing errors drops
+
+bad case: app incoming load -> app outgoing load
+reason: bottleneck in backend
+- app incoming traffic grows (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation normal
+- host saturation normal
+- app outgoing traffic drops
+- app outgoing latency grows
+- app outgoing errors grows
+
+case: app incoming drop -> app outgoing drop
+reason: no traffic from client
+- app incoming traffic drops (rps, bps)
+- app incoming latency drops
+- app incoming errors drops
+- app saturation drops
+- host saturation drops
+- app outgoing traffic drops
+- app outgoing latency drops
+- app outgoing errors drops
+
+case: app incoming normal -> app outgoing drop
+reason: bottleneck on host, no resources by different app load
+- app incoming traffic normal (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation normal
+- host saturation grows
+- outgoing traffic drops
+- outgoing latency drops
+- outgoing errors drops
+
+*/
+
 func (fd *ForestModelData) getApplicationSignalData(stamp common.Stamp, signal *common.ApplicationSignal) []float64 {
 
 	//frontends := signal.Frontends()
+
+	//signal.IncomingTraffic.Value()
 
 	inTraffic := 0.0
 	inTrafficKind := 0.0
