@@ -1,0 +1,96 @@
+/*
+
+1. Healthy Steady
+good case: app incoming normal -> app outgoing normal
+- app incoming traffic normal (rps, bps)
+- app incoming latency normal
+- app incoming errors normal
+- app saturation normal
+- host saturation normal
+- app outgoing traffic normal
+- app outgoing latency normal
+- app outgoing errors normal
+
+2. Healthy Load
+good case: app incoming load -> app outgoing load
+- app incoming traffic grows (rps, bps)
+- app incoming latency normal
+- app incoming errors normal
+- app saturation normal
+- host saturation normal
+- app outgoing traffic grows
+- app outgoing latency normal
+- app outgoing errors normal
+
+3. Healthy Off-Peak
+good case: app incoming drop -> app outgoing drop
+- app incoming traffic drop (rps, bps)
+- app incoming latency normal
+- app incoming errors normal
+- app saturation normal
+- host saturation normal
+- app outgoing traffic normal
+- app outgoing latency normal
+- app outgoing errors normal
+
+4. App Resource Limit
+bad case: app incoming load -> app outgoing drop
+reason: bottleneck in app or resources app limitations
+- app incoming traffic grows (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation grows
+- host saturation normal
+- app outgoing traffic drops
+- app outgoing latency drops
+- app outgoing errors drops
+
+5. Host Resource Exhaustion
+bad case: app incoming load -> app outgoing drop
+reason: bottleneck on host, no resources by app load
+- app incoming traffic grows (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation grows
+- host saturation grows
+- app outgoing traffic drops
+- app outgoing latency drops
+- app outgoing errors drops
+
+6. Downstream/Backend Stall
+bad case: app incoming load -> app outgoing load
+reason: bottleneck in backend
+- app incoming traffic grows (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation normal
+- host saturation normal
+- app outgoing traffic drops
+- app outgoing latency grows
+- app outgoing errors grows
+
+7. Client Inactivity (Quiet)
+case: app incoming drop -> app outgoing drop
+reason: no traffic from client
+- app incoming traffic drops (rps, bps)
+- app incoming latency drops
+- app incoming errors drops
+- app saturation drops
+- host saturation drops
+- app outgoing traffic drops
+- app outgoing latency drops
+- app outgoing errors drops
+
+8. Noisy Neighbor / Ext Host
+case: app incoming normal -> app outgoing drop
+reason: bottleneck on host, no resources by different app load
+- app incoming traffic normal (rps, bps)
+- app incoming latency grows
+- app incoming errors grows
+- app saturation normal
+- host saturation grows
+- outgoing traffic drops
+- outgoing latency drops
+- outgoing errors drops
+*/
+

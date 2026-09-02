@@ -4,12 +4,6 @@ import (
 	"reflect"
 )
 
-type Anomaly interface {
-	ID() string
-	Begin() Stamp
-	End() Stamp
-}
-
 type ModelAfterDetect = func(anomalies []Anomaly)
 
 type Model interface {

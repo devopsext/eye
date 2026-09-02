@@ -131,12 +131,14 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			obs := common.NewObservability(logs, metrics)
 
+			cases := common.NewCases()
+
 			notifiers := common.NewNotifiers()
 			notifiers.Add(notifier.NewSlack(slackOptions, obs))
 
 			models := common.NewModels(notifiers)
-			models.Add(model.NewTestModel(testModelOptions, obs))
-			models.Add(model.NewForestModel(forestModelOptions, obs))
+			models.Add(model.NewTestModel(testModelOptions, cases, obs))
+			models.Add(model.NewForestModel(forestModelOptions, cases, obs))
 
 			schedules := common.NewSchedules()
 			schedules.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.OnTrain))

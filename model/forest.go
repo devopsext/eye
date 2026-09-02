@@ -40,6 +40,7 @@ type ForestModelData struct {
 	mass        float64
 	false       float64
 	items       *ttlcache.Cache[common.Hash, *iforest.Forest]
+	cases       *common.Cases
 }
 
 type ForestModelDetection struct {
@@ -149,95 +150,6 @@ func (fd *ForestModelData) timeDayWeights() []int {
 	}
 	return weights
 }
-
-/*
-
-good case: app incoming normal -> app outgoing normal
-- app incoming traffic normal (rps, bps)
-- app incoming latency normal
-- app incoming errors normal
-- app saturation normal
-- host saturation normal
-- app outgoing traffic normal
-- app outgoing latency normal
-- app outgoing errors normal
-
-good case: app incoming load -> app outgoing load
-- app incoming traffic grows (rps, bps)
-- app incoming latency normal
-- app incoming errors normal
-- app saturation normal
-- host saturation normal
-- app outgoing traffic grows
-- app outgoing latency normal
-- app outgoing errors normal
-
-good case: app incoming drop -> app outgoing drop
-- app incoming traffic drop (rps, bps)
-- app incoming latency normal
-- app incoming errors normal
-- app saturation normal
-- host saturation normal
-- app outgoing traffic normal
-- app outgoing latency normal
-- app outgoing errors normal
-
-bad case: app incoming load -> app outgoing drop
-reason: bottleneck in app or resources app limitations
-- app incoming traffic grows (rps, bps)
-- app incoming latency grows
-- app incoming errors grows
-- app saturation grows
-- host saturation normal
-- app outgoing traffic drops
-- app outgoing latency drops
-- app outgoing errors drops
-
-bad case: app incoming load -> app outgoing drop
-reason: bottleneck on host, no resources by app load
-- app incoming traffic grows (rps, bps)
-- app incoming latency grows
-- app incoming errors grows
-- app saturation grows
-- host saturation grows
-- app outgoing traffic drops
-- app outgoing latency drops
-- app outgoing errors drops
-
-bad case: app incoming load -> app outgoing load
-reason: bottleneck in backend
-- app incoming traffic grows (rps, bps)
-- app incoming latency grows
-- app incoming errors grows
-- app saturation normal
-- host saturation normal
-- app outgoing traffic drops
-- app outgoing latency grows
-- app outgoing errors grows
-
-case: app incoming drop -> app outgoing drop
-reason: no traffic from client
-- app incoming traffic drops (rps, bps)
-- app incoming latency drops
-- app incoming errors drops
-- app saturation drops
-- host saturation drops
-- app outgoing traffic drops
-- app outgoing latency drops
-- app outgoing errors drops
-
-case: app incoming normal -> app outgoing drop
-reason: bottleneck on host, no resources by different app load
-- app incoming traffic normal (rps, bps)
-- app incoming latency grows
-- app incoming errors grows
-- app saturation normal
-- host saturation grows
-- outgoing traffic drops
-- outgoing latency drops
-- outgoing errors drops
-
-*/
 
 func (fd *ForestModelData) getApplicationSignalData(stamp common.Stamp, signal *common.ApplicationSignal) []float64 {
 
@@ -836,7 +748,8 @@ func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Fo
 	return item
 }
 
-func NewForestModelData(logger sreCommon.Logger, name, path string, ttl time.Duration, concurrency int, mass, false float64) *ForestModelData {
+func NewForestModelData(logger sreCommon.Logger, name, path string, cases *common.Cases,
+	ttl time.Duration, concurrency int, mass, false float64) *ForestModelData {
 
 	fd := &ForestModelData{
 		logger:      logger,
@@ -845,6 +758,7 @@ func NewForestModelData(logger sreCommon.Logger, name, path string, ttl time.Dur
 		concurrency: concurrency,
 		mass:        mass,
 		false:       false,
+		cases:       cases,
 	}
 
 	loader := ttlcache.LoaderFunc[common.Hash, *iforest.Forest](fd.loadForest)
@@ -868,6 +782,10 @@ func (fd *ForestModelDetection) Begin() common.Stamp {
 
 func (fd *ForestModelDetection) End() common.Stamp {
 	return fd.end
+}
+
+func (fd *ForestModelDetection) Cases() []common.Case {
+	return []common.Case{}
 }
 
 func NewForestModelDetection(hash common.Hash, begin, end common.Stamp, deps *common.Dependencies) *ForestModelDetection {
@@ -1019,7 +937,7 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 	return nil
 }
 
-func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
+func NewForestModel(options ForestModelOptions, cases *common.Cases, observability *common.Observability) *ForestModel {
 
 	logger := observability.Logs()
 
@@ -1030,7 +948,8 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 		detections:    NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
 	}
 
-	model.data = NewForestModelData(logger, model.Name(), options.Path, common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency, options.DetectionMass, options.DetectionFalse)
+	model.data = NewForestModelData(logger, model.Name(), options.Path, cases,
+		common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency, options.DetectionMass, options.DetectionFalse)
 
 	return model
 }

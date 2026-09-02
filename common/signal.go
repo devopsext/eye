@@ -29,23 +29,10 @@ const (
 
 type Hash = uint32
 
-/*
-type NamesItems = map[Hash]string
-type Names struct {
-	mu    sync.Mutex
-	items NamesItems
-}*/
-
 type NamesItems = *xsync.Map[Hash, string]
 type Names struct {
 	items NamesItems
 }
-
-/*type AttributesItems = map[Hash]Labels
-type Attributes struct {
-	mu    sync.Mutex
-	items AttributesItems
-}*/
 
 type AttributesItems = *xsync.Map[Hash, Labels]
 type Attributes struct {
@@ -87,6 +74,9 @@ const (
 	TrafficKindRps            // request per second
 	TrafficKindBps            // byte per second
 	TrafficKindQps            // query per second
+	TrafficKindCps            // connection per second
+	TrafficKindMps            // message per second
+	TrafficKindTps            // transaction per second
 )
 
 var allTrafficKinds = []TrafficKind{TrafficKindUnknown, TrafficKindRps, TrafficKindBps, TrafficKindQps}
@@ -275,74 +265,6 @@ func HostSaturationKindByName(kind string) HostSaturationKind {
 
 // Attributes
 
-/*func (hs *Attributes) IsEmpty() bool {
-
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	return len(hs.items) == 0
-}
-
-func (hs *Attributes) GetItems() AttributesItems {
-
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	return hs.items
-}
-
-func (hs *Attributes) SetItems(items AttributesItems) {
-
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	hs.items = items
-}
-
-func (hs *Attributes) LabelsHash(labels Labels) Hash {
-
-	if labels == nil {
-		return 0
-	}
-	return Map2Hash32(labels)
-}
-
-func (hs *Attributes) AddOrUpdate(labels Labels) Hash {
-
-	hash := hs.LabelsHash(labels)
-	if hash == 0 {
-		return hash
-	}
-
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	if hs.items == nil {
-		hs.items = make(AttributesItems)
-	}
-
-	lbs := hs.items[hash]
-	if lbs == nil {
-		hs.items[hash] = labels
-	}
-	return hash
-}
-
-func (hs *Attributes) Find(hash Hash) Labels {
-
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	return hs.items[hash]
-}
-
-func NewAttributes() *Attributes {
-
-	return &Attributes{
-		items: make(AttributesItems),
-	}
-}*/
-
 func (as *Attributes) IsEmpty() bool {
 
 	if as.items == nil {
@@ -415,75 +337,6 @@ func NewAttributes() *Attributes {
 }
 
 // Names
-
-/*
-func (ns *Names) IsEmpty() bool {
-
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-
-	return len(ns.items) == 0
-}
-
-func (ns *Names) GetItems() NamesItems {
-
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-
-	return ns.items
-}
-
-func (ns *Names) SetItems(items NamesItems) {
-
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-
-	ns.items = items
-}
-
-func (ns *Names) NameHash(name string) Hash {
-
-	if utils.IsEmpty(name) {
-		return 0
-	}
-	return String2Hash32(name)
-}
-
-func (ns *Names) AddOrUpdate(name string) Hash {
-
-	hash := ns.NameHash(name)
-	if hash == 0 {
-		return hash
-	}
-
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-
-	if ns.items == nil {
-		ns.items = make(NamesItems)
-	}
-
-	_, ok := ns.items[hash]
-	if !ok {
-		ns.items[hash] = name
-	}
-	return hash
-}
-
-func (ns *Names) Find(hash Hash) string {
-
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-
-	return ns.items[hash]
-}
-
-func NewNames() *Names {
-
-	return &Names{
-		items: make(NamesItems),
-	}
-}*/
 
 func (ns *Names) IsEmpty() bool {
 
