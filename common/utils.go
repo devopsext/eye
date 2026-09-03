@@ -299,16 +299,14 @@ type Number interface {
 		~float32 | ~float64
 }
 
+type Aggregator[T Number] = func(slice []T) T
+
 func Sum[T Number](slice []T) T {
 	var total T
 	for _, v := range slice {
 		total += v
 	}
 	return total
-}
-
-func Len[T any](s []T) int {
-	return len(s)
 }
 
 func Avg[T Number](slice []T) T {
@@ -322,4 +320,19 @@ func Avg[T Number](slice []T) T {
 	total := Sum(slice)
 	avg = total / T(l)
 	return avg
+}
+
+func Max[T Number](slice []T) T {
+
+	var max T
+	for _, v := range slice {
+		if max < v {
+			max = v
+		}
+	}
+	return max
+}
+
+func Len[T any](s []T) int {
+	return len(s)
 }

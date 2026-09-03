@@ -1303,17 +1303,17 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 	// fill up app outgoings and saturations
 	p.applicationSignalsOverData(series, data,
-		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
+		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, attribute common.Hash) {
 
 			switch kind {
 			case common.SignalTraffic:
-				as.OutgoingTraffic.AddOrUpdate(value, hash, data.attributes.FindTrafficKind(hash))
+				as.OutgoingTraffic.AddOrUpdate(value, attribute, data.attributes.FindTrafficKind(attribute))
 			case common.SignalErrors:
-				as.OutgoingErrors.AddOrUpdate(value, hash)
+				as.OutgoingErrors.AddOrUpdate(value, attribute)
 			case common.SignalLatency:
-				as.OutgoingLatency.AddOrUpdate(value, hash)
+				as.OutgoingLatency.AddOrUpdate(value, attribute)
 			case common.SignalSaturation:
-				as.Saturation.AddOrUpdate(value, hash)
+				as.Saturation.AddOrUpdate(value, attribute, data.attributes.FindSaturationKind(attribute))
 			}
 		})
 
@@ -1329,11 +1329,11 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 	// fill up host saturations
 	p.hostSignalsOverData(series, data,
-		func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash) {
+		func(hs *common.HostSignal, kind common.SignalKind, value float64, attribute common.Hash) {
 
 			switch kind {
 			case common.SignalSaturation:
-				hs.Saturation.AddOrUpdate(value, hash)
+				hs.Saturation.AddOrUpdate(value, attribute, data.attributes.FindSaturationKind(attribute))
 			}
 		})
 

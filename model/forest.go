@@ -1,13 +1,9 @@
 package model
 
 import (
-	"bufio"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -30,6 +26,43 @@ type ForestModelOptions struct {
 	DetectionTTL   string
 	DetectionFalse float64
 	DetectionMass  float64
+}
+
+type ForestModelDataKind = int
+
+const (
+	ForestModelDataKindUnknown = iota
+	ForestModelDataKindApplication
+)
+
+type ForestModelDataFrame interface {
+	Kind() ForestModelDataKind
+	Stamp() common.Stamp
+	Valid() bool
+}
+
+type ForestModelDataTrafficValues map[common.TrafficKind]*common.Traffic
+type ForestModelDataLatencyValue *common.Latency
+type ForestModelDataErrorsValue *common.Errors
+type ForestModelDataSaturationValue *common.Saturation
+
+type ForestModelApplicationDataFrame struct {
+	stamp common.Stamp
+	//
+	appInRequests   ForestModelDataTrafficValues
+	appInThroughput ForestModelDataTrafficValues
+	appInLatency    ForestModelDataLatencyValue
+	appInErrors     ForestModelDataErrorsValue
+	//
+	appCPU  ForestModelDataSaturationValue
+	appMem  ForestModelDataSaturationValue
+	hostCPU ForestModelDataSaturationValue
+	hostMem ForestModelDataSaturationValue
+	//
+	appOutRequests   ForestModelDataTrafficValues
+	appOutThroughput ForestModelDataTrafficValues
+	appOutLatency    ForestModelDataLatencyValue
+	appOutErrors     ForestModelDataErrorsValue
 }
 
 type ForestModelData struct {
@@ -70,6 +103,65 @@ const (
 	ForestModelSubsampleSize = 256
 	ForestModelOutlierRatio  = 0.01
 )
+
+// ForestModelDataTrafficValues
+
+func (tvs ForestModelDataTrafficValues) Sum() (common.Traffic, bool) {
+	tot := 0.0
+	hasValid := false
+	for _, v := range tvs {
+		if v != nil {
+			tot += *v
+			hasValid = true
+		}
+	}
+	return tot, hasValid
+}
+
+func (tvs ForestModelDataTrafficValues) Max() (common.Traffic, bool) {
+	maxVal := -1.0
+	hasValid := false
+	for _, v := range tvs {
+		if v != nil {
+			value := *v
+			if !hasValid || value > maxVal {
+				maxVal = value
+			}
+			hasValid = true
+		}
+	}
+	if !hasValid {
+		return 0.0, false
+	}
+	return maxVal, true
+}
+
+// ForestModelApplicationDataFrame
+
+func (af *ForestModelApplicationDataFrame) Kind() ForestModelDataKind {
+	return ForestModelDataKindApplication
+}
+
+func (af *ForestModelApplicationDataFrame) Stamp() common.Stamp {
+	return af.stamp
+}
+
+func (af *ForestModelApplicationDataFrame) Valid() bool {
+
+	if af.stamp == 0 {
+		return false
+	}
+
+	if len(af.appInRequests) == 0 && len(af.appOutRequests) == 0 {
+		return false
+	}
+
+	if len(af.appInThroughput) == 0 && len(af.appOutThroughput) == 0 {
+		return false
+	}
+
+	return true
+}
 
 // ForestModelData
 
@@ -117,25 +209,18 @@ func (fd *ForestModelData) applyWeights(data []float64, weights []int) []float64
 func (fd *ForestModelData) applicationSignalsWeights() []int {
 
 	weights := []int{
-		1, // inTraffic
-		1, // inTrafficKind
-		1, // inErrors
-		1, // inLatency
-		1, // outTraffic
-		1, // outTrafficKind
-		1, // outErrors
-		1, // outLatency
-		1, // Saturation
-		1, // SaturationKind
-	}
-	return weights
-}
-
-func (fd *ForestModelData) hostSignalsWeights() []int {
-
-	weights := []int{
-		1, // cpuSaturation
-		1, // memorySaturation
+		1, // AppInRequests
+		1, // AppInThroughput
+		1, // AppInErrors
+		1, // AppInLatency
+		1, // AppCPU
+		1, // AppMem
+		1, // HostCPU
+		1, // HostMem
+		1, // AppOutRequests
+		1, // AppOutThroughput
+		1, // AppOutErrors
+		1, // AppOutLatency
 	}
 	return weights
 }
@@ -151,117 +236,75 @@ func (fd *ForestModelData) timeDayWeights() []int {
 	return weights
 }
 
-func (fd *ForestModelData) getApplicationSignalData(stamp common.Stamp, signal *common.ApplicationSignal) []float64 {
+func (fd *ForestModelData) getApplicationDataFrame(stamp common.Stamp, signal *common.ApplicationSignal) *ForestModelApplicationDataFrame {
 
-	//frontends := signal.Frontends()
+	//gather := func()
 
-	//signal.IncomingTraffic.Value()
-
-	inTraffic := 0.0
-	inTrafficKind := 0.0
-	inErrors := 0.0 //signal.IncomingErrors.Value()
-	inLatency := 0.0
-	outTraffic := 0.0
-	outTrafficKind := 0.0
-	outErrors := 0.0
-	outLatency := 0.0
-	saturation := 0.0
-	saturationKind := 0.0
-
-	data := []float64{
-		inTraffic, inTrafficKind, inErrors, inLatency,
-		outTraffic, outTrafficKind, outErrors, outLatency,
-		saturation, saturationKind,
-	}
-
-	return data
-}
-
-func (fd *ForestModelData) getHostSignalData(stamp common.Stamp, signal *common.HostSignal) []float64 {
-
-	cpuSaturation := 0.0
-	memorySaturation := 0.0
-
-	data := []float64{
-		cpuSaturation, memorySaturation,
-	}
-
-	return data
-}
-
-func (fd *ForestModelData) getSignalData(stamp common.Stamp, signal common.Signal) []float64 {
-
-	var r []float64
-
-	as := signal.AsApplicationSignal()
-	if as != nil {
-		return fd.getApplicationSignalData(stamp, as)
-	}
-
-	hs := signal.AsHostSignal()
-	if hs != nil {
-		return fd.getHostSignalData(stamp, hs)
+	r := &ForestModelApplicationDataFrame{
+		stamp: stamp,
+		//
+		appInRequests:   signal.IncomingTraffic.AvgByKinds(common.RequestsTrafficKinds),
+		appInThroughput: signal.IncomingTraffic.AvgByKinds(common.ThroughputTrafficKinds),
+		appInLatency:    signal.IncomingLatency.Avg(),
+		appInErrors:     signal.IncomingErrors.Sum(),
+		//
+		appCPU: signal.Saturation.MaxByKind(common.SaturationKindCPU),
+		appMem: signal.Saturation.MaxByKind(common.SaturationKindMemory),
+		//hostCPU: // find host signal first,
+		//
+		appOutRequests:   signal.OutgoingTraffic.AvgByKinds(common.RequestsTrafficKinds),
+		appOutThroughput: signal.OutgoingTraffic.AvgByKinds(common.ThroughputTrafficKinds),
+		appOutLatency:    signal.OutgoingLatency.Avg(),
+		appOutErrors:     signal.OutgoingErrors.Sum(),
 	}
 	return r
 }
 
-func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []common.Hash) (map[common.Hash][][]float64, map[common.Hash][]common.Stamp) {
+func (fd *ForestModelData) getDataFrame(stamp common.Stamp, signal common.Signal) ForestModelDataFrame {
 
-	md := make(map[common.Hash][][]float64)
-	mt := make(map[common.Hash][]common.Stamp)
+	var r ForestModelDataFrame
 
-	appSignalsWeigths := fd.applicationSignalsWeights()
-	appSignalsLen := len(appSignalsWeigths)
+	as := signal.AsApplicationSignal()
+	if as != nil {
+		return fd.getApplicationDataFrame(stamp, as)
+	}
+	return r
+}
 
-	hostSignalsWeigths := fd.hostSignalsWeights()
-	hostSignalsLen := len(hostSignalsWeigths)
+func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []common.Hash) map[common.Hash][]ForestModelDataFrame {
 
-	timeDayWeights := fd.timeDayWeights()
+	mdf := make(map[common.Hash][]ForestModelDataFrame)
+	lhashes := len(hashes)
 
-	l := len(hashes)
-
-	for hash, signals := range measurements.GetItems() {
-
+	for hash, signals := range measurements.Items() {
 		for stamp, signal := range signals {
 
-			if l > 0 && !signal.ContainsAny(hashes) {
+			if lhashes > 0 && !signal.ContainsAny(hashes) {
 				continue
 			}
 
 			t := common.StampToTime(stamp)
-			timeSin, timeCos, daySin, dayCos := fd.getStampFeatures(t)
-
+			// exclude invalid window time frames
 			if fd.stampIsExcluded(t, []timeWindow{}) {
 				continue
 			}
 
-			data := fd.getSignalData(stamp, signal)
-
-			l := len(data)
-			if l != appSignalsLen && l != hostSignalsLen {
-				l = 0
+			frame := fd.getDataFrame(stamp, signal)
+			if utils.IsEmpty(frame) {
 				continue
 			}
 
-			timeDateData := append([]float64{timeSin, timeCos, daySin, dayCos}, data...)
-
-			weighted := []float64{}
-
-			switch l {
-			case appSignalsLen:
-				weighted = fd.applyWeights(timeDateData, append(timeDayWeights, appSignalsWeigths...))
-			case hostSignalsLen:
-				weighted = fd.applyWeights(timeDateData, append(timeDayWeights, hostSignalsWeigths...))
-			}
-
-			if len(weighted) == 0 {
+			if !frame.Valid() {
 				continue
 			}
-			md[hash] = append(md[hash], weighted)
-			mt[hash] = append(mt[hash], stamp)
+
+			mdf[hash] = append(mdf[hash], frame)
 		}
 	}
-	return md, mt
+	return mdf
+}
+
+type ForestModelFileDataHeader struct {
 }
 
 type ForestModelFileData struct {
@@ -269,7 +312,7 @@ type ForestModelFileData struct {
 	Times []common.Stamp
 }
 
-func (fd *ForestModelData) loadData(hash common.Hash,
+/*func (fd *ForestModelData) loadData(hash common.Hash,
 	from, first, last common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
 
 	d1 := [][]float64{}
@@ -352,7 +395,7 @@ func (fd *ForestModelData) save(hash common.Hash, forest *iforest.Forest, data [
 		Times:  times,
 	}
 	return encoder.Encode(&fmf)
-}
+}*/
 
 func (fd *ForestModelData) findHashes(names *common.Names, filter []string) []common.Hash {
 
@@ -382,7 +425,7 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, filter []string) err
 	last := dsd.Last()
 
 	hashes := fd.findHashes(dsd.Names(), filter)
-	data, times := fd.prepare(measurements, hashes)
+	frames := fd.prepare(measurements, hashes)
 	if len(data) == 0 {
 		return nil
 	}
@@ -396,10 +439,10 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, filter []string) err
 
 		gr.Go(func() error {
 
-			d1, t1, d2, t2 := fd.loadData(h, from, first, last)
+			/*d1, t1, d2, t2 := fd.loadData(h, from, first, last)
 
 			d := append(d1, d...)
-			d = append(d, d2...)
+			d = append(d, d2...)*/
 
 			f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForestModelOutlierRatio)
 
@@ -412,11 +455,12 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, filter []string) err
 			}
 			fd.items.Set(h, f, ttlcache.DefaultTTL)
 
-			t := times[h]
+			/*t := times[h]
 			t = append(t1, t...)
 			t = append(t, t2...)
 
-			return fd.save(h, f, d, t)
+			return fd.save(h, f, d, t)*/
+			return nil
 		})
 	}
 	gr.Wait()
@@ -727,7 +771,7 @@ type ForestModelFileForest struct {
 
 func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Forest], key common.Hash) *ttlcache.Item[common.Hash, *iforest.Forest] {
 
-	fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", key))
+	/*fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", key))
 
 	f, err := os.Open(fpath)
 	if err != nil {
@@ -745,7 +789,8 @@ func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Fo
 	}
 
 	item := c.Set(key, fmff.Forest, ttlcache.DefaultTTL)
-	return item
+	return item*/
+	return nil
 }
 
 func NewForestModelData(logger sreCommon.Logger, name, path string, cases *common.Cases,

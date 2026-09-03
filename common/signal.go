@@ -72,49 +72,45 @@ type TrafficKind = int
 const (
 	TrafficKindUnknown = iota // unknown
 	TrafficKindRps            // request per second
-	TrafficKindBps            // byte per second
 	TrafficKindQps            // query per second
 	TrafficKindCps            // connection per second
 	TrafficKindMps            // message per second
 	TrafficKindTps            // transaction per second
+	TrafficKindBps            // byte per second
 )
 
-var allTrafficKinds = []TrafficKind{TrafficKindUnknown, TrafficKindRps, TrafficKindBps, TrafficKindQps}
+var AllTrafficKinds = []TrafficKind{TrafficKindUnknown, TrafficKindRps, TrafficKindQps, TrafficKindCps, TrafficKindMps, TrafficKindTps, TrafficKindBps}
+var RequestsTrafficKinds = []TrafficKind{TrafficKindRps, TrafficKindQps, TrafficKindCps, TrafficKindMps, TrafficKindTps}
+var ThroughputTrafficKinds = []TrafficKind{TrafficKindBps}
 
 const (
 	TrafficKindRpsName = "rps"
-	TrafficKindBpsName = "bps"
 	TrafficKindQpsName = "qps"
+	TrafficKindCpsName = "cps"
+	TrafficKindMpsName = "mps"
+	TrafficKindTpsName = "tps"
+	TrafficKindBpsName = "bps"
 )
 
 type Errors = float64
 type Latency = float64
 type Saturation = float64
 
-type ApplicationSaturationKind = int
+type SaturationKind = int
 
 const (
-	ApplicationSaturationKindUnknown = iota
-	ApplicationSaturationKindConnections
+	SaturationKindUnknown = iota
+	SaturationKindCPU
+	SaturationKindMemory
+	SaturationKindDisk
+	SaturationKindConnections
 )
 
 const (
-	ApplicationSaturationKindConnectionsName = "connections"
-)
-
-type HostSaturationKind = int
-
-const (
-	HostSaturationKindUnknown = iota
-	HostSaturationKindCPU
-	HostSaturationKindMemory
-	HostSaturationKindDisk
-)
-
-const (
-	HostSaturationKindCPUName    = "cpu"
-	HostSaturationKindMemoryName = "memory"
-	HostSaturationKindDiskName   = "disk"
+	SaturationKindCPUName         = "cpu"
+	SaturationKindMemoryName      = "memory"
+	SaturationKindDiskName        = "disk"
+	SaturationKindConnectionsName = "connections"
 )
 
 type IncomingTrafficItems = map[TrafficKind]map[Hash][]Traffic
@@ -147,20 +143,19 @@ type OutgoingLatency struct {
 	items OutgoingLatencyItems
 }
 
-type ApplicationSaturationItems = map[ApplicationSaturationKind]map[Hash]Saturation
+type SaturationItems = map[SaturationKind]map[Hash][]Saturation
+
 type ApplicationSaturation struct {
-	Items ApplicationSaturationItems
+	items SaturationItems
 }
 
-type HostSaturationItems = map[HostSaturationKind]map[Hash]Saturation
 type HostSaturation struct {
-	Items HostSaturationItems
+	items SaturationItems
 }
 
 const (
 	//HostSignalName           = "name"
-	HostSignalHost           = "host"
-	HostSignalSaturationKind = "kind"
+	HostSignalHost = "host"
 )
 
 type HostSignal struct {
@@ -169,12 +164,15 @@ type HostSignal struct {
 }
 
 const (
-	ApplicationSignalName           = "application"
-	ApplicationSignalHost           = "host"
-	ApplicationSignalTrafficKind    = "kind"
-	ApplicationSignalSaturationKind = "kind"
-	ApplicationSignalFrontend       = "frontend"
-	ApplicationSignalBackend        = "backend"
+	ApplicationSignalName        = "application"
+	ApplicationSignalHost        = "host"
+	ApplicationSignalTrafficKind = "kind"
+	ApplicationSignalFrontend    = "frontend"
+	ApplicationSignalBackend     = "backend"
+)
+
+const (
+	SignalSaturationKind = "kind"
 )
 
 type ApplicationSignal struct {
@@ -233,34 +231,33 @@ func TrafficKindByName(kind string) TrafficKind {
 	switch kind {
 	case TrafficKindRpsName:
 		return TrafficKindRps
-	case TrafficKindBpsName:
-		return TrafficKindBps
 	case TrafficKindQpsName:
 		return TrafficKindQps
+	case TrafficKindCpsName:
+		return TrafficKindCps
+	case TrafficKindMpsName:
+		return TrafficKindMps
+	case TrafficKindTpsName:
+		return TrafficKindTps
+	case TrafficKindBpsName:
+		return TrafficKindBps
 	}
 	return TrafficKindUnknown
 }
 
-func ApplicationSaturationKindByName(kind string) ApplicationSaturationKind {
+func SaturationKindByName(kind string) SaturationKind {
 
 	switch kind {
-	case ApplicationSaturationKindConnectionsName:
-		return ApplicationSaturationKindConnections
+	case SaturationKindCPUName:
+		return SaturationKindCPU
+	case SaturationKindMemoryName:
+		return SaturationKindMemory
+	case SaturationKindDiskName:
+		return SaturationKindDisk
+	case SaturationKindConnectionsName:
+		return SaturationKindConnections
 	}
-	return ApplicationSaturationKindUnknown
-}
-
-func HostSaturationKindByName(kind string) HostSaturationKind {
-
-	switch kind {
-	case HostSaturationKindCPUName:
-		return HostSaturationKindCPU
-	case HostSaturationKindMemoryName:
-		return HostSaturationKindMemory
-	case HostSaturationKindDiskName:
-		return HostSaturationKindDisk
-	}
-	return HostSaturationKindUnknown
+	return SaturationKindUnknown
 }
 
 // Attributes
@@ -326,6 +323,16 @@ func (as *Attributes) FindTrafficKind(hash Hash) TrafficKind {
 	lbs := as.Find(hash)
 	if lbs != nil {
 		kind = TrafficKindByName(lbs[ApplicationSignalTrafficKind])
+	}
+	return kind
+}
+
+func (as *Attributes) FindSaturationKind(hash Hash) SaturationKind {
+
+	kind := SaturationKindUnknown
+	lbs := as.Find(hash)
+	if lbs != nil {
+		kind = SaturationKindByName(lbs[SignalSaturationKind])
 	}
 	return kind
 }
@@ -442,21 +449,30 @@ func (it *IncomingTraffic) Frontends(kinds []TrafficKind) []Hash {
 	return hashes
 }
 
-func (it *IncomingTraffic) Values(kind TrafficKind) map[Hash][]Traffic {
-	return it.items[kind]
-}
+func (it *IncomingTraffic) aggregateByKinds(kinds []TrafficKind, aggregator Aggregator[Traffic]) map[TrafficKind]*Traffic {
 
-func (it *IncomingTraffic) Value(kind TrafficKind) map[Hash]Traffic {
+	r := make(map[TrafficKind]*Traffic)
 
-	r := make(map[Hash]Traffic)
-
-	for h, vls := range it.items[kind] {
-		r[h] = Avg(vls)
+	for _, kind := range kinds {
+		values := []Traffic{}
+		for _, vls := range it.items[kind] {
+			values = append(values, vls...)
+		}
+		if len(values) == 0 {
+			r[kind] = nil
+			continue
+		}
+		v := aggregator(values)
+		r[kind] = &v
 	}
 	return r
 }
 
-func (it *IncomingTraffic) AddOrUpdate(value float64, hash Hash, kind TrafficKind) {
+func (it *IncomingTraffic) AvgByKinds(kinds []TrafficKind) map[TrafficKind]*Traffic {
+	return it.aggregateByKinds(kinds, Avg)
+}
+
+func (it *IncomingTraffic) AddOrUpdate(value float64, attribute Hash, kind TrafficKind) {
 
 	if it.items == nil {
 		it.items = make(IncomingTrafficItems)
@@ -466,16 +482,16 @@ func (it *IncomingTraffic) AddOrUpdate(value float64, hash Hash, kind TrafficKin
 
 	if values == nil {
 		values = make(map[Hash][]Traffic)
-		values[hash] = append(values[hash], value)
+		values[attribute] = append(values[attribute], value)
 	} else {
 
-		traffic, ok := values[hash]
+		traffic, ok := values[attribute]
 		if !ok {
 			traffic = []Traffic{value}
 		} else {
 			traffic = append(traffic, value)
 		}
-		values[hash] = traffic
+		values[attribute] = traffic
 	}
 	it.items[kind] = values
 }
@@ -486,33 +502,37 @@ func (ie *IncomingErrors) Frontends() []Hash {
 	return slices.Collect(maps.Keys(ie.items))
 }
 
-func (ie *IncomingErrors) Values() map[Hash][]Errors {
-	return ie.items
-}
+func (ie *IncomingErrors) aggregate(aggregator Aggregator[Errors]) *Errors {
 
-func (ie *IncomingErrors) Value() map[Hash]Errors {
-
-	r := make(map[Hash]Errors)
-
-	for h, vls := range ie.items {
-		r[h] = Avg(vls)
+	var r *Errors
+	values := []Errors{}
+	for _, vls := range ie.items {
+		values = append(values, vls...)
 	}
-	return r
+	if len(values) == 0 {
+		return r
+	}
+	v := aggregator(values)
+	return &v
 }
 
-func (ie *IncomingErrors) AddOrUpdate(value float64, hash Hash) {
+func (ie *IncomingErrors) Sum() *Errors {
+	return ie.aggregate(Sum)
+}
+
+func (ie *IncomingErrors) AddOrUpdate(value float64, attribute Hash) {
 
 	if ie.items == nil {
 		ie.items = make(IncomingErrorsItems)
 	}
 
-	errors, ok := ie.items[hash]
+	errors, ok := ie.items[attribute]
 	if !ok {
 		errors = []Errors{value}
 	} else {
 		errors = append(errors, value)
 	}
-	ie.items[hash] = errors
+	ie.items[attribute] = errors
 }
 
 // IncomingLatency
@@ -521,33 +541,37 @@ func (il *IncomingLatency) Frontends() []Hash {
 	return slices.Collect(maps.Keys(il.items))
 }
 
-func (il *IncomingLatency) Values() map[Hash][]Latency {
-	return il.items
-}
+func (il *IncomingLatency) aggregate(aggregator Aggregator[Latency]) *Latency {
 
-func (il *IncomingLatency) Value() map[Hash]Latency {
-
-	r := make(map[Hash]Latency)
-
-	for h, vls := range il.items {
-		r[h] = Avg(vls)
+	var r *Latency
+	values := []Latency{}
+	for _, vls := range il.items {
+		values = append(values, vls...)
 	}
-	return r
+	if len(values) == 0 {
+		return r
+	}
+	v := aggregator(values)
+	return &v
 }
 
-func (il *IncomingLatency) AddOrUpdate(value float64, hash Hash) {
+func (il *IncomingLatency) Avg() *Latency {
+	return il.aggregate(Avg)
+}
+
+func (il *IncomingLatency) AddOrUpdate(value float64, attribute Hash) {
 
 	if il.items == nil {
 		il.items = make(IncomingLatencyItems)
 	}
 
-	latency, ok := il.items[hash]
+	latency, ok := il.items[attribute]
 	if !ok {
 		latency = []Latency{value}
 	} else {
 		latency = append(latency, value)
 	}
-	il.items[hash] = latency
+	il.items[attribute] = latency
 }
 
 // OutgoingTraffic
@@ -564,21 +588,30 @@ func (ot *OutgoingTraffic) Backends(kinds []TrafficKind) []Hash {
 	return hashes
 }
 
-func (ot *OutgoingTraffic) Values(kind TrafficKind) map[Hash][]Traffic {
-	return ot.items[kind]
-}
+func (ot *OutgoingTraffic) aggregateByKinds(kinds []TrafficKind, aggregator Aggregator[Traffic]) map[TrafficKind]*Traffic {
 
-func (ot *OutgoingTraffic) Value(kind TrafficKind) map[Hash]Traffic {
+	r := make(map[TrafficKind]*Traffic)
 
-	r := make(map[Hash]Traffic)
-
-	for h, vls := range ot.items[kind] {
-		r[h] = Avg(vls)
+	for _, kind := range kinds {
+		values := []Traffic{}
+		for _, vls := range ot.items[kind] {
+			values = append(values, vls...)
+		}
+		if len(values) == 0 {
+			r[kind] = nil
+			continue
+		}
+		v := aggregator(values)
+		r[kind] = &v
 	}
 	return r
 }
 
-func (ot *OutgoingTraffic) AddOrUpdate(value float64, hash Hash, kind TrafficKind) {
+func (ot *OutgoingTraffic) AvgByKinds(kinds []TrafficKind) map[TrafficKind]*Traffic {
+	return ot.aggregateByKinds(kinds, Avg)
+}
+
+func (ot *OutgoingTraffic) AddOrUpdate(value float64, attribute Hash, kind TrafficKind) {
 
 	if ot.items == nil {
 		ot.items = make(OutgoingTrafficItems)
@@ -588,16 +621,16 @@ func (ot *OutgoingTraffic) AddOrUpdate(value float64, hash Hash, kind TrafficKin
 
 	if values == nil {
 		values = make(map[Hash][]Traffic)
-		values[hash] = append(values[hash], value)
+		values[attribute] = append(values[attribute], value)
 	} else {
 
-		traffic, ok := values[hash]
+		traffic, ok := values[attribute]
 		if !ok {
 			traffic = []Traffic{value}
 		} else {
 			traffic = append(traffic, value)
 		}
-		values[hash] = traffic
+		values[attribute] = traffic
 	}
 	ot.items[kind] = values
 }
@@ -608,33 +641,37 @@ func (oe *OutgoingErrors) Backends() []Hash {
 	return slices.Collect(maps.Keys(oe.items))
 }
 
-func (oe *OutgoingErrors) Values() map[Hash][]Errors {
-	return oe.items
-}
+func (oe *OutgoingErrors) aggregate(aggregator Aggregator[Errors]) *Errors {
 
-func (oe *OutgoingErrors) Value() map[Hash]Errors {
-
-	r := make(map[Hash]Errors)
-
-	for h, vls := range oe.items {
-		r[h] = Avg(vls)
+	var r *Errors
+	values := []Errors{}
+	for _, vls := range oe.items {
+		values = append(values, vls...)
 	}
-	return r
+	if len(values) == 0 {
+		return r
+	}
+	v := aggregator(values)
+	return &v
 }
 
-func (oe *OutgoingErrors) AddOrUpdate(value float64, hash Hash) {
+func (oe *OutgoingErrors) Sum() *Errors {
+	return oe.aggregate(Sum)
+}
+
+func (oe *OutgoingErrors) AddOrUpdate(value float64, attribute Hash) {
 
 	if oe.items == nil {
 		oe.items = make(OutgoingErrorsItems)
 	}
 
-	errors, ok := oe.items[hash]
+	errors, ok := oe.items[attribute]
 	if !ok {
 		errors = []Errors{value}
 	} else {
 		errors = append(errors, value)
 	}
-	oe.items[hash] = errors
+	oe.items[attribute] = errors
 }
 
 // OutgoingLatency
@@ -643,101 +680,109 @@ func (ol *OutgoingLatency) Backends() []Hash {
 	return slices.Collect(maps.Keys(ol.items))
 }
 
-func (ol *OutgoingLatency) Values() map[Hash][]Latency {
-	return ol.items
-}
+func (ol *OutgoingLatency) aggregate(aggregator Aggregator[Latency]) *Latency {
 
-func (ol *OutgoingLatency) Value() map[Hash]Latency {
-
-	r := make(map[Hash]Latency)
-
-	for h, vls := range ol.items {
-		r[h] = Avg(vls)
+	var r *Latency
+	values := []Latency{}
+	for _, vls := range ol.items {
+		values = append(values, vls...)
 	}
-	return r
+	if len(values) == 0 {
+		return r
+	}
+	v := aggregator(values)
+	return &v
 }
 
-func (ol *OutgoingLatency) AddOrUpdate(value float64, hash Hash) {
+func (ol *OutgoingLatency) Avg() *Latency {
+	return ol.aggregate(Avg)
+}
+
+func (ol *OutgoingLatency) AddOrUpdate(value float64, attribute Hash) {
 
 	if ol.items == nil {
 		ol.items = make(OutgoingLatencyItems)
 	}
 
-	latency, ok := ol.items[hash]
+	latency, ok := ol.items[attribute]
 	if !ok {
 		latency = []Latency{value}
 	} else {
 		latency = append(latency, value)
 	}
-	ol.items[hash] = latency
+	ol.items[attribute] = latency
 }
 
 // ApplicationSaturation
 
-func (as *ApplicationSaturation) AddOrUpdate(value float64, hash Hash) {
+func (as *ApplicationSaturation) aggregateByKind(kind SaturationKind, aggregator Aggregator[Saturation]) *Saturation {
 
-	if as.Items == nil {
-		as.Items = make(map[ApplicationSaturationKind]map[Hash]Saturation)
+	var r *Saturation
+
+	values := []Saturation{}
+	for _, vls := range as.items[kind] {
+		values = append(values, vls...)
 	}
-	/*
-	   kind := ApplicationSaturationKindUnknown
-	   lbs := as.Attributes.Find(hash)
+	if len(values) == 0 {
+		return r
+	}
+	v := aggregator(values)
+	r = &v
+	return r
+}
 
-	   	if lbs != nil {
-	   		kind = ApplicationSaturationKindByName(lbs[ApplicationSignalSaturationKind])
-	   	}
+func (as *ApplicationSaturation) MaxByKind(kind TrafficKind) *Saturation {
+	return as.aggregateByKind(kind, Max)
+}
 
-	   values := as.items[kind]
+func (as *ApplicationSaturation) AddOrUpdate(value float64, attribute Hash, kind SaturationKind) {
 
-	   	if values == nil {
-	   		values = make(map[Hash]Saturation)
-	   		values[hash] = value
-	   	} else {
+	if as.items == nil {
+		as.items = make(SaturationItems)
+	}
 
-	   		saturation, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (saturation + value) / 2
-	   		}
-	   	}
+	values := as.items[kind]
 
-	   as.items[kind] = values
-	*/
+	if values == nil {
+		values = make(map[Hash][]Saturation)
+		values[attribute] = append(values[attribute], value)
+	} else {
+
+		traffic, ok := values[attribute]
+		if !ok {
+			traffic = []Traffic{value}
+		} else {
+			traffic = append(traffic, value)
+		}
+		values[attribute] = traffic
+	}
+	as.items[kind] = values
 }
 
 // HostSaturation
 
-func (hs *HostSaturation) AddOrUpdate(value float64, hash Hash) {
+func (hs *HostSaturation) AddOrUpdate(value float64, attribute Hash, kind SaturationKind) {
 
-	if hs.Items == nil {
-		hs.Items = make(map[HostSaturationKind]map[Hash]Saturation)
+	if hs.items == nil {
+		hs.items = make(SaturationItems)
 	}
-	/*
-	   kind := HostSaturationKindUnknown
-	   lbs := hs.Attributes.Find(hash)
 
-	   	if lbs != nil {
-	   		kind = HostSaturationKindByName(lbs[HostSignalSaturationKind])
-	   	}
+	values := hs.items[kind]
 
-	   values := hs.items[kind]
+	if values == nil {
+		values = make(map[Hash][]Saturation)
+		values[attribute] = append(values[attribute], value)
+	} else {
 
-	   	if values == nil {
-	   		values = make(map[Hash]Saturation)
-	   		values[hash] = value
-	   	} else {
-
-	   		saturation, ok := values[hash]
-	   		if !ok {
-	   			values[hash] = value
-	   		} else {
-	   			values[hash] = (saturation + value) / 2
-	   		}
-	   	}
-
-	   hs.items[kind] = values
-	*/
+		traffic, ok := values[attribute]
+		if !ok {
+			traffic = []Traffic{value}
+		} else {
+			traffic = append(traffic, value)
+		}
+		values[attribute] = traffic
+	}
+	hs.items[kind] = values
 }
 
 // Host
@@ -1129,7 +1174,7 @@ func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
 
 func (as *ApplicationSignal) Frontends() []Hash {
 
-	traffic := as.IncomingTraffic.Frontends(allTrafficKinds)
+	traffic := as.IncomingTraffic.Frontends(AllTrafficKinds)
 	errors := as.IncomingErrors.Frontends()
 	latency := as.IncomingLatency.Frontends()
 
@@ -1143,7 +1188,7 @@ func (as *ApplicationSignal) Frontends() []Hash {
 
 func (as *ApplicationSignal) Backends() []Hash {
 
-	traffic := as.OutgoingTraffic.Backends(allTrafficKinds)
+	traffic := as.OutgoingTraffic.Backends(AllTrafficKinds)
 	errors := as.OutgoingErrors.Backends()
 	latency := as.OutgoingLatency.Backends()
 
@@ -1201,78 +1246,14 @@ func NewDependencies() *Dependencies {
 	}
 }
 
-// Signals
-
-/*
-func (ss *Signals) GetItems() map[Hash]Signal {
-
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	return ss.items
-}
-
-func (ss *Signals) SetItems(items map[Hash]Signal) {
-
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	ss.items = items
-}
-
-func (ss *Signals) AddOrUpdate(s Signal) {
-
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	if utils.IsEmpty(s) {
-		return
-	}
-
-	n := s.GetName()
-	if n == 0 {
-		return
-	}
-
-	sOld := ss.items[n]
-	if utils.IsEmpty(sOld) {
-		ss.items[n] = s
-		return
-	}
-	sOld.Merge(s)
-}
-
-func (ss *Signals) Find(hash Hash) Signal {
-
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	return ss.items[hash]
-}
-
-func NewSignals() *Signals {
-
-	return &Signals{
-		items: make(map[Hash]Signal),
-	}
-}
-*/
 // Measurements
 
-func (ms *Measurements) GetItems() MeasurementsItems {
+func (ms *Measurements) Items() MeasurementsItems {
 
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
 	return ms.items
-}
-
-func (ms *Measurements) SetItems(items MeasurementsItems) {
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	ms.items = items
 }
 
 func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
