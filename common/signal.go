@@ -735,6 +735,14 @@ func (as *ApplicationSaturation) MaxByKind(kind TrafficKind) *Saturation {
 	return as.aggregateByKind(kind, Max)
 }
 
+func (as *ApplicationSaturation) CPUMax() *Saturation {
+	return as.aggregateByKind(SaturationKindCPU, Max)
+}
+
+func (as *ApplicationSaturation) MemoryMax() *Saturation {
+	return as.aggregateByKind(SaturationKindMemory, Max)
+}
+
 func (as *ApplicationSaturation) AddOrUpdate(value float64, attribute Hash, kind SaturationKind) {
 
 	if as.items == nil {
@@ -760,6 +768,34 @@ func (as *ApplicationSaturation) AddOrUpdate(value float64, attribute Hash, kind
 }
 
 // HostSaturation
+
+func (hs *HostSaturation) aggregateByKind(kind SaturationKind, aggregator Aggregator[Saturation]) *Saturation {
+
+	var r *Saturation
+
+	values := []Saturation{}
+	for _, vls := range hs.items[kind] {
+		values = append(values, vls...)
+	}
+	if len(values) == 0 {
+		return r
+	}
+	v := aggregator(values)
+	r = &v
+	return r
+}
+
+func (hs *HostSaturation) MaxByKind(kind TrafficKind) *Saturation {
+	return hs.aggregateByKind(kind, Max)
+}
+
+func (hs *HostSaturation) CPUMax() *Saturation {
+	return hs.aggregateByKind(SaturationKindCPU, Max)
+}
+
+func (hs *HostSaturation) MemoryMax() *Saturation {
+	return hs.aggregateByKind(SaturationKindMemory, Max)
+}
 
 func (hs *HostSaturation) AddOrUpdate(value float64, attribute Hash, kind SaturationKind) {
 

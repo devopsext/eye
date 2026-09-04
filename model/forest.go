@@ -4,10 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/devopsext/eye/common"
@@ -236,37 +234,40 @@ func (fd *ForestModelData) timeDayWeights() []int {
 	return weights
 }
 
-func (fd *ForestModelData) getApplicationDataFrame(stamp common.Stamp, signal *common.ApplicationSignal) *ForestModelApplicationDataFrame {
-
-	//gather := func()
+func (fd *ForestModelData) getApplicationDataFrame(measurements *common.Measurements, stamp common.Stamp, appSignal *common.ApplicationSignal) *ForestModelApplicationDataFrame {
 
 	r := &ForestModelApplicationDataFrame{
 		stamp: stamp,
 		//
-		appInRequests:   signal.IncomingTraffic.AvgByKinds(common.RequestsTrafficKinds),
-		appInThroughput: signal.IncomingTraffic.AvgByKinds(common.ThroughputTrafficKinds),
-		appInLatency:    signal.IncomingLatency.Avg(),
-		appInErrors:     signal.IncomingErrors.Sum(),
+		appInRequests:   appSignal.IncomingTraffic.AvgByKinds(common.RequestsTrafficKinds),
+		appInThroughput: appSignal.IncomingTraffic.AvgByKinds(common.ThroughputTrafficKinds),
+		appInLatency:    appSignal.IncomingLatency.Avg(),
+		appInErrors:     appSignal.IncomingErrors.Sum(),
 		//
-		appCPU: signal.Saturation.MaxByKind(common.SaturationKindCPU),
-		appMem: signal.Saturation.MaxByKind(common.SaturationKindMemory),
-		//hostCPU: // find host signal first,
+		appCPU: appSignal.Saturation.CPUMax(),
+		appMem: appSignal.Saturation.MemoryMax(),
 		//
-		appOutRequests:   signal.OutgoingTraffic.AvgByKinds(common.RequestsTrafficKinds),
-		appOutThroughput: signal.OutgoingTraffic.AvgByKinds(common.ThroughputTrafficKinds),
-		appOutLatency:    signal.OutgoingLatency.Avg(),
-		appOutErrors:     signal.OutgoingErrors.Sum(),
+		appOutRequests:   appSignal.OutgoingTraffic.AvgByKinds(common.RequestsTrafficKinds),
+		appOutThroughput: appSignal.OutgoingTraffic.AvgByKinds(common.ThroughputTrafficKinds),
+		appOutLatency:    appSignal.OutgoingLatency.Avg(),
+		appOutErrors:     appSignal.OutgoingErrors.Sum(),
+	}
+
+	hostSignal := measurements.FindHostSignal(stamp, appSignal.Host())
+	if !utils.IsEmpty(hostSignal) {
+		r.hostCPU = hostSignal.Saturation.CPUMax()
+		r.hostMem = hostSignal.Saturation.MemoryMax()
 	}
 	return r
 }
 
-func (fd *ForestModelData) getDataFrame(stamp common.Stamp, signal common.Signal) ForestModelDataFrame {
+func (fd *ForestModelData) getDataFrame(measurements *common.Measurements, stamp common.Stamp, signal common.Signal) ForestModelDataFrame {
 
 	var r ForestModelDataFrame
 
 	as := signal.AsApplicationSignal()
 	if as != nil {
-		return fd.getApplicationDataFrame(stamp, as)
+		return fd.getApplicationDataFrame(measurements, stamp, as)
 	}
 	return r
 }
@@ -289,7 +290,7 @@ func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []c
 				continue
 			}
 
-			frame := fd.getDataFrame(stamp, signal)
+			frame := fd.getDataFrame(measurements, stamp, signal)
 			if utils.IsEmpty(frame) {
 				continue
 			}
@@ -420,31 +421,31 @@ func (fd *ForestModelData) findHashes(names *common.Names, filter []string) []co
 func (fd *ForestModelData) train(dsd common.DataSourceData, filter []string) error {
 
 	measurements := dsd.Measurements()
-	from := dsd.From()
+	/*from := dsd.From()
 	first := dsd.First()
-	last := dsd.Last()
+	last := dsd.Last()*/
 
 	hashes := fd.findHashes(dsd.Names(), filter)
 	frames := fd.prepare(measurements, hashes)
-	if len(data) == 0 {
+	if len(frames) == 0 {
 		return nil
 	}
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(fd.concurrency)
 
-	errs := make(chan error, len(data))
+	errs := make(chan error, len(frames))
 
-	for h, d := range data {
+	/*for h, d := range frames {
 
-		gr.Go(func() error {
+	gr.Go(func() error {
 
-			/*d1, t1, d2, t2 := fd.loadData(h, from, first, last)
+		d1, t1, d2, t2 := fd.loadData(h, from, first, last)
 
-			d := append(d1, d...)
-			d = append(d, d2...)*/
+		d := append(d1, d...)
+		d = append(d, d2...)*/
 
-			f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForestModelOutlierRatio)
+	/*f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForestModelOutlierRatio)
 
 			f.Train(d)
 
@@ -459,10 +460,10 @@ func (fd *ForestModelData) train(dsd common.DataSourceData, filter []string) err
 			t = append(t1, t...)
 			t = append(t, t2...)
 
-			return fd.save(h, f, d, t)*/
+			return fd.save(h, f, d, t)
 			return nil
 		})
-	}
+	}*/
 	gr.Wait()
 	close(errs)
 
@@ -651,7 +652,7 @@ func (fd *ForestModelData) setHashDetections(found []*ForestModelDetection, dete
 
 func (fd *ForestModelData) detect(dsd common.DataSourceData, detections *ForestModelDetections, filter []string) error {
 
-	measurements := dsd.Measurements()
+	/*measurements := dsd.Measurements()
 
 	hashes := fd.findHashes(dsd.Names(), filter)
 	data, times := fd.prepare(measurements, hashes)
@@ -763,6 +764,8 @@ func (fd *ForestModelData) detect(dsd common.DataSourceData, detections *ForestM
 	// if not mass triggered => per hash detection
 	fd.setHashDetections(temp, detections, dsd)
 	return err
+	*/
+	return nil
 }
 
 type ForestModelFileForest struct {
