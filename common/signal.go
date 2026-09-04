@@ -472,6 +472,14 @@ func (it *IncomingTraffic) AvgByKinds(kinds []TrafficKind) map[TrafficKind]*Traf
 	return it.aggregateByKinds(kinds, Avg)
 }
 
+func (it *IncomingTraffic) RequestsAvg() map[TrafficKind]*Traffic {
+	return it.AvgByKinds(RequestsTrafficKinds)
+}
+
+func (it *IncomingTraffic) ThroughputAvg() map[TrafficKind]*Traffic {
+	return it.AvgByKinds(ThroughputTrafficKinds)
+}
+
 func (it *IncomingTraffic) AddOrUpdate(value float64, attribute Hash, kind TrafficKind) {
 
 	if it.items == nil {
@@ -609,6 +617,14 @@ func (ot *OutgoingTraffic) aggregateByKinds(kinds []TrafficKind, aggregator Aggr
 
 func (ot *OutgoingTraffic) AvgByKinds(kinds []TrafficKind) map[TrafficKind]*Traffic {
 	return ot.aggregateByKinds(kinds, Avg)
+}
+
+func (ot *OutgoingTraffic) RequestsAvg() map[TrafficKind]*Traffic {
+	return ot.AvgByKinds(RequestsTrafficKinds)
+}
+
+func (ot *OutgoingTraffic) ThroughputAvg() map[TrafficKind]*Traffic {
+	return ot.AvgByKinds(ThroughputTrafficKinds)
 }
 
 func (ot *OutgoingTraffic) AddOrUpdate(value float64, attribute Hash, kind TrafficKind) {
