@@ -4,7 +4,7 @@ import (
 	"github.com/devopsext/eye/common"
 )
 
-type HostFrames map[common.Hash][]*HostFrame
+type HostFrames []*HostFrame
 
 type HostFrame struct {
 	stamp common.Stamp
@@ -35,7 +35,7 @@ func (he *HostEngine) Train(frames HostFrames) error {
 	return nil
 }
 
-func NewHostEngine(maxSlotsPerDimension int) *HostEngine {
+func NewHostEngine() *HostEngine {
 
 	return &HostEngine{}
 }
