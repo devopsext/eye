@@ -6,6 +6,7 @@ import (
 
 	"github.com/devopsext/eye/common"
 	"github.com/devopsext/utils"
+	"github.com/e-XpertSolutions/go-iforest/v2/iforest"
 )
 
 type ApplicationTrafficValues map[common.TrafficKind]*common.Traffic
@@ -19,20 +20,20 @@ type ApplicationFrame struct {
 	stamp common.Stamp
 	hash  common.Hash
 	//
-	appInRequests   ApplicationTrafficValues
-	appInThroughput ApplicationTrafficValues
-	appInLatency    ApplicationLatencyValue
-	appInErrors     ApplicationErrorsValue
+	inRequests   ApplicationTrafficValues
+	inThroughput ApplicationTrafficValues
+	inLatency    ApplicationLatencyValue
+	inErrors     ApplicationErrorsValue
 	//
 	appCPU  ApplicationSaturationValue
 	appMem  ApplicationSaturationValue
 	hostCPU ApplicationSaturationValue
 	hostMem ApplicationSaturationValue
 	//
-	appOutRequests   ApplicationTrafficValues
-	appOutThroughput ApplicationTrafficValues
-	appOutLatency    ApplicationLatencyValue
-	appOutErrors     ApplicationErrorsValue
+	outRequests   ApplicationTrafficValues
+	outThroughput ApplicationTrafficValues
+	outLatency    ApplicationLatencyValue
+	outErrors     ApplicationErrorsValue
 }
 
 type ApplicationTrafficSlots struct {
@@ -49,38 +50,48 @@ type ApplicationFeatureStats struct {
 	IQR    float64
 }
 
+// K = 1.5 (Default / Standard Outlier Threshold)
+// Corresponds to standard statistical "mild outliers" (roughly equivalent to 2.7sigma on a normal distribution).
+// Anything exceeding $Q3 + 1.5 * IQR is immediately labeled High without needing the Isolation Forest's confirmation.
+
+// K = 3.0 ("Extreme" Outlier Threshold)
+// Expands the normal band significantly (roughly 4.7 sigma). Only massive spikes trigger direct High
+// leaving subtle or multi-metric correlations to be decided by the Isolation Forest
+
+// Lowering K (e.g., 1.0): Tightens the envelope, making the engine more sensitive to smaller deviations.
+// Raising K (e.g., 2.0 - 3.0): Broadens the envelope, reducing alert noise for services with naturally spiky or high-variance diurnal traffic patterns.
+
 type ApplicationProfiler struct {
 	Stats    []ApplicationFeatureStats
 	K        float64
 	isFitted bool
 }
 
+type ApplicationEngineOptions struct {
+	Path            string
+	TreesNumber     int
+	SubsampleSize   int
+	OutlierRatio    float64
+	TrafficMaxSlots int
+	RangeMultiplier float64
+}
+
 type ApplicationEngine struct {
-	appInReqSlots  *ApplicationTrafficSlots
-	appInThruSlots *ApplicationTrafficSlots
+	id common.Hash
 
-	appOutReqSlots  *ApplicationTrafficSlots
-	appOutThruSlots *ApplicationTrafficSlots
+	inReqSlots  *ApplicationTrafficSlots
+	inThruSlots *ApplicationTrafficSlots
 
-	/*InReqRegistry  *DynamicStreamRegistry
-	InThruRegistry *DynamicStreamRegistry
-	InLatRegistry  *DynamicStreamRegistry
-	InErrRegistry  *DynamicStreamRegistry
+	outReqSlots  *ApplicationTrafficSlots
+	outThruSlots *ApplicationTrafficSlots
 
-	OutReqRegistry  *DynamicStreamRegistry
-	OutThruRegistry *DynamicStreamRegistry
-	OutLatRegistry  *DynamicStreamRegistry
-	OutErrRegistry  *DynamicStreamRegistry
+	inForest  *iforest.Forest
+	satForest *iforest.Forest
+	outForest *iforest.Forest
 
-	InForest  *iforest.Forest
-	SatForest *iforest.Forest
-	OutForest *iforest.Forest
-
-	InProfiler  *DynamicProfiler
-	SatProfiler *DynamicProfiler
-	OutProfiler *DynamicProfiler*/
-
-	InProfiler *ApplicationProfiler
+	inProfiler  *ApplicationProfiler
+	satProfiler *ApplicationProfiler
+	outProfiler *ApplicationProfiler
 }
 
 // ApplicationTrafficValues
@@ -123,11 +134,11 @@ func (af *ApplicationFrame) Valid() bool {
 		return false
 	}
 
-	if len(af.appInRequests) == 0 && len(af.appOutRequests) == 0 {
+	if len(af.inRequests) == 0 && len(af.outRequests) == 0 {
 		return false
 	}
 
-	if len(af.appInThroughput) == 0 && len(af.appOutThroughput) == 0 {
+	if len(af.inThroughput) == 0 && len(af.outThroughput) == 0 {
 		return false
 	}
 
@@ -140,18 +151,18 @@ func NewApplicationFrame(stamp common.Stamp, hash common.Hash, appSignal *common
 		stamp: stamp,
 		hash:  hash,
 		//
-		appInRequests:   appSignal.IncomingTraffic.RequestsAvg(),
-		appInThroughput: appSignal.IncomingTraffic.ThroughputAvg(),
-		appInLatency:    appSignal.IncomingLatency.Avg(),
-		appInErrors:     appSignal.IncomingErrors.Sum(),
+		inRequests:   appSignal.IncomingTraffic.RequestsAvg(),
+		inThroughput: appSignal.IncomingTraffic.ThroughputAvg(),
+		inLatency:    appSignal.IncomingLatency.Avg(),
+		inErrors:     appSignal.IncomingErrors.Sum(),
 		//
 		appCPU: appSignal.Saturation.CPUMax(),
 		appMem: appSignal.Saturation.MemoryMax(),
 		//
-		appOutRequests:   appSignal.OutgoingTraffic.RequestsAvg(),
-		appOutThroughput: appSignal.OutgoingTraffic.ThroughputAvg(),
-		appOutLatency:    appSignal.OutgoingLatency.Avg(),
-		appOutErrors:     appSignal.OutgoingErrors.Sum(),
+		outRequests:   appSignal.OutgoingTraffic.RequestsAvg(),
+		outThroughput: appSignal.OutgoingTraffic.ThroughputAvg(),
+		outLatency:    appSignal.OutgoingLatency.Avg(),
+		outErrors:     appSignal.OutgoingErrors.Sum(),
 	}
 
 	if !utils.IsEmpty(hostSignal) {
@@ -356,153 +367,192 @@ func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, startIdx,
 
 func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool) {
 
-	slotWidth := ae.appInReqSlots.maxSlots + 2
+	inSlotWidth := ae.inReqSlots.maxSlots + 2
 
-	appInReqMeds := ae.getMedians(ae.InProfiler, 0, slotWidth)
-	appInThruMeds := ae.getMedians(ae.InProfiler, slotWidth, slotWidth)
+	inReqMeds := ae.getMedians(ae.inProfiler, 0, inSlotWidth)
+	inThruMeds := ae.getMedians(ae.inProfiler, inSlotWidth, inSlotWidth)
 
-	appInReqSlots, appInReqVal := ae.appInReqSlots.VectorizeTraffic(f.appInRequests, false, appInReqMeds)
-	appInThruSlots, appInThruVal := ae.appInThruSlots.VectorizeTraffic(f.appInThroughput, false, appInThruMeds)
+	inReqSlots, inReqVal := ae.inReqSlots.VectorizeTraffic(f.inRequests, false, inReqMeds)
+	inThruSlots, inThruVal := ae.inThruSlots.VectorizeTraffic(f.inThroughput, false, inThruMeds)
 
-	appInLatIdx := len(appInReqSlots) + len(appInThruSlots)
-	appInErrIdx := appInLatIdx + 1
+	inLatIdx := len(inReqSlots) + len(inThruSlots)
+	inErrIdx := inLatIdx + 1
 
-	appInLatVal := f.appInLatency != nil
-	appInLat := *f.appInLatency
-	if f.appInLatency == nil && ae.InProfiler.isFitted && len(ae.InProfiler.Stats) > appInLatIdx {
-		appInLat = ae.InProfiler.Stats[appInLatIdx].Median
+	inLatValid := f.inLatency != nil
+	inLat := 0.0
+	if inLatValid {
+		inLat = *f.inLatency
+	}
+	if !inLatValid && ae.inProfiler.isFitted && len(ae.inProfiler.Stats) > inLatIdx {
+		inLat = ae.inProfiler.Stats[inLatIdx].Median
 	}
 
-	appInErrVal := f.appInErrors != nil
-	appInErr := *f.appInErrors
-	if f.appInErrors == nil && ae.InProfiler.isFitted && len(ae.InProfiler.Stats) > appInErrIdx {
-		appInErr = ae.InProfiler.Stats[appInErrIdx].Median
+	inErrValid := f.inErrors != nil
+	inErr := 0.0
+	if inErrValid {
+		inErr = *f.inErrors
+	}
+	if !inErrValid && ae.inProfiler.isFitted && len(ae.inProfiler.Stats) > inErrIdx {
+		inErr = ae.inProfiler.Stats[inErrIdx].Median
 	}
 
-	inVec = append(inVec, appInReqSlots...)
-	inVec = append(inVec, appInThruSlots...)
-	inVec = append(inVec, appInLat, appInErr)
+	inVec = append(inVec, inReqSlots...)
+	inVec = append(inVec, inThruSlots...)
+	inVec = append(inVec, inLat, inErr)
 
-	inValid = append(inValid, appInReqVal...)
-	inValid = append(inValid, appInThruVal...)
-	inValid = append(inValid, appInLatVal, appInErrVal)
+	inValid = append(inValid, inReqVal...)
+	inValid = append(inValid, inThruVal...)
+	inValid = append(inValid, inLatValid, inErrValid)
 
-	/*	inValid = append(inValid, inLatVal...)
-		inValid = append(inValid, inErrVal...)
+	appCPUValid := f.appCPU != nil
+	appCPU := 0.0
+	if appCPUValid {
+		appCPU = *f.appCPU
+	}
+	if !appCPUValid && ae.satProfiler.isFitted {
+		appCPU = ae.satProfiler.Stats[0].Median
+	}
 
-		appCPU := f.AppCPU.Value
-		if !f.AppCPU.Valid && e.SatProfiler.isFitted {
-			appCPU = e.SatProfiler.Stats[0].Median
-		}
-		appMem := f.AppMem.Value
-		if !f.AppMem.Valid && e.SatProfiler.isFitted {
-			appMem = e.SatProfiler.Stats[1].Median
-		}
-		hostCPU := f.HostCPU.Value
-		if !f.HostCPU.Valid && e.SatProfiler.isFitted {
-			hostCPU = e.SatProfiler.Stats[2].Median
-		}
-		hostMem := f.HostMem.Value
-		if !f.HostMem.Valid && e.SatProfiler.isFitted {
-			hostMem = e.SatProfiler.Stats[3].Median
-		}
+	appMemValid := f.appMem != nil
+	appMem := 0.0
+	if appMemValid {
+		appMem = *f.appMem
+	}
+	if !appMemValid && ae.satProfiler.isFitted {
+		appMem = ae.satProfiler.Stats[1].Median
+	}
 
-		cpuDiff := 0.0
-		cpuDiffVal := false
-		if f.HostCPU.Valid && f.AppCPU.Valid {
-			cpuDiff = f.HostCPU.Value - f.AppCPU.Value
-			cpuDiffVal = true
-		} else if e.SatProfiler.isFitted {
-			cpuDiff = e.SatProfiler.Stats[4].Median
-		}
+	hostCPUValid := f.hostCPU != nil
+	hostCPU := 0.0
+	if hostCPUValid {
+		hostCPU = *f.hostCPU
+	}
+	if !hostCPUValid && ae.satProfiler.isFitted {
+		hostCPU = ae.satProfiler.Stats[2].Median
+	}
 
-		memDiff := 0.0
-		memDiffVal := false
-		if f.HostMem.Valid && f.AppMem.Valid {
-			memDiff = f.HostMem.Value - f.AppMem.Value
-			memDiffVal = true
-		} else if e.SatProfiler.isFitted {
-			memDiff = e.SatProfiler.Stats[5].Median
-		}
+	hostMemValid := f.hostMem != nil
+	hostMem := 0.0
+	if hostMemValid {
+		hostMem = *f.hostMem
+	}
+	if !hostMemValid && ae.satProfiler.isFitted {
+		hostMem = ae.satProfiler.Stats[3].Median
+	}
 
-		satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
-		satValid = []bool{f.AppCPU.Valid, f.AppMem.Valid, f.HostCPU.Valid, f.HostMem.Valid, cpuDiffVal, memDiffVal}
+	cpuDiffVal := false
+	cpuDiff := 0.0
+	if hostCPUValid && appCPUValid {
+		cpuDiffVal = true
+		cpuDiff = hostCPU - appCPU
+	} else if ae.satProfiler.isFitted {
+		cpuDiff = ae.satProfiler.Stats[4].Median
+	}
 
-		outSlotWidth := e.OutReqRegistry.maxSlots + 2
-		outReqMeds := e.getMedians(e.OutProfiler, 0, outSlotWidth)
-		outThruMeds := e.getMedians(e.OutProfiler, outSlotWidth, outSlotWidth)
-		outLatMeds := e.getMedians(e.OutProfiler, 2*outSlotWidth, outSlotWidth)
-		outErrMeds := e.getMedians(e.OutProfiler, 3*outSlotWidth, outSlotWidth)
+	memDiffVal := false
+	memDiff := 0.0
+	if hostMemValid && appMemValid {
+		memDiffVal = true
+		memDiff = hostMem - appMem
+	} else if ae.satProfiler.isFitted {
+		memDiff = ae.satProfiler.Stats[5].Median
+	}
 
-		outReqSlots, outReqVal := e.OutReqRegistry.Vectorize(f.OutRequests, false, outReqMeds)
-		outThruSlots, outThruVal := e.OutThruRegistry.Vectorize(f.OutThroughput, false, outThruMeds)
-		outLatSlots, outLatVal := e.OutLatRegistry.Vectorize(f.OutLatency, true, outLatMeds)
-		outErrSlots, outErrVal := e.OutErrRegistry.Vectorize(f.OutErrors, false, outErrMeds)
+	satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
+	satValid = []bool{appCPUValid, appMemValid, hostCPUValid, hostMemValid, cpuDiffVal, memDiffVal}
 
-		inReqSum, inReqKnown := f.InRequests.Sum()
-		outReqSum, outReqKnown := f.OutRequests.Sum()
-		flowReqRatio := 0.0
-		flowReqKnown := false
-		if inReqKnown && outReqKnown && inReqSum > 0 {
-			flowReqRatio = outReqSum / inReqSum
-			flowReqKnown = true
-		} else if e.OutProfiler.isFitted {
-			flowReqRatio = e.OutProfiler.Stats[4*outSlotWidth].Median
-		}
+	outSlotWidth := ae.outReqSlots.maxSlots + 2
 
-		inThruSum, inThruKnown := f.InThroughput.Sum()
-		outThruSum, outThruKnown := f.OutThroughput.Sum()
-		flowThruRatio := 0.0
-		flowThruKnown := false
-		if inThruKnown && outThruKnown && inThruSum > 0 {
-			flowThruRatio = outThruSum / inThruSum
-			flowThruKnown = true
-		} else if e.OutProfiler.isFitted {
-			flowThruRatio = e.OutProfiler.Stats[4*outSlotWidth+1].Median
-		}
+	outReqMeds := ae.getMedians(ae.outProfiler, 0, outSlotWidth)
+	outThruMeds := ae.getMedians(ae.outProfiler, outSlotWidth, outSlotWidth)
 
-		inMaxLat, inLatKnown := f.InLatency.Max()
-		outMaxLat, outLatKnown := f.OutLatency.Max()
-		latDiv := 0.0
-		latDivKnown := false
-		if inLatKnown && outLatKnown {
-			latDiv = inMaxLat - outMaxLat
-			latDivKnown = true
-		} else if e.OutProfiler.isFitted {
-			latDiv = e.OutProfiler.Stats[4*outSlotWidth+2].Median
-		}
+	outReqSlots, outReqVal := ae.outReqSlots.VectorizeTraffic(f.outRequests, false, outReqMeds)
+	outThruSlots, outThruVal := ae.outThruSlots.VectorizeTraffic(f.outThroughput, false, outThruMeds)
 
-		outVec = append(outVec, outReqSlots...)
-		outVec = append(outVec, outThruSlots...)
-		outVec = append(outVec, outLatSlots...)
-		outVec = append(outVec, outErrSlots...)
-		outVec = append(outVec, flowReqRatio, flowThruRatio, latDiv)
+	/*outLatIdx := len(outReqSlots) + len(outThruSlots)
+	outErrIdx := inLatIdx + 1*/
 
-		outValid = append(outValid, outReqVal...)
-		outValid = append(outValid, outThruVal...)
-		outValid = append(outValid, outLatVal...)
-		outValid = append(outValid, outErrVal...)
-		outValid = append(outValid, flowReqKnown, flowThruKnown, latDivKnown)
-	*/
+	outLatIdx := ae.outReqSlots.maxSlots + 2 + ae.outReqSlots.maxSlots + 2
+	outErrIdx := outLatIdx + 1
+
+	outLatValid := f.outLatency != nil
+	outLat := 0.0
+	if outLatValid {
+		outLat = *f.outLatency
+	}
+	if !outLatValid && ae.outProfiler.isFitted && len(ae.outProfiler.Stats) > outLatIdx {
+		outLat = ae.outProfiler.Stats[outLatIdx].Median
+	}
+
+	outErrValid := f.outErrors != nil
+	outErr := 0.0
+	if outErrValid {
+		outErr = *f.outErrors
+	}
+	if !outErrValid && ae.outProfiler.isFitted && len(ae.outProfiler.Stats) > outErrIdx {
+		outErr = ae.outProfiler.Stats[outErrIdx].Median
+	}
+
+	inReqSum, inReqKnown := f.inRequests.Sum()
+	outReqSum, outReqKnown := f.outRequests.Sum()
+	flowReqValid := false
+	flowReqRatio := 0.0
+	if inReqKnown && outReqKnown && inReqSum > 0 {
+		flowReqValid = true
+		flowReqRatio = outReqSum / inReqSum
+	} else if ae.outProfiler.isFitted {
+		flowReqRatio = ae.outProfiler.Stats[4*outSlotWidth].Median
+	}
+
+	inThruSum, inThruKnown := f.inThroughput.Sum()
+	outThruSum, outThruKnown := f.outThroughput.Sum()
+	flowThruValid := false
+	flowThruRatio := 0.0
+	if inThruKnown && outThruKnown && inThruSum > 0 {
+		flowThruValid = true
+		flowThruRatio = outThruSum / inThruSum
+	} else if ae.outProfiler.isFitted {
+		flowThruRatio = ae.outProfiler.Stats[4*outSlotWidth+1].Median
+	}
+
+	latDivValid := false
+	latDiv := 0.0
+	if inLatValid && outLatValid {
+		latDivValid = true
+		latDiv = inLat - outLat
+	} else if ae.outProfiler.isFitted {
+		latDiv = ae.outProfiler.Stats[4*outSlotWidth+2].Median
+	}
+
+	outVec = append(outVec, outReqSlots...)
+	outVec = append(outVec, outThruSlots...)
+	outVec = append(outVec, outLat, outErr)
+	outVec = append(outVec, flowReqRatio, flowThruRatio, latDiv)
+
+	outValid = append(outValid, outReqVal...)
+	outValid = append(outValid, outThruVal...)
+	outValid = append(outValid, outLatValid, outErrValid)
+	outValid = append(outValid, flowReqValid, flowThruValid, latDivValid)
+
 	return inVec, satVec, outVec, inValid, satValid, outValid
 }
 
 func (ae *ApplicationEngine) Train(frames ApplicationFrames) error {
 
-	var appInReq, appInThru []ApplicationTrafficValues
-	var appOutReq, appOutThru []ApplicationTrafficValues
+	var inReq, inThru []ApplicationTrafficValues
+	var outReq, outThru []ApplicationTrafficValues
 
 	for _, f := range frames {
-		appInReq = append(appInReq, f.appInRequests)
-		appInThru = append(appInThru, f.appInThroughput)
-		appOutReq = append(appOutReq, f.appOutRequests)
-		appOutThru = append(appOutThru, f.appOutThroughput)
+		inReq = append(inReq, f.inRequests)
+		inThru = append(inThru, f.inThroughput)
+		outReq = append(outReq, f.outRequests)
+		outThru = append(outThru, f.outThroughput)
 	}
 
-	ae.appInReqSlots.Fit(appInReq)
-	ae.appInThruSlots.Fit(appInThru)
-	ae.appOutReqSlots.Fit(appOutReq)
-	ae.appOutThruSlots.Fit(appOutThru)
+	ae.inReqSlots.Fit(inReq)
+	ae.inThruSlots.Fit(inThru)
+	ae.outReqSlots.Fit(outReq)
+	ae.outThruSlots.Fit(outThru)
 
 	var inMatrix, satMatrix, outMatrix [][]float64
 	for _, f := range frames {
@@ -512,47 +562,62 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames) error {
 		outMatrix = append(outMatrix, ov)
 	}
 
-	/*
-		e.InForest.Train(inMatrix)
-		e.InForest.Test(inMatrix)
-		e.InProfiler.Fit(inMatrix)
+	ae.inForest.Train(inMatrix)
+	err := ae.inForest.Test(inMatrix)
+	if err != nil {
+		return err
+	}
+	ae.inProfiler.Fit(inMatrix)
 
-		e.SatForest.Train(satMatrix)
-		e.SatForest.Test(satMatrix)
-		e.SatProfiler.Fit(satMatrix)
+	ae.satForest.Train(satMatrix)
+	err = ae.satForest.Test(satMatrix)
+	if err != nil {
+		return err
+	}
+	ae.satProfiler.Fit(satMatrix)
 
-		e.OutForest.Train(outMatrix)
-		e.OutForest.Test(outMatrix)
-		e.OutProfiler.Fit(outMatrix)
-	*/
+	ae.outForest.Train(outMatrix)
+	err = ae.outForest.Test(outMatrix)
+	if err != nil {
+		return err
+	}
+	ae.outProfiler.Fit(outMatrix)
+
 	return nil
 }
 
-func NewApplicationEngine() *ApplicationEngine {
+func (ae *ApplicationEngine) Load(data common.DataSourceData) error {
 
-	maxSlotsPerDimension := 4
+	/*from := data.From()
+	first := data.First()
+	last := data.Last()*/
+
+	return nil
+}
+
+func (ae *ApplicationEngine) Save() error {
+
+	return nil
+}
+
+func NewApplicationEngine(id common.Hash, options ApplicationEngineOptions) *ApplicationEngine {
+
 	return &ApplicationEngine{
-		appInReqSlots:  NewApplicationTrafficSlots(maxSlotsPerDimension),
-		appInThruSlots: NewApplicationTrafficSlots(maxSlotsPerDimension),
 
-		appOutReqSlots:  NewApplicationTrafficSlots(maxSlotsPerDimension),
-		appOutThruSlots: NewApplicationTrafficSlots(maxSlotsPerDimension),
+		id: id,
 
-		/*InReqRegistry:   NewDynamicStreamRegistry(maxSlotsPerDimension),
-		InThruRegistry:  NewDynamicStreamRegistry(maxSlotsPerDimension),
-		InLatRegistry:   NewDynamicStreamRegistry(maxSlotsPerDimension),
-		InErrRegistry:   NewDynamicStreamRegistry(maxSlotsPerDimension),
-		OutReqRegistry:  NewDynamicStreamRegistry(maxSlotsPerDimension),
-		OutThruRegistry: NewDynamicStreamRegistry(maxSlotsPerDimension),
-		OutLatRegistry:  NewDynamicStreamRegistry(maxSlotsPerDimension),
-		OutErrRegistry:  NewDynamicStreamRegistry(maxSlotsPerDimension),
+		inReqSlots:  NewApplicationTrafficSlots(options.TrafficMaxSlots),
+		inThruSlots: NewApplicationTrafficSlots(options.TrafficMaxSlots),
 
-		InForest:    iforest.NewForest(100, 256, 0.01),
-		SatForest:   iforest.NewForest(100, 256, 0.01),
-		OutForest:   iforest.NewForest(100, 256, 0.01),
-		InProfiler:  NewDynamicProfiler(1.5),
-		SatProfiler: NewDynamicProfiler(1.5),
-		OutProfiler: NewDynamicProfiler(1.5),*/
+		outReqSlots:  NewApplicationTrafficSlots(options.TrafficMaxSlots),
+		outThruSlots: NewApplicationTrafficSlots(options.TrafficMaxSlots),
 
+		inForest:  iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
+		satForest: iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
+		outForest: iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
+
+		inProfiler:  NewApplicationProfiler(options.RangeMultiplier),
+		satProfiler: NewApplicationProfiler(options.RangeMultiplier),
+		outProfiler: NewApplicationProfiler(options.RangeMultiplier),
 	}
 }

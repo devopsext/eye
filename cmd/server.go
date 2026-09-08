@@ -7,6 +7,7 @@ import (
 
 	"github.com/devopsext/eye/common"
 	"github.com/devopsext/eye/datasource"
+	"github.com/devopsext/eye/forest"
 	"github.com/devopsext/eye/handler"
 	"github.com/devopsext/eye/model"
 	"github.com/devopsext/eye/notifier"
@@ -94,13 +95,20 @@ var testModelOptions = model.TestModelOptions{
 }
 
 var forestModelOptions = model.ForestModelOptions{
-	Path:           envGet("FOREST_MODEL_PATH", "").(string),
 	Concurrency:    envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
 	Filter:         strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
 	DataTTL:        envGet("FOREST_MODEL_DATA_TTL", "1h").(string),
 	DetectionTTL:   envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
 	DetectionMass:  envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
 	DetectionFalse: envGet("FOREST_MODEL_DETECTION_FALSE", 50.0).(float64),
+	ApplicationOptions: forest.ApplicationEngineOptions{
+		Path:            envGet("FOREST_MODEL_APPLICATION_PATH", "").(string),
+		TreesNumber:     envGet("FOREST_MODEL_APPLICATION_TREES_NUMBER", model.ForestModelTreesNumber).(int),
+		SubsampleSize:   envGet("FOREST_MODEL_APPLICATION_SUBSAMPLE_SIZE", model.ForestModelSubsampleSize).(int),
+		OutlierRatio:    envGet("FOREST_MODEL_APPLICATION_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
+		TrafficMaxSlots: envGet("FOREST_MODEL_APPLICATION_TRAFFIC_MAX_SLOTS", model.ForestModelApplicationMaxSlots).(int),
+		RangeMultiplier: envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", model.ForestModelApplicationRangeMultiplier).(float64),
+	},
 }
 
 var httpServerOptions = server.HttpServerOptions{
@@ -226,7 +234,6 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&testModelOptions.WaitInterval, "test-model-wait-interval", testModelOptions.WaitInterval, "Test model wait interval")
 
 	// Forest model
-	flags.StringVar(&forestModelOptions.Path, "forest-model-path", forestModelOptions.Path, "Forest model path")
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
 	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")
 	flags.StringVar(&forestModelOptions.DataTTL, "forest-model-data-ttl", forestModelOptions.DataTTL, "Forest model data ttl")

@@ -18,13 +18,15 @@ import (
 )
 
 type ForestModelOptions struct {
-	Path           string
+	//Path           string
 	Concurrency    int
 	Filter         []string // filter by apps and hosts
 	DataTTL        string
 	DetectionTTL   string
 	DetectionFalse float64
 	DetectionMass  float64
+
+	ApplicationOptions forest.ApplicationEngineOptions
 }
 
 type ForestModelData struct {
@@ -62,9 +64,11 @@ type ForestModel struct {
 }
 
 const (
-	ForestModelTreesNumber   = 100
-	ForestModelSubsampleSize = 256
-	ForestModelOutlierRatio  = 0.01
+	ForestModelTreesNumber                = 100
+	ForestModelSubsampleSize              = 256
+	ForestModelOutlierRatio               = 0.01
+	ForestModelApplicationMaxSlots        = 4
+	ForestModelApplicationRangeMultiplier = 1.5
 )
 
 // ForestModelData
@@ -680,13 +684,12 @@ func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Fo
 	return nil
 }
 
-func NewForestModelData(logger sreCommon.Logger, name, path string, cases *common.Cases,
+func NewForestModelData(logger sreCommon.Logger, name string, cases *common.Cases,
 	ttl time.Duration, concurrency int, mass, false float64) *ForestModelData {
 
 	fd := &ForestModelData{
 		logger:      logger,
 		name:        name,
-		path:        path,
 		concurrency: concurrency,
 		mass:        mass,
 		false:       false,
@@ -899,14 +902,11 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 	}
 }
 
-func (fm *ForestModel) train(ds common.DataSourceData) error {
+func (fm *ForestModel) train(data common.DataSourceData) error {
 
-	measurements := ds.Measurements()
-	/*from := dsd.From()
-	first := dsd.First()
-	last := dsd.Last()*/
+	measurements := data.Measurements()
 
-	hashes := fm.findHashes(ds.Names(), fm.options.Filter)
+	hashes := fm.findHashes(data.Names(), fm.options.Filter)
 	appFrames := make(map[common.Hash]forest.ApplicationFrames)
 	hostFrames := make(map[common.Hash]forest.HostFrames)
 
@@ -917,13 +917,24 @@ func (fm *ForestModel) train(ds common.DataSourceData) error {
 	errs := make(chan error, len(appFrames)+len(hostFrames))
 
 	// run apps engine
-	for _, frames := range appFrames {
+	for hash, frames := range appFrames {
 
 		gr.Go(func() error {
-			engine := forest.NewApplicationEngine()
-			err := engine.Train(frames)
+			engine := forest.NewApplicationEngine(hash, fm.options.ApplicationOptions)
+			err := engine.Load(data)
 			if err != nil {
 				errs <- err
+				return nil
+			}
+			err = engine.Train(frames)
+			if err != nil {
+				errs <- err
+				return nil
+			}
+			err = engine.Save()
+			if err != nil {
+				errs <- err
+				return nil
 			}
 			return nil
 		})
@@ -1002,7 +1013,7 @@ func NewForestModel(options ForestModelOptions, cases *common.Cases, observabili
 		//hostEngine:    forest.NewHostEngine(4),
 	}
 
-	model.data = NewForestModelData(logger, model.Name(), options.Path, cases,
+	model.data = NewForestModelData(logger, model.Name(), cases,
 		common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency, options.DetectionMass, options.DetectionFalse)
 
 	return model
