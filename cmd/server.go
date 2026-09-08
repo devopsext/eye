@@ -240,6 +240,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&forestModelOptions.DetectionTTL, "forest-model-detection-ttl", forestModelOptions.DetectionTTL, "Forest model detection ttl")
 	flags.Float64Var(&forestModelOptions.DetectionMass, "forest-model-detection-mass", forestModelOptions.DetectionMass, "Forest model detection mass threshold")
 	flags.Float64Var(&forestModelOptions.DetectionFalse, "forest-model-detection-false", forestModelOptions.DetectionFalse, "Forest model detection false threshold")
+	// add application options ....
 
 	// Slack
 	flags.IntVar(&slackOptions.SlackOptions.Timeout, "slack-timeout", slackOptions.SlackOptions.Timeout, "Slack timeout")

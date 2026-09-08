@@ -920,7 +920,7 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 	for hash, frames := range appFrames {
 
 		gr.Go(func() error {
-			engine := forest.NewApplicationEngine(hash, fm.options.ApplicationOptions)
+			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions)
 			err := engine.Load(data)
 			if err != nil {
 				errs <- err

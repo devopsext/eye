@@ -1,7 +1,12 @@
 package forest
 
 import (
+	"bufio"
+	"encoding/gob"
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/devopsext/eye/common"
@@ -76,8 +81,21 @@ type ApplicationEngineOptions struct {
 	RangeMultiplier float64
 }
 
+type ApplicationEngineFileEntry struct {
+	Forest *iforest.Forest
+	Data   [][]float64
+	Times  []common.Stamp
+}
+
+type ApplicationEngineFile struct {
+	Incoming   ApplicationEngineFileEntry
+	Saturation ApplicationEngineFileEntry
+	Outgoing   ApplicationEngineFileEntry
+}
+
 type ApplicationEngine struct {
-	id common.Hash
+	id      common.Hash
+	options *ApplicationEngineOptions
 
 	inReqSlots  *ApplicationTrafficSlots
 	inThruSlots *ApplicationTrafficSlots
@@ -93,6 +111,10 @@ type ApplicationEngine struct {
 	satProfiler *ApplicationProfiler
 	outProfiler *ApplicationProfiler
 }
+
+const (
+	ApplicationEngineV001 = "0.0.1"
+)
 
 // ApplicationTrafficValues
 
@@ -586,25 +608,99 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames) error {
 	return nil
 }
 
+func (ae *ApplicationEngine) decodeV001(data common.DataSourceData, decoder *gob.Decoder) error {
+
+	/*
+		from := data.From()
+		first := data.First()
+		last := data.Last()
+	*/
+
+	engineFile := ApplicationEngineFile{}
+	err := decoder.Decode(&engineFile)
+	if err != nil {
+		return err
+	}
+
+	// need to fill ???
+	return nil
+}
+
 func (ae *ApplicationEngine) Load(data common.DataSourceData) error {
 
-	/*from := data.From()
-	first := data.First()
-	last := data.Last()*/
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%d.data", ae.id))
 
-	return nil
+	if !utils.FileExists(fpath) {
+		return nil
+	}
+
+	f, err := os.Open(fpath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+
+	decoder := gob.NewDecoder(br)
+
+	var version string
+	if err := decoder.Decode(&version); err != nil {
+		return err
+	}
+
+	switch version {
+	case ApplicationEngineV001:
+		err = ae.decodeV001(data, decoder)
+	}
+	return err
 }
 
 func (ae *ApplicationEngine) Save() error {
 
-	return nil
+	optPath := ae.options.Path
+	if !utils.DirExists(optPath) {
+		os.MkdirAll(optPath, os.ModePerm)
+	}
+
+	fpath := filepath.Join(optPath, fmt.Sprintf("%d.data", ae.id))
+
+	f, err := os.Create(fpath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	bw := bufio.NewWriter(f)
+	defer bw.Flush()
+
+	encoder := gob.NewEncoder(bw)
+
+	if err := encoder.Encode(ApplicationEngineV001); err != nil {
+		return err
+	}
+
+	engineFile := ApplicationEngineFile{
+		Incoming: ApplicationEngineFileEntry{
+			Forest: ae.inForest,
+			//Data: ae.inProfiler.
+		},
+		Saturation: ApplicationEngineFileEntry{
+			Forest: ae.satForest,
+		},
+		Outgoing: ApplicationEngineFileEntry{
+			Forest: ae.outForest,
+		},
+	}
+	return encoder.Encode(&engineFile)
 }
 
-func NewApplicationEngine(id common.Hash, options ApplicationEngineOptions) *ApplicationEngine {
+func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {
 
 	return &ApplicationEngine{
 
-		id: id,
+		id:      id,
+		options: options,
 
 		inReqSlots:  NewApplicationTrafficSlots(options.TrafficMaxSlots),
 		inThruSlots: NewApplicationTrafficSlots(options.TrafficMaxSlots),
