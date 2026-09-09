@@ -19,9 +19,11 @@ import (
 
 type ForestModelOptions struct {
 	//Path           string
-	Concurrency    int
-	Filter         []string // filter by apps and hosts
-	DataTTL        string
+	Concurrency int
+	Filter      []string // filter by apps and hosts
+
+	EngineTTL string
+
 	DetectionTTL   string
 	DetectionFalse float64
 	DetectionMass  float64
@@ -51,16 +53,18 @@ type ForestModelDetections struct {
 	items *ttlcache.Cache[common.Hash, *ForestModelDetection]
 }
 
+type ForestModelEngine interface {
+	Name() string
+}
+
 type ForestModel struct {
 	mu            sync.Mutex
 	options       ForestModelOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
 
-	data       *ForestModelData
+	engines    *ttlcache.Cache[common.Hash, ForestModelEngine]
 	detections *ForestModelDetections
-	//appEngine  *forest.ApplicationEngine
-	//hostEngine *forest.HostEngine
 }
 
 const (
@@ -71,295 +75,9 @@ const (
 	ForestModelApplicationRangeMultiplier = 1.5
 )
 
-// ForestModelData
-
-func (fd *ForestModelData) getStampFeatures(stamp time.Time) (float64, float64, float64, float64) {
-
-	hour := float64(stamp.Hour()) + float64(stamp.Minute())/60.0 + float64(stamp.Second())/3600.0
-
-	timeSin := math.Sin((hour / 24.0) * 2.0 * math.Pi)
-	timeCos := math.Cos((hour / 24.0) * 2.0 * math.Pi)
-
-	weekday := float64(stamp.Weekday()) + (hour / 24.0)
-	daySin := math.Sin((weekday / 7.0) * 2.0 * math.Pi)
-	dayCos := math.Cos((weekday / 7.0) * 2.0 * math.Pi)
-
-	return timeSin, timeCos, daySin, dayCos
-}
-
-type timeWindow struct {
-	Start time.Time
-	End   time.Time
-}
-
-func (fd *ForestModelData) stampIsExcluded(stamp time.Time, exclusions []timeWindow) bool {
-
-	/*for _, window := range exclusions {
-		if (stamp.Equal(window.Start) || stamp.After(window.Start)) && (stamp.Equal(window.End) || stamp.Before(window.End)) {
-			return true
-		}
-	}*/
-	return false
-}
-
-func (fd *ForestModelData) applyWeights(data []float64, weights []int) []float64 {
-
-	var weighted []float64
-	for i, val := range data {
-		weight := weights[i]
-		for w := 0; w < weight; w++ {
-			weighted = append(weighted, val)
-		}
-	}
-	return weighted
-}
-
-func (fd *ForestModelData) applicationSignalsWeights() []int {
-
-	weights := []int{
-		1, // AppInRequests
-		1, // AppInThroughput
-		1, // AppInErrors
-		1, // AppInLatency
-		1, // AppCPU
-		1, // AppMem
-		1, // HostCPU
-		1, // HostMem
-		1, // AppOutRequests
-		1, // AppOutThroughput
-		1, // AppOutErrors
-		1, // AppOutLatency
-	}
-	return weights
-}
-
-func (fd *ForestModelData) timeDayWeights() []int {
-
-	weights := []int{
-		1, // timeSin
-		1, // timeCos
-		1, // daySin
-		1, // dayCos
-	}
-	return weights
-}
-
-func (fd *ForestModelData) prepare(measurements *common.Measurements, hashes []common.Hash,
-	appFrames forest.ApplicationFrames, hostFrames forest.HostFrames) {
-
-	/*lhashes := len(hashes)
-
-	for hash, signals := range measurements.Items() {
-		for stamp, signal := range signals {
-
-			if lhashes > 0 && !signal.ContainsAny(hashes) {
-				continue
-			}
-
-			t := common.StampToTime(stamp)
-			// exclude invalid window time frames
-			if fd.stampIsExcluded(t, []timeWindow{}) {
-				continue
-			}
-
-			as := signal.AsApplicationSignal()
-			if as != nil {
-				hs := measurements.FindHostSignal(stamp, as.Host())
-				frame := forest.NewApplicationFrame(stamp, hash, as, hs)
-				if frame != nil && frame.Valid() {
-					appFrames[hash] = append(appFrames[hash], frame)
-				}
-			}
-
-			hs := signal.AsHostSignal()
-			if hs != nil {
-				frame := forest.NewHostFrame(stamp, hash, hs)
-				if frame != nil && frame.Valid() {
-					hostFrames[hash] = append(hostFrames[hash], frame)
-				}
-			}
-
-		}
-	}*/
-}
-
-type ForestModelFileDataHeader struct {
-}
-
 type ForestModelFileData struct {
 	Data  [][]float64
 	Times []common.Stamp
-}
-
-/*func (fd *ForestModelData) loadData(hash common.Hash,
-	from, first, last common.Stamp) ([][]float64, []common.Stamp, [][]float64, []common.Stamp) {
-
-	d1 := [][]float64{}
-	t1 := []common.Stamp{}
-	d2 := [][]float64{}
-	t2 := []common.Stamp{}
-
-	fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", hash))
-
-	f, err := os.Open(fpath)
-	if err != nil {
-		return d1, t1, d2, t2
-	}
-	defer f.Close()
-
-	br := bufio.NewReader(f)
-	decoder := gob.NewDecoder(br)
-
-	fmfd := ForestModelFileData{}
-	err = decoder.Decode(&fmfd)
-	if err != nil {
-		return d1, t1, d2, t2
-	}
-
-	if len(fmfd.Data) != len(fmfd.Times) {
-		return d1, t1, d2, t2
-	}
-
-	for k, stamp := range fmfd.Times {
-
-		// skip outdated data
-		if stamp < from {
-			continue
-		}
-
-		// add only data outside of time limits
-		if stamp < first {
-			d1 = append(d1, fmfd.Data[k])
-			t1 = append(t1, stamp)
-		} else if stamp > last {
-			d2 = append(d2, fmfd.Data[k])
-			t2 = append(t2, stamp)
-		}
-	}
-	return d1, t1, d2, t2
-}
-
-type ForestModelFile struct {
-	Forest *iforest.Forest
-	Data   [][]float64
-	Times  []common.Stamp
-}
-
-func (fd *ForestModelData) save(hash common.Hash, forest *iforest.Forest, data [][]float64, times []common.Stamp) error {
-
-	if len(data) != len(times) {
-		return nil
-	}
-
-	if !utils.DirExists(fd.path) {
-		os.MkdirAll(fd.path, os.ModePerm)
-	}
-
-	fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", hash))
-
-	f, err := os.Create(fpath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	bw := bufio.NewWriter(f)
-	defer bw.Flush()
-
-	encoder := gob.NewEncoder(bw)
-
-	fmf := ForestModelFile{
-		Forest: forest,
-		Data:   data,
-		Times:  times,
-	}
-	return encoder.Encode(&fmf)
-}*/
-
-func (fd *ForestModelData) findHashes(names *common.Names, filter []string) []common.Hash {
-
-	r := []common.Hash{}
-
-	/*for _, name := range filter {
-
-		name := strings.TrimSpace(name)
-		if utils.IsEmpty(name) {
-			continue
-		}
-
-		hash := names.FindByName(name)
-		if hash == 0 {
-			continue
-		}
-		r = append(r, hash)
-	}*/
-	return r
-}
-
-func (fd *ForestModelData) train(dsd common.DataSourceData, filter []string) error {
-
-	/*measurements := dsd.Measurements()
-	/*from := dsd.From()
-	first := dsd.First()
-	last := dsd.Last()
-
-	all := []error{}
-
-	hashes := fd.findHashes(dsd.Names(), filter)
-	appFrames := make(forest.ApplicationFrames)
-	hostFrames := make(forest.HostFrames)
-
-	fd.prepare(measurements, hashes, appFrames, hostFrames)
-
-	err := fd.appEngine.Train(appFrames)
-	if err != nil {
-		all = append(all, err)
-	}
-	return errors.Join(all...)*/
-	return nil
-
-	/*
-		gr := &errgroup.Group{}
-		gr.SetLimit(fd.concurrency)
-
-		errs := make(chan error, len(data))
-
-		for hash, frames := range data {
-
-			gr.Go(func() error {
-
-				/*d1, t1, d2, t2 := fd.loadData(h, from, first, last)
-
-				d := append(d1, d...)
-				d = append(d, d2...)*/
-
-	/*f := iforest.NewForest(ForestModelTreesNumber, ForestModelSubsampleSize, ForestModelOutlierRatio)
-
-			f.Train(d)
-
-			err := f.Test(d)
-			if err != nil {
-				errs <- err
-				return nil
-			}
-			fd.items.Set(h, f, ttlcache.DefaultTTL)
-
-			/*t := times[h]
-			t = append(t1, t...)
-			t = append(t, t2...)
-
-			return fd.save(h, f, d, t)
-			return nil
-		})
-	}
-	gr.Wait()
-	close(errs)
-
-	all := []error{}
-	for e := range errs {
-		all = append(all, e)
-	}
-	return errors.Join(all...)*/
 }
 
 func (fd *ForestModelData) setMassDetections(found []*ForestModelDetection, detections *ForestModelDetections) {
@@ -854,6 +572,11 @@ func (fm *ForestModel) findHashes(names *common.Names, filter []string) []common
 	return r
 }
 
+type timeWindow struct {
+	Start time.Time
+	End   time.Time
+}
+
 func (fm *ForestModel) stampIsExcluded(stamp time.Time, exclusions []timeWindow) bool {
 
 	for _, window := range exclusions {
@@ -885,7 +608,7 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 			as := signal.AsApplicationSignal()
 			if as != nil {
 				hs := measurements.FindHostSignal(stamp, as.Host())
-				frame := forest.NewApplicationFrame(stamp, hash, as, hs)
+				frame := forest.NewApplicationFrame(stamp, as, hs)
 				if frame != nil && frame.Valid() {
 					appFrames[hash] = append(appFrames[hash], frame)
 				}
@@ -916,17 +639,24 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 	gr.SetLimit(fm.options.Concurrency)
 	errs := make(chan error, len(appFrames)+len(hostFrames))
 
+	appLimits := forest.ApplicationFrameLimits{
+		From:  data.From(),
+		First: data.First(),
+		Last:  data.Last(),
+	}
+
 	// run apps engine
 	for hash, frames := range appFrames {
 
 		gr.Go(func() error {
+
 			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions)
-			err := engine.Load(data)
+			err := engine.Load()
 			if err != nil {
 				errs <- err
 				return nil
 			}
-			err = engine.Train(frames)
+			err = engine.Train(frames, appLimits)
 			if err != nil {
 				errs <- err
 				return nil
@@ -936,14 +666,16 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 				errs <- err
 				return nil
 			}
+			fm.engines.Set(hash, engine.Clone(), ttlcache.DefaultTTL)
 			return nil
 		})
 	}
 
-	// run hosts engine
+	// run hosts engine where apps are not found
 	for _, frames := range hostFrames {
 
 		gr.Go(func() error {
+
 			engine := forest.NewHostEngine()
 			err := engine.Train(frames)
 			if err != nil {
@@ -963,20 +695,74 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 	return errors.Join(all...)
 }
 
-func (fm *ForestModel) Train(ds common.DataSourceData) error {
+func (fm *ForestModel) Train(data common.DataSourceData) error {
 
 	when := time.Now()
 	name := fm.Name()
 
 	fm.logger.Info("%s: Training...", name)
 
-	err := fm.train(ds)
+	err := fm.train(data)
 	if err != nil {
 		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
 		return err
 	}
 	fm.logger.Info("%s: Training successful in %s", name, time.Since(when))
 	return nil
+}
+
+func (fm *ForestModel) detect(data common.DataSourceData) error {
+
+	measurements := data.Measurements()
+
+	hashes := fm.findHashes(data.Names(), fm.options.Filter)
+	appFrames := make(map[common.Hash]forest.ApplicationFrames)
+	hostFrames := make(map[common.Hash]forest.HostFrames)
+
+	fm.prepare(measurements, hashes, appFrames, hostFrames)
+
+	gr := &errgroup.Group{}
+	gr.SetLimit(fm.options.Concurrency)
+	errs := make(chan error, len(appFrames)+len(hostFrames))
+
+	// run apps engine
+	for hash, frames := range appFrames {
+
+		gr.Go(func() error {
+
+			item := fm.engines.Get(hash)
+			if item == nil {
+				return nil
+			}
+
+			var engine *forest.ApplicationEngine
+			val := item.Value()
+			if utils.IsEmpty(val) {
+				engine = forest.LoadApplicationEngine(hash, &fm.options.ApplicationOptions)
+			} else {
+				e, ok := val.(*forest.ApplicationEngine)
+				if !ok {
+					return nil
+				}
+				engine = e
+			}
+
+			if engine == nil {
+				return nil
+			}
+			engine.Diagnose(frames)
+			return nil
+		})
+	}
+
+	gr.Wait()
+	close(errs)
+
+	all := []error{}
+	for e := range errs {
+		all = append(all, e)
+	}
+	return errors.Join(all...)
 }
 
 func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfterDetect) error {
@@ -986,7 +772,7 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 
 	fm.logger.Info("%s: Detecting...", name)
 
-	err := fm.data.detect(data, fm.detections, fm.options.Filter)
+	err := fm.detect(data)
 	if err != nil {
 		fm.logger.Error("%s: Detecting failed in %s error %s", name, time.Since(when), err)
 		return err
@@ -1002,19 +788,13 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 
 func NewForestModel(options ForestModelOptions, cases *common.Cases, observability *common.Observability) *ForestModel {
 
-	logger := observability.Logs()
-
-	model := &ForestModel{
+	return &ForestModel{
 		options:       options,
 		observability: observability,
-		logger:        logger,
-		detections:    NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
-		//appEngine:     forest.NewApplicationEngine(4, cases),
-		//hostEngine:    forest.NewHostEngine(4),
+		logger:        observability.Logs(),
+		engines: ttlcache.New(
+			ttlcache.WithTTL[common.Hash, ForestModelEngine](common.DefaultTTL(options.EngineTTL, 1*time.Hour)),
+		),
+		detections: NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
 	}
-
-	model.data = NewForestModelData(logger, model.Name(), cases,
-		common.DefaultTTL(options.DataTTL, time.Hour), options.Concurrency, options.DetectionMass, options.DetectionFalse)
-
-	return model
 }

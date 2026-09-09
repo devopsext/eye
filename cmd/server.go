@@ -97,7 +97,7 @@ var testModelOptions = model.TestModelOptions{
 var forestModelOptions = model.ForestModelOptions{
 	Concurrency:    envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
 	Filter:         strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
-	DataTTL:        envGet("FOREST_MODEL_DATA_TTL", "1h").(string),
+	EngineTTL:      envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
 	DetectionTTL:   envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
 	DetectionMass:  envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
 	DetectionFalse: envGet("FOREST_MODEL_DETECTION_FALSE", 50.0).(float64),
@@ -236,7 +236,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	// Forest model
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
 	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")
-	flags.StringVar(&forestModelOptions.DataTTL, "forest-model-data-ttl", forestModelOptions.DataTTL, "Forest model data ttl")
+	flags.StringVar(&forestModelOptions.EngineTTL, "forest-model-engine-ttl", forestModelOptions.EngineTTL, "Forest model engine ttl")
 	flags.StringVar(&forestModelOptions.DetectionTTL, "forest-model-detection-ttl", forestModelOptions.DetectionTTL, "Forest model detection ttl")
 	flags.Float64Var(&forestModelOptions.DetectionMass, "forest-model-detection-mass", forestModelOptions.DetectionMass, "Forest model detection mass threshold")
 	flags.Float64Var(&forestModelOptions.DetectionFalse, "forest-model-detection-false", forestModelOptions.DetectionFalse, "Forest model detection false threshold")

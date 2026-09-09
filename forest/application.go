@@ -2,12 +2,15 @@ package forest
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/gob"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"time"
 
 	"github.com/devopsext/eye/common"
 	"github.com/devopsext/utils"
@@ -23,7 +26,7 @@ type ApplicationFrames []*ApplicationFrame
 
 type ApplicationFrame struct {
 	stamp common.Stamp
-	hash  common.Hash
+	time  time.Time
 	//
 	inRequests   ApplicationTrafficValues
 	inThroughput ApplicationTrafficValues
@@ -39,6 +42,12 @@ type ApplicationFrame struct {
 	outThroughput ApplicationTrafficValues
 	outLatency    ApplicationLatencyValue
 	outErrors     ApplicationErrorsValue
+}
+
+type ApplicationFrameLimits struct {
+	From  common.Stamp
+	First common.Stamp
+	Last  common.Stamp
 }
 
 type ApplicationTrafficSlots struct {
@@ -84,10 +93,10 @@ type ApplicationEngineOptions struct {
 type ApplicationEngineFileEntry struct {
 	Forest *iforest.Forest
 	Data   [][]float64
-	Times  []common.Stamp
 }
 
 type ApplicationEngineFile struct {
+	Times      []common.Stamp
 	Incoming   ApplicationEngineFileEntry
 	Saturation ApplicationEngineFileEntry
 	Outgoing   ApplicationEngineFileEntry
@@ -102,6 +111,11 @@ type ApplicationEngine struct {
 
 	outReqSlots  *ApplicationTrafficSlots
 	outThruSlots *ApplicationTrafficSlots
+
+	times   []common.Stamp
+	inData  [][]float64
+	satData [][]float64
+	outData [][]float64
 
 	inForest  *iforest.Forest
 	satForest *iforest.Forest
@@ -163,15 +177,17 @@ func (af *ApplicationFrame) Valid() bool {
 	if len(af.inThroughput) == 0 && len(af.outThroughput) == 0 {
 		return false
 	}
-
 	return true
 }
 
-func NewApplicationFrame(stamp common.Stamp, hash common.Hash, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal) *ApplicationFrame {
+func (af *ApplicationFrame) Stamp() common.Stamp {
+	return af.stamp
+}
+
+func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal) *ApplicationFrame {
 
 	r := &ApplicationFrame{
 		stamp: stamp,
-		hash:  hash,
 		//
 		inRequests:   appSignal.IncomingTraffic.RequestsAvg(),
 		inThroughput: appSignal.IncomingTraffic.ThroughputAvg(),
@@ -301,6 +317,7 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 // ApplicationProfiler
 
 func (ap *ApplicationProfiler) Fit(matrix [][]float64) {
+
 	if len(matrix) == 0 {
 		return
 	}
@@ -376,6 +393,10 @@ func NewApplicationProfiler(k float64) *ApplicationProfiler {
 
 // ApplicationEngine
 
+func (ae *ApplicationEngine) Name() string {
+	return "ForestApplicationEngine"
+}
+
 func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, startIdx, count int) []float64 {
 	meds := make([]float64, count)
 	if !profiler.isFitted || len(profiler.Stats) < startIdx+count {
@@ -387,7 +408,27 @@ func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, startIdx,
 	return meds
 }
 
+func (ae *ApplicationEngine) extractTimeVectors(stamp common.Stamp) []float64 {
+
+	t := common.StampToTime(stamp)
+
+	m := float64(t.Minute()) + float64(t.Second())/60.0
+	h := float64(t.Hour()) + m/60.0
+	wd := float64(t.Weekday()) + h/24.0
+	md := float64(t.Day()-1) + h/24.0
+
+	twoPi := 2.0 * math.Pi
+
+	return []float64{
+		math.Sin(twoPi * m / 60.0), math.Cos(twoPi * m / 60.0), // Minute (fractional)
+		math.Sin(twoPi * h / 24.0), math.Cos(twoPi * h / 24.0), // Hour (fractional)
+		math.Sin(twoPi * wd / 7.0), math.Cos(twoPi * wd / 7.0), // Day of Week
+		math.Sin(twoPi * md / 31.0), math.Cos(twoPi * md / 31.0), // Day of Month
+	}
+}
 func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool) {
+
+	timeVec := ae.extractTimeVectors(f.stamp)
 
 	inSlotWidth := ae.inReqSlots.maxSlots + 2
 
@@ -421,10 +462,14 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	inVec = append(inVec, inReqSlots...)
 	inVec = append(inVec, inThruSlots...)
 	inVec = append(inVec, inLat, inErr)
+	inVec = append(inVec, timeVec...)
 
 	inValid = append(inValid, inReqVal...)
 	inValid = append(inValid, inThruVal...)
 	inValid = append(inValid, inLatValid, inErrValid)
+	for i := 0; i < len(timeVec); i++ {
+		inValid = append(inValid, true) // Time is always valid
+	}
 
 	appCPUValid := f.appCPU != nil
 	appCPU := 0.0
@@ -481,7 +526,12 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	}
 
 	satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
+	satVec = append(satVec, timeVec...)
+
 	satValid = []bool{appCPUValid, appMemValid, hostCPUValid, hostMemValid, cpuDiffVal, memDiffVal}
+	for i := 0; i < len(timeVec); i++ {
+		satValid = append(satValid, true) // Time is always valid
+	}
 
 	outSlotWidth := ae.outReqSlots.maxSlots + 2
 
@@ -550,19 +600,60 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	outVec = append(outVec, outThruSlots...)
 	outVec = append(outVec, outLat, outErr)
 	outVec = append(outVec, flowReqRatio, flowThruRatio, latDiv)
+	outVec = append(outVec, timeVec...)
 
 	outValid = append(outValid, outReqVal...)
 	outValid = append(outValid, outThruVal...)
 	outValid = append(outValid, outLatValid, outErrValid)
 	outValid = append(outValid, flowReqValid, flowThruValid, latDivValid)
+	for i := 0; i < len(timeVec); i++ {
+		outValid = append(outValid, true) // Time is always valid
+	}
 
 	return inVec, satVec, outVec, inValid, satValid, outValid
 }
 
-func (ae *ApplicationEngine) Train(frames ApplicationFrames) error {
+func (ae *ApplicationEngine) splitData(from, first, last common.Stamp) (tL, tR []common.Stamp, inL, satL, outL, inR, satR, outR [][]float64) {
+
+	ltimes := len(ae.times)
+	if ltimes != len(ae.inData) ||
+		ltimes != len(ae.satData) ||
+		ltimes != len(ae.outData) {
+		return tL, tR, inL, satL, outL, inR, satR, outR
+	}
+
+	for k, stamp := range ae.times {
+
+		// skip outdated data
+		if stamp < from {
+			continue
+		}
+
+		// add only data outside of time limits
+		if stamp < first {
+			inL = append(inL, ae.inData[k])
+			satL = append(satL, ae.satData[k])
+			outL = append(outL, ae.outData[k])
+			tL = append(tL, stamp)
+		} else if stamp > last {
+			inR = append(inR, ae.inData[k])
+			satR = append(satR, ae.satData[k])
+			outR = append(outR, ae.outData[k])
+			tR = append(tR, stamp)
+		}
+	}
+	return tL, tR, inL, satL, outL, inR, satR, outR
+}
+
+func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationFrameLimits) error {
 
 	var inReq, inThru []ApplicationTrafficValues
 	var outReq, outThru []ApplicationTrafficValues
+
+	// sort frames by time stamp
+	slices.SortFunc(frames, func(a *ApplicationFrame, b *ApplicationFrame) int {
+		return cmp.Compare(a.Stamp(), b.Stamp())
+	})
 
 	for _, f := range frames {
 		inReq = append(inReq, f.inRequests)
@@ -576,45 +667,64 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames) error {
 	ae.outReqSlots.Fit(outReq)
 	ae.outThruSlots.Fit(outThru)
 
-	var inMatrix, satMatrix, outMatrix [][]float64
+	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitData(limits.From, limits.First, limits.Last)
+
+	times := []common.Stamp{}
+	inData := [][]float64{}
+	satData := [][]float64{}
+	outData := [][]float64{}
+
 	for _, f := range frames {
+
 		iv, sv, ov, _, _, _ := ae.extractVectors(f)
-		inMatrix = append(inMatrix, iv)
-		satMatrix = append(satMatrix, sv)
-		outMatrix = append(outMatrix, ov)
+
+		index := slices.Index(ae.times, f.stamp)
+		if index >= 0 {
+			continue
+		}
+		times = append(times, f.stamp)
+		inData = append(inData, iv)
+		satData = append(satData, sv)
+		outData = append(outData, ov)
 	}
 
-	ae.inForest.Train(inMatrix)
-	err := ae.inForest.Test(inMatrix)
+	ae.times = append(tL, times...)
+	ae.times = append(ae.times, tR...)
+
+	ae.inData = append(inL, inData...)
+	ae.inData = append(ae.inData, inR...)
+
+	ae.satData = append(satL, satData...)
+	ae.satData = append(ae.satData, satR...)
+
+	ae.outData = append(outL, outData...)
+	ae.outData = append(ae.outData, outR...)
+
+	ae.inForest.Train(ae.inData)
+	err := ae.inForest.Test(ae.inData)
 	if err != nil {
 		return err
 	}
-	ae.inProfiler.Fit(inMatrix)
+	ae.inProfiler.Fit(ae.inData)
 
-	ae.satForest.Train(satMatrix)
-	err = ae.satForest.Test(satMatrix)
+	ae.satForest.Train(ae.satData)
+	err = ae.satForest.Test(ae.satData)
 	if err != nil {
 		return err
 	}
-	ae.satProfiler.Fit(satMatrix)
+	ae.satProfiler.Fit(ae.satData)
 
-	ae.outForest.Train(outMatrix)
-	err = ae.outForest.Test(outMatrix)
+	ae.outForest.Train(ae.outData)
+	err = ae.outForest.Test(ae.outData)
 	if err != nil {
 		return err
 	}
-	ae.outProfiler.Fit(outMatrix)
+	ae.outProfiler.Fit(ae.outData)
 
 	return nil
 }
 
-func (ae *ApplicationEngine) decodeV001(data common.DataSourceData, decoder *gob.Decoder) error {
-
-	/*
-		from := data.From()
-		first := data.First()
-		last := data.Last()
-	*/
+func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, onlyData, onlyForest bool) error {
 
 	engineFile := ApplicationEngineFile{}
 	err := decoder.Decode(&engineFile)
@@ -622,11 +732,31 @@ func (ae *ApplicationEngine) decodeV001(data common.DataSourceData, decoder *gob
 		return err
 	}
 
-	// need to fill ???
+	ae.times = engineFile.Times
+
+	if onlyData {
+
+		ltimes := len(engineFile.Times)
+		if ltimes != len(engineFile.Incoming.Data) ||
+			ltimes != len(engineFile.Saturation.Data) ||
+			ltimes != len(engineFile.Outgoing.Data) {
+			return nil
+		}
+		ae.inData = engineFile.Incoming.Data
+		ae.satData = engineFile.Saturation.Data
+		ae.outData = engineFile.Outgoing.Data
+	}
+
+	if onlyForest {
+		ae.inForest = engineFile.Incoming.Forest
+		ae.satForest = engineFile.Saturation.Forest
+		ae.outForest = engineFile.Outgoing.Forest
+	}
+
 	return nil
 }
 
-func (ae *ApplicationEngine) Load(data common.DataSourceData) error {
+func (ae *ApplicationEngine) load(onlyData, onlyForest bool) error {
 
 	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%d.data", ae.id))
 
@@ -651,9 +781,13 @@ func (ae *ApplicationEngine) Load(data common.DataSourceData) error {
 
 	switch version {
 	case ApplicationEngineV001:
-		err = ae.decodeV001(data, decoder)
+		err = ae.decodeV001(decoder, onlyData, onlyForest)
 	}
 	return err
+}
+
+func (ae *ApplicationEngine) Load() error {
+	return ae.load(true, false)
 }
 
 func (ae *ApplicationEngine) Save() error {
@@ -681,18 +815,32 @@ func (ae *ApplicationEngine) Save() error {
 	}
 
 	engineFile := ApplicationEngineFile{
+		Times: ae.times,
 		Incoming: ApplicationEngineFileEntry{
 			Forest: ae.inForest,
-			//Data: ae.inProfiler.
+			Data:   ae.inData,
 		},
 		Saturation: ApplicationEngineFileEntry{
 			Forest: ae.satForest,
+			Data:   ae.satData,
 		},
 		Outgoing: ApplicationEngineFileEntry{
 			Forest: ae.outForest,
+			Data:   ae.outData,
 		},
 	}
 	return encoder.Encode(&engineFile)
+}
+
+func (ae *ApplicationEngine) Clone() *ApplicationEngine {
+
+	return &ApplicationEngine{
+		id: ae.id,
+	}
+}
+
+func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames) {
+
 }
 
 func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {
@@ -716,4 +864,9 @@ func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *Ap
 		satProfiler: NewApplicationProfiler(options.RangeMultiplier),
 		outProfiler: NewApplicationProfiler(options.RangeMultiplier),
 	}
+}
+
+func LoadApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {
+
+	return &ApplicationEngine{}
 }

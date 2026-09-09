@@ -20,6 +20,10 @@ func (hf *HostFrame) Valid() bool {
 	return false
 }
 
+func (hf *HostFrame) Stamp() common.Stamp {
+	return hf.stamp
+}
+
 func NewHostFrame(stamp common.Stamp, hash common.Hash, hostSignal *common.HostSignal) *HostFrame {
 
 	r := &HostFrame{
@@ -30,6 +34,10 @@ func NewHostFrame(stamp common.Stamp, hash common.Hash, hostSignal *common.HostS
 }
 
 // HostEngine
+
+func (he *HostEngine) Name() string {
+	return "ForestHostEngine"
+}
 
 func (he *HostEngine) Train(frames HostFrames) error {
 	return nil
