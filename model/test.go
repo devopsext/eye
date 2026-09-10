@@ -49,7 +49,7 @@ func (t *TestModel) Detect(data common.DataSourceData, after common.ModelAfterDe
 	return nil
 }
 
-func NewTestModel(options TestModelOptions, cases *common.Cases, observability *common.Observability) *TestModel {
+func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {
 
 	return &TestModel{
 		options:       options,

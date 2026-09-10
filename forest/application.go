@@ -17,6 +17,41 @@ import (
 	"github.com/e-XpertSolutions/go-iforest/v2/iforest"
 )
 
+type ApplicationCasePattern struct {
+	appInRequests   common.CaseLevel
+	appInThroughput common.CaseLevel
+	appInLatency    common.CaseLevel
+	appInErrors     common.CaseLevel
+
+	appOutRequests   common.CaseLevel
+	appOutThroughput common.CaseLevel
+	appOutLatency    common.CaseLevel
+	appOutErrors     common.CaseLevel
+
+	appCPU  common.CaseLevel
+	appMem  common.CaseLevel
+	hostCPU common.CaseLevel
+	hostMem common.CaseLevel
+}
+
+type ApplicationCaseVerdict struct {
+	Case  *ApplicationCase
+	Score int
+}
+
+type ApplicationCase struct {
+	name        string
+	description string
+	rootCause   string
+	impact      common.CaseImpact
+	category    common.CaseCategory
+	pattern     ApplicationCasePattern
+}
+
+type ApplicationCases struct {
+	list []*ApplicationCase
+}
+
 type ApplicationTrafficValues map[common.TrafficKind]*common.Traffic
 type ApplicationLatencyValue *common.Latency
 type ApplicationErrorsValue *common.Errors
@@ -26,7 +61,6 @@ type ApplicationFrames []*ApplicationFrame
 
 type ApplicationFrame struct {
 	stamp common.Stamp
-	time  time.Time
 	//
 	inRequests   ApplicationTrafficValues
 	inThroughput ApplicationTrafficValues
@@ -51,10 +85,10 @@ type ApplicationFrameLimits struct {
 }
 
 type ApplicationTrafficSlots struct {
-	maxSlots  int
-	keyToSlot map[common.TrafficKind]int
-	slotToKey []common.TrafficKind
-	isFitted  bool
+	MaxSlots  int
+	KeyToSlot map[common.TrafficKind]int
+	SlotToKey []common.TrafficKind
+	IsFitted  bool
 }
 
 type ApplicationFeatureStats struct {
@@ -75,8 +109,9 @@ type ApplicationFeatureStats struct {
 // Lowering K (e.g., 1.0): Tightens the envelope, making the engine more sensitive to smaller deviations.
 // Raising K (e.g., 2.0 - 3.0): Broadens the envelope, reducing alert noise for services with naturally spiky or high-variance diurnal traffic patterns.
 
+// Quartile Profiler Conditioned on 168 Hourly Buckets (7 Days x 24 Hours)
 type ApplicationProfiler struct {
-	Stats    []ApplicationFeatureStats
+	Buckets  [168][]ApplicationFeatureStats
 	K        float64
 	isFitted bool
 }
@@ -90,16 +125,27 @@ type ApplicationEngineOptions struct {
 	RangeMultiplier float64
 }
 
-type ApplicationEngineFileEntry struct {
-	Forest *iforest.Forest
-	Data   [][]float64
+type ApplicationEngineFileIncoming struct {
+	ReqSlots  *ApplicationTrafficSlots
+	ThruSlots *ApplicationTrafficSlots
+	Forest    *iforest.Forest
+	Profile   *ApplicationProfiler
+	Data      [][]float64
 }
 
-type ApplicationEngineFile struct {
-	Times      []common.Stamp
-	Incoming   ApplicationEngineFileEntry
-	Saturation ApplicationEngineFileEntry
-	Outgoing   ApplicationEngineFileEntry
+type ApplicationEngineFileOutgoing = ApplicationEngineFileIncoming
+
+type ApplicationEngineFileSaturation struct {
+	Forest  *iforest.Forest
+	Profile *ApplicationProfiler
+	Data    [][]float64
+}
+
+type ApplicationEngineFileV001 struct {
+	Stamps     []common.Stamp
+	Incoming   ApplicationEngineFileIncoming
+	Saturation ApplicationEngineFileSaturation
+	Outgoing   ApplicationEngineFileOutgoing
 }
 
 type ApplicationEngine struct {
@@ -112,7 +158,7 @@ type ApplicationEngine struct {
 	outReqSlots  *ApplicationTrafficSlots
 	outThruSlots *ApplicationTrafficSlots
 
-	times   []common.Stamp
+	stamps  []common.Stamp
 	inData  [][]float64
 	satData [][]float64
 	outData [][]float64
@@ -129,6 +175,835 @@ type ApplicationEngine struct {
 const (
 	ApplicationEngineV001 = "0.0.1"
 )
+
+// ApplicationCase
+
+func (c *ApplicationCase) SamePattern(pattern ApplicationCasePattern) bool {
+
+	return c.pattern.appInRequests == pattern.appInRequests &&
+		c.pattern.appInThroughput == pattern.appInThroughput &&
+		c.pattern.appInLatency == pattern.appInLatency &&
+		c.pattern.appInErrors == pattern.appInErrors &&
+		c.pattern.appOutRequests == pattern.appOutRequests &&
+		c.pattern.appOutThroughput == pattern.appOutThroughput &&
+		c.pattern.appOutLatency == pattern.appOutLatency &&
+		c.pattern.appOutErrors == pattern.appOutErrors &&
+		c.pattern.appCPU == pattern.appCPU &&
+		c.pattern.appMem == pattern.appMem &&
+		c.pattern.hostCPU == pattern.hostCPU &&
+		c.pattern.hostMem == pattern.hostMem
+}
+
+func NewApplicationCase(impact common.CaseImpact, category common.CaseCategory, name, description, rootCause string, pattern ApplicationCasePattern) *ApplicationCase {
+
+	return &ApplicationCase{
+		name:        name,
+		description: description,
+		rootCause:   rootCause,
+		impact:      impact,
+		category:    category,
+		pattern:     pattern,
+	}
+}
+
+// ApplicationCases
+
+func (ac *ApplicationCases) Items() []*ApplicationCase {
+	return ac.list
+}
+
+func (ac *ApplicationCases) FindBypattern(pattern ApplicationCasePattern) *ApplicationCase {
+
+	var r *ApplicationCase
+	for _, c := range ac.list {
+
+		if c.SamePattern(pattern) {
+			return c
+		}
+	}
+	return r
+}
+
+func (ac *ApplicationCases) Add(impact common.CaseImpact, category common.CaseCategory, name, description, rootCause string, pattern ApplicationCasePattern) *ApplicationCase {
+
+	c := ac.FindBypattern(pattern)
+	if !utils.IsEmpty(c) {
+		return c
+	}
+	c = NewApplicationCase(impact, category, name, description, rootCause, pattern)
+	ac.list = append(ac.list, c)
+	return c
+}
+
+func (ac *ApplicationCases) getScore(observed, expected ApplicationCasePattern) int {
+
+	score := 0
+	check := func(obs, exp common.CaseLevel) {
+		if obs == exp {
+			score++
+		}
+	}
+
+	check(observed.appInRequests, expected.appInRequests)
+	check(observed.appInThroughput, expected.appInThroughput)
+	check(observed.appInLatency, expected.appInLatency)
+	check(observed.appInErrors, expected.appInErrors)
+	check(observed.appCPU, expected.appCPU)
+	check(observed.appMem, expected.appMem)
+	check(observed.hostCPU, expected.hostCPU)
+	check(observed.hostMem, expected.hostMem)
+	check(observed.appOutRequests, expected.appOutRequests)
+	check(observed.appOutThroughput, expected.appOutThroughput)
+	check(observed.appOutLatency, expected.appOutLatency)
+	check(observed.appOutErrors, expected.appOutErrors)
+
+	return score
+}
+
+func (ac *ApplicationCases) Match(pattern ApplicationCasePattern) (*ApplicationCase, int) {
+
+	bestScore := -1
+	var bestCase *ApplicationCase
+
+	for _, c := range ac.list {
+		score := ac.getScore(pattern, c.pattern)
+		if score > bestScore {
+			bestScore = score
+			bestCase = c
+		}
+	}
+
+	return bestCase, bestScore
+}
+
+func NewApplicationCases() *ApplicationCases {
+
+	cases := &ApplicationCases{}
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
+		"Healthy Steady State",
+		"All metrics inside baseline quantiles",
+		"Nominal operating conditions",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelNormal,
+			appOutThroughput: common.CaseLevelNormal,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
+		"Healthy Load Scaling",
+		"Proportional out/in scaling without latency or error growth",
+		"Organic client traffic surge absorbed cleanly",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelHigh,
+			appOutThroughput: common.CaseLevelHigh,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
+		"Healthy Off-Peak Drop",
+		"Proportional traffic decline with stable latencies",
+		"Diurnal or scheduled off-peak traffic drop",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelLow,
+			appInThroughput:  common.CaseLevelLow,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
+		"Cache Hit Absorption",
+		"High ingress with low egress and nominal latencies/errors",
+		"In-memory cache absorbing reads cleanly (e.g. Redis / CDN)",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
+		"Ultra-Low Footprint Zero Idle",
+		"Metrics fully functional with saturation floor near 0% under lightweight async load",
+		"Efficient non-blocking event loop or runtime idling at true zero consumption",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelLow,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelLow,
+			appOutRequests:   common.CaseLevelNormal,
+			appOutThroughput: common.CaseLevelNormal,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
+		"Client Inactivity (Full Idle)",
+		"All metrics idle down to baseline floor without errors",
+		"Clean cessation of incoming requests",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelLow,
+			appInThroughput:  common.CaseLevelLow,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelLow,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelLow,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
+		"Async Queue / Worker Drain",
+		"Zero ingress traffic with high CPU and high outbound traffic",
+		"Background job processing Kafka consumer drain batch sync",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelLow,
+			appInThroughput:  common.CaseLevelLow,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelHigh,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelHigh,
+			appOutThroughput: common.CaseLevelHigh,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
+		"Target Drainage / Rolling Deploy",
+		"Clean linear decline of traffic without error spike during deployment cycle",
+		"Target group registration draining or pod termination grace period",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelLow,
+			appInThroughput:  common.CaseLevelLow,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelLow,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelLow,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"App CPU Limit / Cgroup Throttle",
+		"App CPU saturated while host CPU and memory remain normal",
+		"Container cgroup CPU quota reached or thread-pool exhaustion",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Noisy Neighbor CPU Steal",
+		"Host CPU high but App CPU normal/low; outbound drops",
+		"External rogue process or container on host stealing CPU cores",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelHigh,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Edge Rejection / Fast Fail",
+		"Inbound errors high while inbound latency drops to minimum",
+		"Credential stuffing WAF blocking scraper flood 401/403/429",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Heavy Payload / Slowloris",
+		"Inbound througput high with low requests and high memory saturation",
+		"Multipart file upload storm payload uncompressed JSON Slowloris attack",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelLow,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelHigh,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelHigh,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Fast Bypass / Regression Bug",
+		"Inbound latency drops to zero with 200 OK and zero outbound calls",
+		"Auth middleware bypass regression empty body return cached mock leak",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelLow,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelLow,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Egress Bandwidth Flooding",
+		"Outbound throughput spikes while Outbound requests and saturation remain normal",
+		"Unbounded query results large file downloads data exfiltration",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelNormal,
+			appOutThroughput: common.CaseLevelNormal,
+			appOutLatency:    common.CaseLevelHigh,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"GC Stop-The-World Freeze",
+		"App memory pinned at high watermark with CPU spikes from GC threads",
+		"Full GC pause memory compaction freeze runtime heap lockup",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelHigh,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Client Disconnect / Timeout",
+		"Inbound errors up (499/408) with near-zero downstream impact",
+		"Client drops connection prematurely slow mobile networks",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelLow,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelLow,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"App Memory Leak / OOM Thrash",
+		"App memory hits cgroup limit causing kernel page reclamation thrashing",
+		"Application heap/buffer leak approaching container limit / OOM-kill",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelHigh,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Noisy Neighbor Memory Hog",
+		"Host memory high while App memory is normal; app starved of cache/buffers",
+		"Co-located container eating host RAM triggering kernel page scanning",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelHigh,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Hyper-Aggressive GC / Memory Starvation",
+		"App memory pinned near 0% while App CPU is pinned at 100%",
+		"GOMEMLIMIT/heap target set too low; runtime in continuous GC thrash",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Client 499 Abort / Orphaned Compute",
+		"High inbound 499s while outbound traffic continues running normally",
+		"Missing context cancellation; backend work proceeds for cancelled client requests",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelHigh,
+			appOutThroughput: common.CaseLevelHigh,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Poison Pill / DLQ Redrive Loop",
+		"Zero inbound traffic with high CPU and surging outbound broker retry errors",
+		"Unparseable queue message repeatedly nack-ed and redriven by workers",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelLow,
+			appInThroughput:  common.CaseLevelLow,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelHigh,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelHigh,
+			appOutThroughput: common.CaseLevelHigh,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"App Metric Collector Outage",
+		"Traffic flows normally but container cgroup exporter drops out",
+		"cgroup fs mount error kubelet stats provider stall or scraper timeout",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelUnknown,
+			appMem:           common.CaseLevelUnknown,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelNormal,
+			appOutThroughput: common.CaseLevelNormal,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+		"Host Agent Transport Failure",
+		"Traffic and App metrics healthy but node-level hardware metrics missing",
+		"host exporter daemon down crash or host firewall drop",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelNormal,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelUnknown,
+			hostMem:          common.CaseLevelUnknown,
+			appOutRequests:   common.CaseLevelNormal,
+			appOutThroughput: common.CaseLevelNormal,
+			appOutLatency:    common.CaseLevelNormal,
+			appOutErrors:     common.CaseLevelNormal,
+		})
+
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
+		"Circuit Breaker Fallback",
+		"Outbound completely stopped but inbound returns fast healthy 200s",
+		"Circuit breaker tripped serving degraded local cache or empty response",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Host CPU Exhaustion by App",
+		"Both App and Host CPU pinned near 100% while memory is stable",
+		"Inbound compute volume exceeded physical host CPU cores",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelHigh,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Downstream / Backend Stall",
+		"Outbound latency/errors surge and backpressure into ingress",
+		"Downstream API DB lock contention or remote timeout",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelHigh,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Thread Deadlock / Pool Hang",
+		"Extreme inbound latency with zero CPU and no 5xx errors",
+		"Deadlock mutex starvation connection pool leak uncompleted requests",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelNormal,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Retry Amplification Storm",
+		"Out requests to In requests ratio spikes far above historical norm",
+		"Cascading client retries or unbounded fan-out loops",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelHigh,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelHigh,
+			appOutThroughput: common.CaseLevelHigh,
+			appOutLatency:    common.CaseLevelHigh,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Network Partition / TCP Blackhole",
+		"Outbound attempts stay up while outbound timeouts explode",
+		"Switch/router failure egress security group drop routing loop",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelNormal,
+			appOutThroughput: common.CaseLevelNormal,
+			appOutLatency:    common.CaseLevelHigh,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Host Memory Exhaustion / Swap Thrashing",
+		"Host memory exhausted causing OS page swapping; CPU drops due to I/O wait",
+		"Host swapping pages to disk; disk I/O blocks runloops across containers / processes",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelHigh,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"App OOM-Kill CrashLoop",
+		"App memory drops to near 0% after 100% breach; crash loop restarts",
+		"Kernel OOM-killer terminated container (SIGKILL); pod restarting",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Host Kernel OOM Lockup",
+		"Host memory pinned at 100%; kswapd pegs Host CPU at 100%; total freeze",
+		"Host physical RAM exhausted; kswapd thrashing kernel page alloc locks",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelHigh,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelHigh,
+			hostMem:          common.CaseLevelHigh,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelHigh,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Zombie Worker / Cold Init Deadlock",
+		"App memory flat near 0% with 0% CPU; incoming requests fail instantly (502)",
+		"Process deadlocked in pre-main init phase; runtime heap unallocated",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelLow,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Host OOM-Killer Cascading Storm",
+		"Host memory at 100% with random service restarts and network drops",
+		"OOM-killer killing random background processes and sidecars",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelHigh,
+			hostMem:          common.CaseLevelHigh,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"FD / Ephemeral Port Exhaustion",
+		"Fast failure on inbound/outbound connection creation with normal CPU/memory",
+		"EMFILE or EADDRNOTAVAIL socket leak connection pool exhausting ulimit",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelLow,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelNormal,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelNormal,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"DNS Resolution Outage",
+		"Outbound traffic drops with fast DNS resolution failures; ingress times out",
+		"CoreDNS outage VPC resolver throttle corrupted resolv.conf",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelHigh,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Cloud Hypervisor Steal / Throttling",
+		"Latency surges despite zero App/Host CPU usage; hypervisor steal time pinned",
+		"AWS burst credit balance exhaustion or noisy hypervisor neighbor",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelNormal,
+			appInThroughput:  common.CaseLevelNormal,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelLow,
+			appMem:           common.CaseLevelNormal,
+			hostCPU:          common.CaseLevelLow,
+			hostMem:          common.CaseLevelNormal,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+		"Unobservable Bottleneck (Telemetry Dropout)",
+		"Severe inbound queueing and outbound collapse while saturation is entirely unknown",
+		"exporter or cgroup telemetry crash during critical CPU/memory exhaustion",
+		ApplicationCasePattern{
+			appInRequests:    common.CaseLevelHigh,
+			appInThroughput:  common.CaseLevelHigh,
+			appInLatency:     common.CaseLevelHigh,
+			appInErrors:      common.CaseLevelHigh,
+			appCPU:           common.CaseLevelUnknown,
+			appMem:           common.CaseLevelUnknown,
+			hostCPU:          common.CaseLevelUnknown,
+			hostMem:          common.CaseLevelUnknown,
+			appOutRequests:   common.CaseLevelLow,
+			appOutThroughput: common.CaseLevelLow,
+			appOutLatency:    common.CaseLevelLow,
+			appOutErrors:     common.CaseLevelLow,
+		})
+
+	return cases
+}
 
 // ApplicationTrafficValues
 
@@ -236,27 +1111,27 @@ func (ss *ApplicationTrafficSlots) Fit(samples []ApplicationTrafficValues) {
 		return pairs[i].v > pairs[j].v
 	})
 
-	ss.keyToSlot = make(map[common.TrafficKind]int)
-	ss.slotToKey = make([]common.TrafficKind, ss.maxSlots)
+	ss.KeyToSlot = make(map[common.TrafficKind]int)
+	ss.SlotToKey = make([]common.TrafficKind, ss.MaxSlots)
 
 	limit := len(pairs)
-	if limit > ss.maxSlots {
-		limit = ss.maxSlots
+	if limit > ss.MaxSlots {
+		limit = ss.MaxSlots
 	}
 
 	for i := 0; i < limit; i++ {
-		ss.slotToKey[i] = pairs[i].k
-		ss.keyToSlot[pairs[i].k] = i
+		ss.SlotToKey[i] = pairs[i].k
+		ss.KeyToSlot[pairs[i].k] = i
 	}
-	ss.isFitted = true
+	ss.IsFitted = true
 }
 
 func (ss *ApplicationTrafficSlots) VectorizeTraffic(avs ApplicationTrafficValues, useMaxForTotal bool, medians []float64) ([]float64, []bool) {
 
-	vec := make([]float64, ss.maxSlots+2)
-	valid := make([]bool, ss.maxSlots+2)
-	otherIdx := ss.maxSlots
-	totalIdx := ss.maxSlots + 1
+	vec := make([]float64, ss.MaxSlots+2)
+	valid := make([]bool, ss.MaxSlots+2)
+	otherIdx := ss.MaxSlots
+	totalIdx := ss.MaxSlots + 1
 
 	for k, v := range avs {
 		if v == nil {
@@ -273,7 +1148,7 @@ func (ss *ApplicationTrafficSlots) VectorizeTraffic(avs ApplicationTrafficValues
 		}
 		valid[totalIdx] = true
 
-		if slot, ok := ss.keyToSlot[k]; ok {
+		if slot, ok := ss.KeyToSlot[k]; ok {
 			if useMaxForTotal {
 				if !valid[slot] || value > vec[slot] {
 					vec[slot] = value
@@ -308,67 +1183,86 @@ func (ss *ApplicationTrafficSlots) VectorizeTraffic(avs ApplicationTrafficValues
 func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 
 	return &ApplicationTrafficSlots{
-		maxSlots:  maxSlots,
-		keyToSlot: make(map[common.TrafficKind]int),
-		slotToKey: make([]common.TrafficKind, maxSlots),
+		MaxSlots:  maxSlots,
+		KeyToSlot: make(map[common.TrafficKind]int),
+		SlotToKey: make([]common.TrafficKind, maxSlots),
 	}
 }
 
 // ApplicationProfiler
 
-func (ap *ApplicationProfiler) Fit(matrix [][]float64) {
+func TimeWindowKey(t time.Time) int {
+	return int(t.Weekday())*24 + t.Hour()
+}
 
-	if len(matrix) == 0 {
+func Percentile(sorted []float64, p float64) float64 {
+	idx := p * float64(len(sorted)-1)
+	l := int(math.Floor(idx))
+	u := int(math.Ceil(idx))
+	w := idx - float64(l)
+	return sorted[l]*(1.0-w) + sorted[u]*w
+}
+
+func (ap *ApplicationProfiler) Fit(timestamps []time.Time, matrix [][]float64) {
+
+	if len(matrix) == 0 || len(matrix) != len(timestamps) {
 		return
 	}
-
 	numCols := len(matrix[0])
-	ap.Stats = make([]ApplicationFeatureStats, numCols)
 
-	percentile := func(sorted []float64, p float64) float64 {
-		idx := p * float64(len(sorted)-1)
-		l := int(math.Floor(idx))
-		u := int(math.Ceil(idx))
-		w := idx - float64(l)
-		return sorted[l]*(1.0-w) + sorted[u]*w
+	bucketData := make([][][]float64, 168)
+	for b := range bucketData {
+		bucketData[b] = make([][]float64, numCols)
 	}
 
-	for col := 0; col < numCols; col++ {
-		vals := make([]float64, len(matrix))
-		for row := 0; row < len(matrix); row++ {
-			vals[row] = matrix[row][col]
+	for row := 0; row < len(matrix); row++ {
+		b := TimeWindowKey(timestamps[row])
+		for col := 0; col < numCols; col++ {
+			bucketData[b][col] = append(bucketData[b][col], matrix[row][col])
 		}
-		sort.Float64s(vals)
+	}
 
-		q1 := percentile(vals, 0.25)
-		med := percentile(vals, 0.50)
-		q3 := percentile(vals, 0.75)
-		iqr := q3 - q1
-
-		if iqr == 0 {
-			iqr = med * 0.05
-			if iqr == 0 {
-				iqr = 1.0
+	for b := 0; b < 168; b++ {
+		ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
+		for col := 0; col < numCols; col++ {
+			vals := bucketData[b][col]
+			if len(vals) == 0 {
+				ap.Buckets[b][col] = ApplicationFeatureStats{Median: 0, Q1: 0, Q3: 0, IQR: 1.0}
+				continue
 			}
-		}
+			sort.Float64s(vals)
 
-		ap.Stats[col] = ApplicationFeatureStats{
-			Median: med,
-			Q1:     q1,
-			Q3:     q3,
-			IQR:    iqr,
+			q1 := Percentile(vals, 0.25)
+			med := Percentile(vals, 0.50)
+			q3 := Percentile(vals, 0.75)
+			iqr := q3 - q1
+
+			if iqr == 0 {
+				iqr = med * 0.05
+				if iqr == 0 {
+					iqr = 1.0
+				}
+			}
+
+			ap.Buckets[b][col] = ApplicationFeatureStats{
+				Median: med,
+				Q1:     q1,
+				Q3:     q3,
+				IQR:    iqr,
+			}
 		}
 	}
 	ap.isFitted = true
 }
 
-func (ap *ApplicationProfiler) Classify(col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
+func (ap *ApplicationProfiler) Classify(t time.Time, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
 
 	if !isValid {
 		return common.CaseLevelUnknown
 	}
 
-	st := ap.Stats[col]
+	b := TimeWindowKey(t)
+	st := ap.Buckets[b][col]
 	highT := st.Q3 + (ap.K * st.IQR)
 	lowT := st.Q1 - (ap.K * st.IQR)
 
@@ -397,20 +1291,23 @@ func (ae *ApplicationEngine) Name() string {
 	return "ForestApplicationEngine"
 }
 
-func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, startIdx, count int) []float64 {
+func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Time, startIdx, count int) []float64 {
+
 	meds := make([]float64, count)
-	if !profiler.isFitted || len(profiler.Stats) < startIdx+count {
+	if !profiler.isFitted {
+		return meds
+	}
+	b := TimeWindowKey(t)
+	if len(profiler.Buckets[b]) < startIdx+count {
 		return meds
 	}
 	for i := 0; i < count; i++ {
-		meds[i] = profiler.Stats[startIdx+i].Median
+		meds[i] = profiler.Buckets[b][startIdx+i].Median
 	}
 	return meds
 }
 
-func (ae *ApplicationEngine) extractTimeVectors(stamp common.Stamp) []float64 {
-
-	t := common.StampToTime(stamp)
+func (ae *ApplicationEngine) extractTimeVectors(t time.Time) []float64 {
 
 	m := float64(t.Minute()) + float64(t.Second())/60.0
 	h := float64(t.Hour()) + m/60.0
@@ -428,12 +1325,13 @@ func (ae *ApplicationEngine) extractTimeVectors(stamp common.Stamp) []float64 {
 }
 func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool) {
 
-	timeVec := ae.extractTimeVectors(f.stamp)
+	t := common.StampToTime(f.stamp)
+	timeVec := ae.extractTimeVectors(t)
 
-	inSlotWidth := ae.inReqSlots.maxSlots + 2
+	inSlotWidth := ae.inReqSlots.MaxSlots + 2
 
-	inReqMeds := ae.getMedians(ae.inProfiler, 0, inSlotWidth)
-	inThruMeds := ae.getMedians(ae.inProfiler, inSlotWidth, inSlotWidth)
+	inReqMeds := ae.getMedians(ae.inProfiler, t, 0, inSlotWidth)
+	inThruMeds := ae.getMedians(ae.inProfiler, t, inSlotWidth, inSlotWidth)
 
 	inReqSlots, inReqVal := ae.inReqSlots.VectorizeTraffic(f.inRequests, false, inReqMeds)
 	inThruSlots, inThruVal := ae.inThruSlots.VectorizeTraffic(f.inThroughput, false, inThruMeds)
@@ -441,13 +1339,15 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	inLatIdx := len(inReqSlots) + len(inThruSlots)
 	inErrIdx := inLatIdx + 1
 
+	b := TimeWindowKey(t)
+
 	inLatValid := f.inLatency != nil
 	inLat := 0.0
 	if inLatValid {
 		inLat = *f.inLatency
 	}
-	if !inLatValid && ae.inProfiler.isFitted && len(ae.inProfiler.Stats) > inLatIdx {
-		inLat = ae.inProfiler.Stats[inLatIdx].Median
+	if !inLatValid && ae.inProfiler.isFitted && len(ae.inProfiler.Buckets[b]) > inLatIdx {
+		inLat = ae.inProfiler.Buckets[b][inLatIdx].Median
 	}
 
 	inErrValid := f.inErrors != nil
@@ -455,8 +1355,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if inErrValid {
 		inErr = *f.inErrors
 	}
-	if !inErrValid && ae.inProfiler.isFitted && len(ae.inProfiler.Stats) > inErrIdx {
-		inErr = ae.inProfiler.Stats[inErrIdx].Median
+	if !inErrValid && ae.inProfiler.isFitted && len(ae.inProfiler.Buckets[b]) > inErrIdx {
+		inErr = ae.inProfiler.Buckets[b][inErrIdx].Median
 	}
 
 	inVec = append(inVec, inReqSlots...)
@@ -476,8 +1376,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if appCPUValid {
 		appCPU = *f.appCPU
 	}
-	if !appCPUValid && ae.satProfiler.isFitted {
-		appCPU = ae.satProfiler.Stats[0].Median
+	if !appCPUValid && ae.satProfiler.isFitted && len(ae.satProfiler.Buckets[b]) > 0 {
+		appCPU = ae.satProfiler.Buckets[b][0].Median
 	}
 
 	appMemValid := f.appMem != nil
@@ -485,8 +1385,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if appMemValid {
 		appMem = *f.appMem
 	}
-	if !appMemValid && ae.satProfiler.isFitted {
-		appMem = ae.satProfiler.Stats[1].Median
+	if !appMemValid && ae.satProfiler.isFitted && len(ae.satProfiler.Buckets[b]) > 1 {
+		appMem = ae.satProfiler.Buckets[b][1].Median
 	}
 
 	hostCPUValid := f.hostCPU != nil
@@ -494,8 +1394,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if hostCPUValid {
 		hostCPU = *f.hostCPU
 	}
-	if !hostCPUValid && ae.satProfiler.isFitted {
-		hostCPU = ae.satProfiler.Stats[2].Median
+	if !hostCPUValid && ae.satProfiler.isFitted && len(ae.satProfiler.Buckets[b]) > 2 {
+		hostCPU = ae.satProfiler.Buckets[b][2].Median
 	}
 
 	hostMemValid := f.hostMem != nil
@@ -503,8 +1403,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if hostMemValid {
 		hostMem = *f.hostMem
 	}
-	if !hostMemValid && ae.satProfiler.isFitted {
-		hostMem = ae.satProfiler.Stats[3].Median
+	if !hostMemValid && ae.satProfiler.isFitted && len(ae.satProfiler.Buckets[b]) > 3 {
+		hostMem = ae.satProfiler.Buckets[b][3].Median
 	}
 
 	cpuDiffVal := false
@@ -512,8 +1412,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if hostCPUValid && appCPUValid {
 		cpuDiffVal = true
 		cpuDiff = hostCPU - appCPU
-	} else if ae.satProfiler.isFitted {
-		cpuDiff = ae.satProfiler.Stats[4].Median
+	} else if ae.satProfiler.isFitted && len(ae.satProfiler.Buckets[b]) > 4 {
+		cpuDiff = ae.satProfiler.Buckets[b][4].Median
 	}
 
 	memDiffVal := false
@@ -521,8 +1421,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if hostMemValid && appMemValid {
 		memDiffVal = true
 		memDiff = hostMem - appMem
-	} else if ae.satProfiler.isFitted {
-		memDiff = ae.satProfiler.Stats[5].Median
+	} else if ae.satProfiler.isFitted && len(ae.satProfiler.Buckets[b]) > 5 {
+		memDiff = ae.satProfiler.Buckets[b][5].Median
 	}
 
 	satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
@@ -533,10 +1433,10 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 		satValid = append(satValid, true) // Time is always valid
 	}
 
-	outSlotWidth := ae.outReqSlots.maxSlots + 2
+	outSlotWidth := ae.outReqSlots.MaxSlots + 2
 
-	outReqMeds := ae.getMedians(ae.outProfiler, 0, outSlotWidth)
-	outThruMeds := ae.getMedians(ae.outProfiler, outSlotWidth, outSlotWidth)
+	outReqMeds := ae.getMedians(ae.outProfiler, t, 0, outSlotWidth)
+	outThruMeds := ae.getMedians(ae.outProfiler, t, outSlotWidth, outSlotWidth)
 
 	outReqSlots, outReqVal := ae.outReqSlots.VectorizeTraffic(f.outRequests, false, outReqMeds)
 	outThruSlots, outThruVal := ae.outThruSlots.VectorizeTraffic(f.outThroughput, false, outThruMeds)
@@ -544,7 +1444,7 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	/*outLatIdx := len(outReqSlots) + len(outThruSlots)
 	outErrIdx := inLatIdx + 1*/
 
-	outLatIdx := ae.outReqSlots.maxSlots + 2 + ae.outReqSlots.maxSlots + 2
+	outLatIdx := ae.outReqSlots.MaxSlots + 2 + ae.outReqSlots.MaxSlots + 2
 	outErrIdx := outLatIdx + 1
 
 	outLatValid := f.outLatency != nil
@@ -552,8 +1452,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if outLatValid {
 		outLat = *f.outLatency
 	}
-	if !outLatValid && ae.outProfiler.isFitted && len(ae.outProfiler.Stats) > outLatIdx {
-		outLat = ae.outProfiler.Stats[outLatIdx].Median
+	if !outLatValid && ae.outProfiler.isFitted && len(ae.outProfiler.Buckets[b]) > outLatIdx {
+		outLat = ae.outProfiler.Buckets[b][outLatIdx].Median
 	}
 
 	outErrValid := f.outErrors != nil
@@ -561,8 +1461,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if outErrValid {
 		outErr = *f.outErrors
 	}
-	if !outErrValid && ae.outProfiler.isFitted && len(ae.outProfiler.Stats) > outErrIdx {
-		outErr = ae.outProfiler.Stats[outErrIdx].Median
+	if !outErrValid && ae.outProfiler.isFitted && len(ae.outProfiler.Buckets[b]) > outErrIdx {
+		outErr = ae.outProfiler.Buckets[b][outErrIdx].Median
 	}
 
 	inReqSum, inReqKnown := f.inRequests.Sum()
@@ -572,8 +1472,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if inReqKnown && outReqKnown && inReqSum > 0 {
 		flowReqValid = true
 		flowReqRatio = outReqSum / inReqSum
-	} else if ae.outProfiler.isFitted {
-		flowReqRatio = ae.outProfiler.Stats[4*outSlotWidth].Median
+	} else if ae.outProfiler.isFitted && len(ae.outProfiler.Buckets[b]) > 4*outSlotWidth {
+		flowReqRatio = ae.outProfiler.Buckets[b][4*outSlotWidth].Median
 	}
 
 	inThruSum, inThruKnown := f.inThroughput.Sum()
@@ -583,8 +1483,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if inThruKnown && outThruKnown && inThruSum > 0 {
 		flowThruValid = true
 		flowThruRatio = outThruSum / inThruSum
-	} else if ae.outProfiler.isFitted {
-		flowThruRatio = ae.outProfiler.Stats[4*outSlotWidth+1].Median
+	} else if ae.outProfiler.isFitted && len(ae.outProfiler.Buckets[b]) > 4*outSlotWidth+1 {
+		flowThruRatio = ae.outProfiler.Buckets[b][4*outSlotWidth+1].Median
 	}
 
 	latDivValid := false
@@ -592,8 +1492,8 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	if inLatValid && outLatValid {
 		latDivValid = true
 		latDiv = inLat - outLat
-	} else if ae.outProfiler.isFitted {
-		latDiv = ae.outProfiler.Stats[4*outSlotWidth+2].Median
+	} else if ae.outProfiler.isFitted && len(ae.outProfiler.Buckets[b]) > 4*outSlotWidth+2 {
+		latDiv = ae.outProfiler.Buckets[b][4*outSlotWidth+2].Median
 	}
 
 	outVec = append(outVec, outReqSlots...)
@@ -613,16 +1513,16 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	return inVec, satVec, outVec, inValid, satValid, outValid
 }
 
-func (ae *ApplicationEngine) splitData(from, first, last common.Stamp) (tL, tR []common.Stamp, inL, satL, outL, inR, satR, outR [][]float64) {
+func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL, tR []common.Stamp, inL, satL, outL, inR, satR, outR [][]float64) {
 
-	ltimes := len(ae.times)
+	ltimes := len(ae.stamps)
 	if ltimes != len(ae.inData) ||
 		ltimes != len(ae.satData) ||
 		ltimes != len(ae.outData) {
 		return tL, tR, inL, satL, outL, inR, satR, outR
 	}
 
-	for k, stamp := range ae.times {
+	for k, stamp := range ae.stamps {
 
 		// skip outdated data
 		if stamp < from {
@@ -649,13 +1549,22 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 
 	var inReq, inThru []ApplicationTrafficValues
 	var outReq, outThru []ApplicationTrafficValues
+	var times []time.Time
 
 	// sort frames by time stamp
 	slices.SortFunc(frames, func(a *ApplicationFrame, b *ApplicationFrame) int {
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
+	temp := []*ApplicationFrame{}
+
 	for _, f := range frames {
+
+		index := slices.Index(ae.stamps, f.stamp)
+		if index >= 0 {
+			continue
+		}
+		temp = append(temp, f)
 		inReq = append(inReq, f.inRequests)
 		inThru = append(inThru, f.inThroughput)
 		outReq = append(outReq, f.outRequests)
@@ -667,29 +1576,25 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	ae.outReqSlots.Fit(outReq)
 	ae.outThruSlots.Fit(outThru)
 
-	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitData(limits.From, limits.First, limits.Last)
+	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitTimesData(limits.From, limits.First, limits.Last)
 
-	times := []common.Stamp{}
+	stamps := []common.Stamp{}
 	inData := [][]float64{}
 	satData := [][]float64{}
 	outData := [][]float64{}
 
-	for _, f := range frames {
+	for _, f := range temp {
 
 		iv, sv, ov, _, _, _ := ae.extractVectors(f)
-
-		index := slices.Index(ae.times, f.stamp)
-		if index >= 0 {
-			continue
-		}
-		times = append(times, f.stamp)
+		stamps = append(stamps, f.stamp)
 		inData = append(inData, iv)
 		satData = append(satData, sv)
 		outData = append(outData, ov)
+		times = append(times, common.StampToTime(f.stamp))
 	}
 
-	ae.times = append(tL, times...)
-	ae.times = append(ae.times, tR...)
+	ae.stamps = append(tL, stamps...)
+	ae.stamps = append(ae.stamps, tR...)
 
 	ae.inData = append(inL, inData...)
 	ae.inData = append(ae.inData, inR...)
@@ -705,38 +1610,47 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	if err != nil {
 		return err
 	}
-	ae.inProfiler.Fit(ae.inData)
+	ae.inProfiler.Fit(times, ae.inData)
 
 	ae.satForest.Train(ae.satData)
 	err = ae.satForest.Test(ae.satData)
 	if err != nil {
 		return err
 	}
-	ae.satProfiler.Fit(ae.satData)
+	ae.satProfiler.Fit(times, ae.satData)
 
 	ae.outForest.Train(ae.outData)
 	err = ae.outForest.Test(ae.outData)
 	if err != nil {
 		return err
 	}
-	ae.outProfiler.Fit(ae.outData)
+	ae.outProfiler.Fit(times, ae.outData)
 
 	return nil
 }
 
-func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, onlyData, onlyForest bool) error {
+type ApplicationEngineFileLoadKind = int
 
-	engineFile := ApplicationEngineFile{}
+const (
+	ApplicationEngineFileLoadKindData = iota
+	ApplicationEngineFileLoadKindForest
+)
+
+var AllApplicationEngineFileLoadKinds = []ApplicationEngineFileLoadKind{ApplicationEngineFileLoadKindData, ApplicationEngineFileLoadKindForest}
+
+func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, kinds []ApplicationEngineFileLoadKind) error {
+
+	engineFile := ApplicationEngineFileV001{}
 	err := decoder.Decode(&engineFile)
 	if err != nil {
 		return err
 	}
 
-	ae.times = engineFile.Times
+	ae.stamps = engineFile.Stamps
 
-	if onlyData {
+	if utils.Contains(kinds, ApplicationEngineFileLoadKindData) {
 
-		ltimes := len(engineFile.Times)
+		ltimes := len(engineFile.Stamps)
 		if ltimes != len(engineFile.Incoming.Data) ||
 			ltimes != len(engineFile.Saturation.Data) ||
 			ltimes != len(engineFile.Outgoing.Data) {
@@ -747,16 +1661,26 @@ func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, onlyData, onlyFore
 		ae.outData = engineFile.Outgoing.Data
 	}
 
-	if onlyForest {
+	if utils.Contains(kinds, ApplicationEngineFileLoadKindForest) {
 		ae.inForest = engineFile.Incoming.Forest
 		ae.satForest = engineFile.Saturation.Forest
 		ae.outForest = engineFile.Outgoing.Forest
 	}
 
+	ae.inReqSlots = engineFile.Incoming.ReqSlots
+	ae.inThruSlots = engineFile.Incoming.ThruSlots
+	ae.inProfiler = engineFile.Incoming.Profile
+
+	ae.satProfiler = engineFile.Saturation.Profile
+
+	ae.outReqSlots = engineFile.Outgoing.ReqSlots
+	ae.outThruSlots = engineFile.Outgoing.ThruSlots
+	ae.outProfiler = engineFile.Outgoing.Profile
+
 	return nil
 }
 
-func (ae *ApplicationEngine) load(onlyData, onlyForest bool) error {
+func (ae *ApplicationEngine) load(kinds []ApplicationEngineFileLoadKind) error {
 
 	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%d.data", ae.id))
 
@@ -781,13 +1705,17 @@ func (ae *ApplicationEngine) load(onlyData, onlyForest bool) error {
 
 	switch version {
 	case ApplicationEngineV001:
-		err = ae.decodeV001(decoder, onlyData, onlyForest)
+		err = ae.decodeV001(decoder, kinds)
 	}
 	return err
 }
 
-func (ae *ApplicationEngine) Load() error {
-	return ae.load(true, false)
+func (ae *ApplicationEngine) LoadData() error {
+	return ae.load([]ApplicationEngineFileLoadKind{ApplicationEngineFileLoadKindData})
+}
+
+func (ae *ApplicationEngine) LoadForest() error {
+	return ae.load([]ApplicationEngineFileLoadKind{ApplicationEngineFileLoadKindForest})
 }
 
 func (ae *ApplicationEngine) Save() error {
@@ -814,19 +1742,26 @@ func (ae *ApplicationEngine) Save() error {
 		return err
 	}
 
-	engineFile := ApplicationEngineFile{
-		Times: ae.times,
-		Incoming: ApplicationEngineFileEntry{
-			Forest: ae.inForest,
-			Data:   ae.inData,
+	engineFile := ApplicationEngineFileV001{
+		Stamps: ae.stamps,
+		Incoming: ApplicationEngineFileIncoming{
+			ReqSlots:  ae.inReqSlots,
+			ThruSlots: ae.inThruSlots,
+			Forest:    ae.inForest,
+			Profile:   ae.inProfiler,
+			Data:      ae.inData,
 		},
-		Saturation: ApplicationEngineFileEntry{
-			Forest: ae.satForest,
-			Data:   ae.satData,
+		Saturation: ApplicationEngineFileSaturation{
+			Forest:  ae.satForest,
+			Profile: ae.satProfiler,
+			Data:    ae.satData,
 		},
-		Outgoing: ApplicationEngineFileEntry{
-			Forest: ae.outForest,
-			Data:   ae.outData,
+		Outgoing: ApplicationEngineFileOutgoing{
+			ReqSlots:  ae.outReqSlots,
+			ThruSlots: ae.outThruSlots,
+			Forest:    ae.outForest,
+			Profile:   ae.outProfiler,
+			Data:      ae.outData,
 		},
 	}
 	return encoder.Encode(&engineFile)
@@ -839,8 +1774,98 @@ func (ae *ApplicationEngine) Clone() *ApplicationEngine {
 	}
 }
 
-func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames) {
+func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) ApplicationCasePattern {
 
+	t := common.StampToTime(frame.stamp)
+
+	inVec, satVec, outVec, inVal, satVal, outVal := ae.extractVectors(frame)
+
+	inLabels, _, _ := ae.inForest.Predict([][]float64{inVec})
+	satLabels, _, _ := ae.satForest.Predict([][]float64{satVec})
+	outLabels, _, _ := ae.outForest.Predict([][]float64{outVec})
+
+	inAnom := inLabels[0] == 1
+	satAnom := satLabels[0] == 1
+	outAnom := outLabels[0] == 1
+
+	slotWidth := ae.inReqSlots.MaxSlots + 2
+	inReqTotalIdx := slotWidth - 1
+	inThruTotalIdx := inReqTotalIdx + slotWidth
+
+	inReqLevel := ae.inProfiler.Classify(t, inReqTotalIdx, inVec[inReqTotalIdx], inAnom, inVal[inReqTotalIdx])
+	inThruLevel := ae.inProfiler.Classify(t, inThruTotalIdx, inVec[inThruTotalIdx], inAnom, inVal[inThruTotalIdx])
+	inLatLevel := ae.inProfiler.Classify(t, inThruTotalIdx+1, inVec[inThruTotalIdx+1], inAnom, inVal[inThruTotalIdx+1])
+	inErrLevel := ae.inProfiler.Classify(t, inThruTotalIdx+2, inVec[inThruTotalIdx+2], inAnom, inVal[inThruTotalIdx+2])
+
+	appCPULevel := ae.satProfiler.Classify(t, 0, satVec[0], satAnom, satVal[0])
+	appMemLevel := ae.satProfiler.Classify(t, 1, satVec[1], satAnom, satVal[1])
+	hostCPULevel := ae.satProfiler.Classify(t, 2, satVec[2], satAnom, satVal[2])
+	hostMemLevel := ae.satProfiler.Classify(t, 3, satVec[3], satAnom, satVal[3])
+
+	outSlotWidth := ae.outReqSlots.MaxSlots + 2
+	outReqTotalIdx := outSlotWidth - 1
+	outThruTotalIdx := outReqTotalIdx + outSlotWidth
+
+	outReqLevel := ae.outProfiler.Classify(t, outReqTotalIdx, outVec[outReqTotalIdx], outAnom, outVal[outReqTotalIdx])
+	outThruLevel := ae.outProfiler.Classify(t, outThruTotalIdx, outVec[outThruTotalIdx], outAnom, outVal[outThruTotalIdx])
+	outLatLevel := ae.inProfiler.Classify(t, outThruTotalIdx+1, outVec[inThruTotalIdx+1], outAnom, outVal[inThruTotalIdx+1])
+	outErrLevel := ae.inProfiler.Classify(t, outThruTotalIdx+2, outVec[inThruTotalIdx+2], outAnom, outVal[inThruTotalIdx+2])
+
+	return ApplicationCasePattern{
+		appInRequests:    inReqLevel,
+		appInThroughput:  inThruLevel,
+		appInLatency:     inLatLevel,
+		appInErrors:      inErrLevel,
+		appCPU:           appCPULevel,
+		appMem:           appMemLevel,
+		hostCPU:          hostCPULevel,
+		hostMem:          hostMemLevel,
+		appOutRequests:   outReqLevel,
+		appOutThroughput: outThruLevel,
+		appOutLatency:    outLatLevel,
+		appOutErrors:     outErrLevel,
+	}
+}
+
+func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *ApplicationCases) *ApplicationCaseVerdict {
+
+	// sort frames by time stamp
+	slices.SortFunc(frames, func(a *ApplicationFrame, b *ApplicationFrame) int {
+		return cmp.Compare(a.Stamp(), b.Stamp())
+	})
+
+	for _, f := range frames {
+
+		pattern := ae.predictPattern(f)
+		cs, score := cases.Match(pattern)
+		if cs == nil || score == -1 {
+			continue
+		}
+		//
+	}
+
+	/*temp := []*ApplicationFrame{}
+
+
+
+	stamps := []common.Stamp{}
+	inData := [][]float64{}
+	satData := [][]float64{}
+	outData := [][]float64{}
+
+	for _, f := range temp {
+
+		iv, sv, ov, _, _, _ := ae.extractVectors(f)
+		stamps = append(stamps, f.stamp)
+		inData = append(inData, iv)
+		satData = append(satData, sv)
+		outData = append(outData, ov)
+		times = append(times, common.StampToTime(f.stamp))
+	}*/
+
+	return &ApplicationCaseVerdict{
+		//
+	}
 }
 
 func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {

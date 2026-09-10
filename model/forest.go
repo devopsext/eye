@@ -63,6 +63,8 @@ type ForestModel struct {
 	observability *common.Observability
 	logger        sreCommon.Logger
 
+	appCases *forest.ApplicationCases
+
 	engines    *ttlcache.Cache[common.Hash, ForestModelEngine]
 	detections *ForestModelDetections
 }
@@ -402,26 +404,6 @@ func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Fo
 	return nil
 }
 
-func NewForestModelData(logger sreCommon.Logger, name string, cases *common.Cases,
-	ttl time.Duration, concurrency int, mass, false float64) *ForestModelData {
-
-	fd := &ForestModelData{
-		logger:      logger,
-		name:        name,
-		concurrency: concurrency,
-		mass:        mass,
-		false:       false,
-	}
-
-	loader := ttlcache.LoaderFunc[common.Hash, *iforest.Forest](fd.loadForest)
-
-	fd.items = ttlcache.New(
-		ttlcache.WithTTL[common.Hash, *iforest.Forest](ttl),
-		ttlcache.WithLoader(ttlcache.NewSuppressedLoader(loader, nil)),
-	)
-	return fd
-}
-
 // ForestModelDetection
 
 func (fd *ForestModelDetection) ID() string {
@@ -651,7 +633,8 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 		gr.Go(func() error {
 
 			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions)
-			err := engine.Load()
+
+			err := engine.LoadData()
 			if err != nil {
 				errs <- err
 				return nil
@@ -666,7 +649,6 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 				errs <- err
 				return nil
 			}
-			fm.engines.Set(hash, engine.Clone(), ttlcache.DefaultTTL)
 			return nil
 		})
 	}
@@ -724,33 +706,40 @@ func (fm *ForestModel) detect(data common.DataSourceData) error {
 	gr := &errgroup.Group{}
 	gr.SetLimit(fm.options.Concurrency)
 	errs := make(chan error, len(appFrames)+len(hostFrames))
+	verdicts := &sync.Map{}
 
 	// run apps engine
 	for hash, frames := range appFrames {
 
 		gr.Go(func() error {
 
-			item := fm.engines.Get(hash)
-			if item == nil {
-				return nil
-			}
-
 			var engine *forest.ApplicationEngine
-			val := item.Value()
-			if utils.IsEmpty(val) {
-				engine = forest.LoadApplicationEngine(hash, &fm.options.ApplicationOptions)
-			} else {
-				e, ok := val.(*forest.ApplicationEngine)
-				if !ok {
-					return nil
+
+			item := fm.engines.Get(hash)
+			if item != nil {
+				val := item.Value()
+				if !utils.IsEmpty(val) {
+					e, ok := val.(*forest.ApplicationEngine)
+					if !ok {
+						return nil
+					}
+					engine = e
 				}
-				engine = e
 			}
 
 			if engine == nil {
-				return nil
+				engine = forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions)
+				err := engine.LoadForest()
+				if err != nil {
+					errs <- err
+					return nil
+				}
+				fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
 			}
-			engine.Diagnose(frames)
+			verdict := engine.Diagnose(frames, fm.appCases)
+			if verdict != nil {
+				verdicts.Store(hash, verdict)
+			}
 			return nil
 		})
 	}
@@ -786,12 +775,13 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 	return nil
 }
 
-func NewForestModel(options ForestModelOptions, cases *common.Cases, observability *common.Observability) *ForestModel {
+func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
 
 	return &ForestModel{
 		options:       options,
 		observability: observability,
 		logger:        observability.Logs(),
+		appCases:      forest.NewApplicationCases(),
 		engines: ttlcache.New(
 			ttlcache.WithTTL[common.Hash, ForestModelEngine](common.DefaultTTL(options.EngineTTL, 1*time.Hour)),
 		),
