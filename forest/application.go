@@ -18,15 +18,15 @@ import (
 )
 
 type ApplicationCasePattern struct {
-	appInRequests   common.CaseLevel
-	appInThroughput common.CaseLevel
-	appInLatency    common.CaseLevel
-	appInErrors     common.CaseLevel
+	inRequests   common.CaseLevel
+	inThroughput common.CaseLevel
+	inLatency    common.CaseLevel
+	inErrors     common.CaseLevel
 
-	appOutRequests   common.CaseLevel
-	appOutThroughput common.CaseLevel
-	appOutLatency    common.CaseLevel
-	appOutErrors     common.CaseLevel
+	outRequests   common.CaseLevel
+	outThroughput common.CaseLevel
+	outLatency    common.CaseLevel
+	outErrors     common.CaseLevel
 
 	appCPU  common.CaseLevel
 	appMem  common.CaseLevel
@@ -56,6 +56,7 @@ type ApplicationTrafficValues map[common.TrafficKind]*common.Traffic
 type ApplicationLatencyValue *common.Latency
 type ApplicationErrorsValue *common.Errors
 type ApplicationSaturationValue *common.Saturation
+type HostSaturationValue *common.Saturation
 
 type ApplicationFrames []*ApplicationFrame
 
@@ -69,8 +70,8 @@ type ApplicationFrame struct {
 	//
 	appCPU  ApplicationSaturationValue
 	appMem  ApplicationSaturationValue
-	hostCPU ApplicationSaturationValue
-	hostMem ApplicationSaturationValue
+	hostCPU HostSaturationValue
+	hostMem HostSaturationValue
 	//
 	outRequests   ApplicationTrafficValues
 	outThroughput ApplicationTrafficValues
@@ -123,6 +124,7 @@ type ApplicationEngineOptions struct {
 	OutlierRatio    float64
 	TrafficMaxSlots int
 	RangeMultiplier float64
+	MinScore        int
 }
 
 type ApplicationEngineFileIncoming struct {
@@ -180,14 +182,14 @@ const (
 
 func (c *ApplicationCase) SamePattern(pattern ApplicationCasePattern) bool {
 
-	return c.pattern.appInRequests == pattern.appInRequests &&
-		c.pattern.appInThroughput == pattern.appInThroughput &&
-		c.pattern.appInLatency == pattern.appInLatency &&
-		c.pattern.appInErrors == pattern.appInErrors &&
-		c.pattern.appOutRequests == pattern.appOutRequests &&
-		c.pattern.appOutThroughput == pattern.appOutThroughput &&
-		c.pattern.appOutLatency == pattern.appOutLatency &&
-		c.pattern.appOutErrors == pattern.appOutErrors &&
+	return c.pattern.inRequests == pattern.inRequests &&
+		c.pattern.inThroughput == pattern.inThroughput &&
+		c.pattern.inLatency == pattern.inLatency &&
+		c.pattern.inErrors == pattern.inErrors &&
+		c.pattern.outRequests == pattern.outRequests &&
+		c.pattern.outThroughput == pattern.outThroughput &&
+		c.pattern.outLatency == pattern.outLatency &&
+		c.pattern.outErrors == pattern.outErrors &&
 		c.pattern.appCPU == pattern.appCPU &&
 		c.pattern.appMem == pattern.appMem &&
 		c.pattern.hostCPU == pattern.hostCPU &&
@@ -244,18 +246,18 @@ func (ac *ApplicationCases) getScore(observed, expected ApplicationCasePattern) 
 		}
 	}
 
-	check(observed.appInRequests, expected.appInRequests)
-	check(observed.appInThroughput, expected.appInThroughput)
-	check(observed.appInLatency, expected.appInLatency)
-	check(observed.appInErrors, expected.appInErrors)
+	check(observed.inRequests, expected.inRequests)
+	check(observed.inThroughput, expected.inThroughput)
+	check(observed.inLatency, expected.inLatency)
+	check(observed.inErrors, expected.inErrors)
 	check(observed.appCPU, expected.appCPU)
 	check(observed.appMem, expected.appMem)
 	check(observed.hostCPU, expected.hostCPU)
 	check(observed.hostMem, expected.hostMem)
-	check(observed.appOutRequests, expected.appOutRequests)
-	check(observed.appOutThroughput, expected.appOutThroughput)
-	check(observed.appOutLatency, expected.appOutLatency)
-	check(observed.appOutErrors, expected.appOutErrors)
+	check(observed.outRequests, expected.outRequests)
+	check(observed.outThroughput, expected.outThroughput)
+	check(observed.outLatency, expected.outLatency)
+	check(observed.outErrors, expected.outErrors)
 
 	return score
 }
@@ -285,18 +287,18 @@ func NewApplicationCases() *ApplicationCases {
 		"All metrics inside baseline quantiles",
 		"Nominal operating conditions",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelNormal,
-			appOutThroughput: common.CaseLevelNormal,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelNormal,
+			outThroughput: common.CaseLevelNormal,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
@@ -304,18 +306,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Proportional out/in scaling without latency or error growth",
 		"Organic client traffic surge absorbed cleanly",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelHigh,
-			appOutThroughput: common.CaseLevelHigh,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelHigh,
+			outThroughput: common.CaseLevelHigh,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
@@ -323,18 +325,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Proportional traffic decline with stable latencies",
 		"Diurnal or scheduled off-peak traffic drop",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelLow,
-			appInThroughput:  common.CaseLevelLow,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelLow,
+			inThroughput:  common.CaseLevelLow,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
@@ -342,18 +344,18 @@ func NewApplicationCases() *ApplicationCases {
 		"High ingress with low egress and nominal latencies/errors",
 		"In-memory cache absorbing reads cleanly (e.g. Redis / CDN)",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
@@ -361,18 +363,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Metrics fully functional with saturation floor near 0% under lightweight async load",
 		"Efficient non-blocking event loop or runtime idling at true zero consumption",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelLow,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelLow,
-			appOutRequests:   common.CaseLevelNormal,
-			appOutThroughput: common.CaseLevelNormal,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelLow,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelLow,
+			outRequests:   common.CaseLevelNormal,
+			outThroughput: common.CaseLevelNormal,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
@@ -380,18 +382,18 @@ func NewApplicationCases() *ApplicationCases {
 		"All metrics idle down to baseline floor without errors",
 		"Clean cessation of incoming requests",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelLow,
-			appInThroughput:  common.CaseLevelLow,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelLow,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelLow,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelLow,
+			inThroughput:  common.CaseLevelLow,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelLow,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelLow,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
@@ -399,18 +401,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Zero ingress traffic with high CPU and high outbound traffic",
 		"Background job processing Kafka consumer drain batch sync",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelLow,
-			appInThroughput:  common.CaseLevelLow,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelHigh,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelHigh,
-			appOutThroughput: common.CaseLevelHigh,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelLow,
+			inThroughput:  common.CaseLevelLow,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelHigh,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelHigh,
+			outThroughput: common.CaseLevelHigh,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
@@ -418,18 +420,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Clean linear decline of traffic without error spike during deployment cycle",
 		"Target group registration draining or pod termination grace period",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelLow,
-			appInThroughput:  common.CaseLevelLow,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelLow,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelLow,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelLow,
+			inThroughput:  common.CaseLevelLow,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelLow,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelLow,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -437,18 +439,18 @@ func NewApplicationCases() *ApplicationCases {
 		"App CPU saturated while host CPU and memory remain normal",
 		"Container cgroup CPU quota reached or thread-pool exhaustion",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -456,18 +458,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Host CPU high but App CPU normal/low; outbound drops",
 		"External rogue process or container on host stealing CPU cores",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelHigh,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelHigh,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -475,18 +477,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Inbound errors high while inbound latency drops to minimum",
 		"Credential stuffing WAF blocking scraper flood 401/403/429",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -494,18 +496,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Inbound througput high with low requests and high memory saturation",
 		"Multipart file upload storm payload uncompressed JSON Slowloris attack",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelLow,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelHigh,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelHigh,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelLow,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelHigh,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelHigh,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -513,18 +515,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Inbound latency drops to zero with 200 OK and zero outbound calls",
 		"Auth middleware bypass regression empty body return cached mock leak",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelLow,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelLow,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelLow,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelLow,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -532,18 +534,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Outbound throughput spikes while Outbound requests and saturation remain normal",
 		"Unbounded query results large file downloads data exfiltration",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelNormal,
-			appOutThroughput: common.CaseLevelNormal,
-			appOutLatency:    common.CaseLevelHigh,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelNormal,
+			outThroughput: common.CaseLevelNormal,
+			outLatency:    common.CaseLevelHigh,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -551,18 +553,18 @@ func NewApplicationCases() *ApplicationCases {
 		"App memory pinned at high watermark with CPU spikes from GC threads",
 		"Full GC pause memory compaction freeze runtime heap lockup",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelHigh,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelHigh,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -570,18 +572,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Inbound errors up (499/408) with near-zero downstream impact",
 		"Client drops connection prematurely slow mobile networks",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelLow,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelLow,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelLow,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelLow,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -589,18 +591,18 @@ func NewApplicationCases() *ApplicationCases {
 		"App memory hits cgroup limit causing kernel page reclamation thrashing",
 		"Application heap/buffer leak approaching container limit / OOM-kill",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelHigh,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelHigh,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -608,18 +610,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Host memory high while App memory is normal; app starved of cache/buffers",
 		"Co-located container eating host RAM triggering kernel page scanning",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelHigh,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelHigh,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -627,18 +629,18 @@ func NewApplicationCases() *ApplicationCases {
 		"App memory pinned near 0% while App CPU is pinned at 100%",
 		"GOMEMLIMIT/heap target set too low; runtime in continuous GC thrash",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -646,18 +648,18 @@ func NewApplicationCases() *ApplicationCases {
 		"High inbound 499s while outbound traffic continues running normally",
 		"Missing context cancellation; backend work proceeds for cancelled client requests",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelHigh,
-			appOutThroughput: common.CaseLevelHigh,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelHigh,
+			outThroughput: common.CaseLevelHigh,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -665,18 +667,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Zero inbound traffic with high CPU and surging outbound broker retry errors",
 		"Unparseable queue message repeatedly nack-ed and redriven by workers",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelLow,
-			appInThroughput:  common.CaseLevelLow,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelHigh,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelHigh,
-			appOutThroughput: common.CaseLevelHigh,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelLow,
+			inThroughput:  common.CaseLevelLow,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelHigh,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelHigh,
+			outThroughput: common.CaseLevelHigh,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -684,18 +686,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Traffic flows normally but container cgroup exporter drops out",
 		"cgroup fs mount error kubelet stats provider stall or scraper timeout",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelUnknown,
-			appMem:           common.CaseLevelUnknown,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelNormal,
-			appOutThroughput: common.CaseLevelNormal,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelUnknown,
+			appMem:        common.CaseLevelUnknown,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelNormal,
+			outThroughput: common.CaseLevelNormal,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
@@ -703,18 +705,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Traffic and App metrics healthy but node-level hardware metrics missing",
 		"host exporter daemon down crash or host firewall drop",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelNormal,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelUnknown,
-			hostMem:          common.CaseLevelUnknown,
-			appOutRequests:   common.CaseLevelNormal,
-			appOutThroughput: common.CaseLevelNormal,
-			appOutLatency:    common.CaseLevelNormal,
-			appOutErrors:     common.CaseLevelNormal,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelNormal,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelUnknown,
+			hostMem:       common.CaseLevelUnknown,
+			outRequests:   common.CaseLevelNormal,
+			outThroughput: common.CaseLevelNormal,
+			outLatency:    common.CaseLevelNormal,
+			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
@@ -722,18 +724,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Outbound completely stopped but inbound returns fast healthy 200s",
 		"Circuit breaker tripped serving degraded local cache or empty response",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -741,18 +743,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Both App and Host CPU pinned near 100% while memory is stable",
 		"Inbound compute volume exceeded physical host CPU cores",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelHigh,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelHigh,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -760,18 +762,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Outbound latency/errors surge and backpressure into ingress",
 		"Downstream API DB lock contention or remote timeout",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelHigh,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelHigh,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -779,18 +781,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Extreme inbound latency with zero CPU and no 5xx errors",
 		"Deadlock mutex starvation connection pool leak uncompleted requests",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelNormal,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelNormal,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -798,18 +800,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Out requests to In requests ratio spikes far above historical norm",
 		"Cascading client retries or unbounded fan-out loops",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelHigh,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelHigh,
-			appOutThroughput: common.CaseLevelHigh,
-			appOutLatency:    common.CaseLevelHigh,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelHigh,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelHigh,
+			outThroughput: common.CaseLevelHigh,
+			outLatency:    common.CaseLevelHigh,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -817,37 +819,37 @@ func NewApplicationCases() *ApplicationCases {
 		"Outbound attempts stay up while outbound timeouts explode",
 		"Switch/router failure egress security group drop routing loop",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelNormal,
-			appOutThroughput: common.CaseLevelNormal,
-			appOutLatency:    common.CaseLevelHigh,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelNormal,
+			outThroughput: common.CaseLevelNormal,
+			outLatency:    common.CaseLevelHigh,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Host Memory Exhaustion / Swap Thrashing",
-		"Host memory exhausted causing OS page swapping; CPU drops due to I/O wait",
-		"Host swapping pages to disk; disk I/O blocks runloops across containers / processes",
+		"Host memory exhausted causing OS page swing; CPU drops due to I/O wait",
+		"Host swing pages to disk; disk I/O blocks runloops across containers / processes",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelHigh,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelHigh,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -855,18 +857,18 @@ func NewApplicationCases() *ApplicationCases {
 		"App memory drops to near 0% after 100% breach; crash loop restarts",
 		"Kernel OOM-killer terminated container (SIGKILL); pod restarting",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -874,18 +876,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Host memory pinned at 100%; kswapd pegs Host CPU at 100%; total freeze",
 		"Host physical RAM exhausted; kswapd thrashing kernel page alloc locks",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelHigh,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelHigh,
-			hostMem:          common.CaseLevelHigh,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelHigh,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelHigh,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelHigh,
+			hostMem:       common.CaseLevelHigh,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelHigh,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -893,18 +895,18 @@ func NewApplicationCases() *ApplicationCases {
 		"App memory flat near 0% with 0% CPU; incoming requests fail instantly (502)",
 		"Process deadlocked in pre-main init phase; runtime heap unallocated",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelLow,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelLow,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -912,18 +914,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Host memory at 100% with random service restarts and network drops",
 		"OOM-killer killing random background processes and sidecars",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelHigh,
-			hostMem:          common.CaseLevelHigh,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelHigh,
+			hostMem:       common.CaseLevelHigh,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -931,18 +933,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Fast failure on inbound/outbound connection creation with normal CPU/memory",
 		"EMFILE or EADDRNOTAVAIL socket leak connection pool exhausting ulimit",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelLow,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelNormal,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelNormal,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelLow,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelNormal,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelNormal,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -950,18 +952,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Outbound traffic drops with fast DNS resolution failures; ingress times out",
 		"CoreDNS outage VPC resolver throttle corrupted resolv.conf",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelHigh,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelHigh,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -969,18 +971,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Latency surges despite zero App/Host CPU usage; hypervisor steal time pinned",
 		"AWS burst credit balance exhaustion or noisy hypervisor neighbor",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelNormal,
-			appInThroughput:  common.CaseLevelNormal,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelLow,
-			appMem:           common.CaseLevelNormal,
-			hostCPU:          common.CaseLevelLow,
-			hostMem:          common.CaseLevelNormal,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelNormal,
+			inThroughput:  common.CaseLevelNormal,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelLow,
+			appMem:        common.CaseLevelNormal,
+			hostCPU:       common.CaseLevelLow,
+			hostMem:       common.CaseLevelNormal,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -988,18 +990,18 @@ func NewApplicationCases() *ApplicationCases {
 		"Severe inbound queueing and outbound collapse while saturation is entirely unknown",
 		"exporter or cgroup telemetry crash during critical CPU/memory exhaustion",
 		ApplicationCasePattern{
-			appInRequests:    common.CaseLevelHigh,
-			appInThroughput:  common.CaseLevelHigh,
-			appInLatency:     common.CaseLevelHigh,
-			appInErrors:      common.CaseLevelHigh,
-			appCPU:           common.CaseLevelUnknown,
-			appMem:           common.CaseLevelUnknown,
-			hostCPU:          common.CaseLevelUnknown,
-			hostMem:          common.CaseLevelUnknown,
-			appOutRequests:   common.CaseLevelLow,
-			appOutThroughput: common.CaseLevelLow,
-			appOutLatency:    common.CaseLevelLow,
-			appOutErrors:     common.CaseLevelLow,
+			inRequests:    common.CaseLevelHigh,
+			inThroughput:  common.CaseLevelHigh,
+			inLatency:     common.CaseLevelHigh,
+			inErrors:      common.CaseLevelHigh,
+			appCPU:        common.CaseLevelUnknown,
+			appMem:        common.CaseLevelUnknown,
+			hostCPU:       common.CaseLevelUnknown,
+			hostMem:       common.CaseLevelUnknown,
+			outRequests:   common.CaseLevelLow,
+			outThroughput: common.CaseLevelLow,
+			outLatency:    common.CaseLevelLow,
+			outErrors:     common.CaseLevelLow,
 		})
 
 	return cases
@@ -1017,24 +1019,6 @@ func (tvs ApplicationTrafficValues) Sum() (common.Traffic, bool) {
 		}
 	}
 	return tot, hasValid
-}
-
-func (tvs ApplicationTrafficValues) Max() (common.Traffic, bool) {
-	maxVal := -1.0
-	hasValid := false
-	for _, v := range tvs {
-		if v != nil {
-			value := *v
-			if !hasValid || value > maxVal {
-				maxVal = value
-			}
-			hasValid = true
-		}
-	}
-	if !hasValid {
-		return 0.0, false
-	}
-	return maxVal, true
 }
 
 // ApplicationFrame
@@ -1812,18 +1796,158 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) Application
 	outErrLevel := ae.inProfiler.Classify(t, outThruTotalIdx+2, outVec[inThruTotalIdx+2], outAnom, outVal[inThruTotalIdx+2])
 
 	return ApplicationCasePattern{
-		appInRequests:    inReqLevel,
-		appInThroughput:  inThruLevel,
-		appInLatency:     inLatLevel,
-		appInErrors:      inErrLevel,
-		appCPU:           appCPULevel,
-		appMem:           appMemLevel,
-		hostCPU:          hostCPULevel,
-		hostMem:          hostMemLevel,
-		appOutRequests:   outReqLevel,
-		appOutThroughput: outThruLevel,
-		appOutLatency:    outLatLevel,
-		appOutErrors:     outErrLevel,
+		inRequests:    inReqLevel,
+		inThroughput:  inThruLevel,
+		inLatency:     inLatLevel,
+		inErrors:      inErrLevel,
+		appCPU:        appCPULevel,
+		appMem:        appMemLevel,
+		hostCPU:       hostCPULevel,
+		hostMem:       hostMemLevel,
+		outRequests:   outReqLevel,
+		outThroughput: outThruLevel,
+		outLatency:    outLatLevel,
+		outErrors:     outErrLevel,
+	}
+}
+
+func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) *ApplicationFrame {
+
+	sumTraffic := func(values, sum ApplicationTrafficValues, count map[common.TrafficKind]int) {
+
+		for k, v := range values {
+			vr := sum[k]
+			if v != nil {
+				vn := *v
+				if vr != nil {
+					vn = vn + *vr
+				}
+				sum[k] = &vn
+				vc, ok := count[k]
+				if !ok {
+					count[k] = 1
+				} else {
+					count[k] = vc + 1
+				}
+			}
+		}
+	}
+
+	avgTraffic := func(sum ApplicationTrafficValues, count map[common.TrafficKind]int) ApplicationTrafficValues {
+
+		r := make(ApplicationTrafficValues)
+		for k, v := range sum {
+
+			c, ok := count[k]
+			if v == nil || !ok {
+				continue
+			}
+			v1 := common.Traffic(float64(*v) / float64(c))
+			r[k] = &v1
+		}
+		return r
+	}
+
+	maxLatency := func(value ApplicationLatencyValue, max ApplicationLatencyValue) ApplicationLatencyValue {
+
+		if value != nil {
+			vl := max
+			vn := *value
+			if vl == nil || (vl != nil && vn > *vl) {
+				return &vn
+			}
+		}
+		return max
+	}
+
+	maxErrors := func(value ApplicationErrorsValue, max ApplicationErrorsValue) ApplicationErrorsValue {
+
+		if value != nil {
+			ve := max
+			vn := *value
+			if ve == nil || (ve != nil && vn > *ve) {
+				return &vn
+			}
+		}
+		return max
+	}
+
+	maxAppSaturation := func(value ApplicationSaturationValue, max ApplicationSaturationValue) ApplicationSaturationValue {
+
+		if value != nil {
+			vs := max
+			vn := *value
+			if vs == nil || (vs != nil && vn > *vs) {
+				return &vn
+			}
+		}
+		return max
+	}
+
+	maxHostSaturation := func(value HostSaturationValue, max HostSaturationValue) HostSaturationValue {
+
+		if value != nil {
+			vs := max
+			vn := *value
+			if vs == nil || (vs != nil && vn > *vs) {
+				return &vn
+			}
+		}
+		return max
+	}
+
+	sumInRequests := make(ApplicationTrafficValues)
+	cntInRequests := make(map[common.TrafficKind]int)
+	sumInThroughput := make(ApplicationTrafficValues)
+	cntInThroughput := make(map[common.TrafficKind]int)
+	var maxInLatency ApplicationLatencyValue
+	var maxInErrors ApplicationErrorsValue
+
+	var maxAppCPU ApplicationSaturationValue
+	var maxAppMem ApplicationSaturationValue
+	var maxHostCPU HostSaturationValue
+	var maxHostMem HostSaturationValue
+
+	sumOutRequests := make(ApplicationTrafficValues)
+	cntOutRequests := make(map[common.TrafficKind]int)
+	sumOutThroughput := make(ApplicationTrafficValues)
+	cntOutThroughput := make(map[common.TrafficKind]int)
+	var maxOutLatency ApplicationLatencyValue
+	var maxOutErrors ApplicationErrorsValue
+
+	for _, f := range frames {
+
+		sumTraffic(f.inRequests, sumInRequests, cntInRequests)
+		sumTraffic(f.inThroughput, sumInThroughput, cntInThroughput)
+		maxInLatency = maxLatency(f.inLatency, maxInLatency)
+		maxInErrors = maxErrors(f.inErrors, maxInErrors)
+
+		maxAppCPU = maxAppSaturation(f.appCPU, maxAppCPU)
+		maxAppMem = maxAppSaturation(f.appMem, maxAppMem)
+		maxHostCPU = maxHostSaturation(f.hostCPU, maxHostCPU)
+		maxHostMem = maxHostSaturation(f.hostMem, maxHostMem)
+
+		sumTraffic(f.outRequests, sumOutRequests, cntOutRequests)
+		sumTraffic(f.outThroughput, sumOutThroughput, cntOutThroughput)
+		maxOutLatency = maxLatency(f.outLatency, maxOutLatency)
+		maxOutErrors = maxErrors(f.outErrors, maxOutErrors)
+	}
+
+	return &ApplicationFrame{
+		inRequests:   avgTraffic(sumInRequests, cntInRequests),
+		inThroughput: avgTraffic(sumInThroughput, cntInThroughput),
+		inLatency:    maxInLatency,
+		inErrors:     maxInErrors,
+
+		appCPU:  maxAppCPU,
+		appMem:  maxAppMem,
+		hostCPU: maxHostCPU,
+		hostMem: maxHostMem,
+
+		outRequests:   avgTraffic(sumOutRequests, cntOutRequests),
+		outThroughput: avgTraffic(sumOutThroughput, cntOutThroughput),
+		outLatency:    maxOutLatency,
+		outErrors:     maxOutErrors,
 	}
 }
 
@@ -1834,37 +1958,21 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
-	for _, f := range frames {
+	frame := ae.aggregateFrames(frames)
+	if frame == nil {
+		return nil
+	}
+	frame.stamp = common.TimeToStamp(time.Now())
 
-		pattern := ae.predictPattern(f)
-		cs, score := cases.Match(pattern)
-		if cs == nil || score == -1 {
-			continue
-		}
-		//
+	pattern := ae.predictPattern(frame)
+	cs, score := cases.Match(pattern)
+	if cs == nil || score < ae.options.MinScore {
+		return nil
 	}
 
-	/*temp := []*ApplicationFrame{}
-
-
-
-	stamps := []common.Stamp{}
-	inData := [][]float64{}
-	satData := [][]float64{}
-	outData := [][]float64{}
-
-	for _, f := range temp {
-
-		iv, sv, ov, _, _, _ := ae.extractVectors(f)
-		stamps = append(stamps, f.stamp)
-		inData = append(inData, iv)
-		satData = append(satData, sv)
-		outData = append(outData, ov)
-		times = append(times, common.StampToTime(f.stamp))
-	}*/
-
 	return &ApplicationCaseVerdict{
-		//
+		Case:  cs,
+		Score: score,
 	}
 }
 
@@ -1889,9 +1997,4 @@ func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *Ap
 		satProfiler: NewApplicationProfiler(options.RangeMultiplier),
 		outProfiler: NewApplicationProfiler(options.RangeMultiplier),
 	}
-}
-
-func LoadApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {
-
-	return &ApplicationEngine{}
 }

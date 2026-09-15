@@ -108,6 +108,7 @@ var forestModelOptions = model.ForestModelOptions{
 		OutlierRatio:    envGet("FOREST_MODEL_APPLICATION_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
 		TrafficMaxSlots: envGet("FOREST_MODEL_APPLICATION_TRAFFIC_MAX_SLOTS", model.ForestModelApplicationMaxSlots).(int),
 		RangeMultiplier: envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", model.ForestModelApplicationRangeMultiplier).(float64),
+		MinScore:        envGet("FOREST_MODEL_APPLICATION_MIN_SCORE", 6).(int),
 	},
 }
 
