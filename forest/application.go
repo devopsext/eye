@@ -148,6 +148,7 @@ type ApplicationEngineFileSaturation struct {
 
 type ApplicationEngineFileV001 struct {
 	Stamps     []common.Stamp
+	Minutes    []int
 	Incoming   ApplicationEngineFileIncoming
 	Saturation ApplicationEngineFileSaturation
 	Outgoing   ApplicationEngineFileOutgoing
@@ -164,6 +165,7 @@ type ApplicationEngine struct {
 	outThruSlots *ApplicationTrafficSlots
 
 	stamps  []common.Stamp
+	minutes []int
 	inData  [][]float64
 	satData [][]float64
 	outData [][]float64
@@ -1320,6 +1322,7 @@ func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Ti
 	return meds
 }
 
+/*
 func (ae *ApplicationEngine) extractTimeVectors(t time.Time) []float64 {
 
 	m := float64(t.Minute()) + float64(t.Second())/60.0
@@ -1336,6 +1339,38 @@ func (ae *ApplicationEngine) extractTimeVectors(t time.Time) []float64 {
 		math.Sin(twoPi * md / 31.0), math.Cos(twoPi * md / 31.0), // Day of Month
 	}
 }
+*/
+
+func (ae *ApplicationEngine) extractTimeVectors(t time.Time) []float64 {
+
+	t = t.UTC()
+
+	m := float64(t.Minute())
+	h := float64(t.Hour()) + m/60.0
+	wd := float64(t.Weekday()) + h/24.0
+	md := float64(t.Day() - 1)
+
+	twoPi := 2.0 * math.Pi
+
+	return []float64{
+		math.Sin(twoPi * m / 60.0), math.Cos(twoPi * m / 60.0), // Minute of hour (0-59)
+		math.Sin(twoPi * h / 24.0), math.Cos(twoPi * h / 24.0), // Hour of day (0-23)
+		math.Sin(twoPi * wd / 7.0), math.Cos(twoPi * wd / 7.0), // Weekday (0-6)
+		math.Sin(twoPi * md / 31.0), math.Cos(twoPi * md / 31.0), // Day of month (1-31)
+	}
+}
+
+func (ae *ApplicationEngine) weeklyMinuteKey(t time.Time) int {
+
+	t = t.UTC()
+
+	weekday := int(t.Weekday()) // Sunday = 0, Monday = 1, ..., Saturday = 6
+	hour := t.Hour()            // 0 - 23
+	minute := t.Minute()        // 0 - 59
+
+	return (weekday * 24 * 60) + (hour * 60) + minute
+}
+
 func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool) {
 
 	t := common.StampToTime(f.stamp)
@@ -1528,10 +1563,10 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 
 func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL, tR []common.Stamp, inL, satL, outL, inR, satR, outR [][]float64) {
 
-	ltimes := len(ae.stamps)
-	if ltimes != len(ae.inData) ||
-		ltimes != len(ae.satData) ||
-		ltimes != len(ae.outData) {
+	lstamps := len(ae.stamps)
+	if lstamps != len(ae.inData) ||
+		lstamps != len(ae.satData) ||
+		lstamps != len(ae.outData) {
 		return tL, tR, inL, satL, outL, inR, satR, outR
 	}
 
@@ -1603,7 +1638,15 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 		inData = append(inData, iv)
 		satData = append(satData, sv)
 		outData = append(outData, ov)
-		times = append(times, common.StampToTime(f.stamp))
+
+		t := common.StampToTime(f.stamp)
+		times = append(times, t)
+
+		key := ae.weeklyMinuteKey(t)
+		index := slices.Index(ae.minutes, key)
+		if index == -1 {
+			ae.minutes = append(ae.minutes, key)
+		}
 	}
 
 	ae.stamps = append(tL, stamps...)
@@ -1660,13 +1703,14 @@ func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, kinds []Applicatio
 	}
 
 	ae.stamps = engineFile.Stamps
+	ae.minutes = engineFile.Minutes
 
 	if utils.Contains(kinds, ApplicationEngineFileLoadKindData) {
 
-		ltimes := len(engineFile.Stamps)
-		if ltimes != len(engineFile.Incoming.Data) ||
-			ltimes != len(engineFile.Saturation.Data) ||
-			ltimes != len(engineFile.Outgoing.Data) {
+		lstamps := len(engineFile.Stamps)
+		if lstamps != len(engineFile.Incoming.Data) ||
+			lstamps != len(engineFile.Saturation.Data) ||
+			lstamps != len(engineFile.Outgoing.Data) {
 			return nil
 		}
 		ae.inData = engineFile.Incoming.Data
@@ -1756,7 +1800,8 @@ func (ae *ApplicationEngine) Save() error {
 	}
 
 	engineFile := ApplicationEngineFileV001{
-		Stamps: ae.stamps,
+		Stamps:  ae.stamps,
+		Minutes: ae.minutes,
 		Incoming: ApplicationEngineFileIncoming{
 			ReqSlots:  ae.inReqSlots,
 			ThruSlots: ae.inThruSlots,
@@ -1995,9 +2040,28 @@ func (ae *ApplicationEngine) Ready() bool {
 	return true
 }
 
+func (ae *ApplicationEngine) Exists(stamp common.Stamp) bool {
+
+	if len(ae.minutes) == 0 {
+		return false
+	}
+
+	t := common.StampToTime(stamp)
+	key := ae.weeklyMinuteKey(t)
+	index := slices.Index(ae.minutes, key)
+
+	return index != -1
+}
+
 func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *ApplicationCases) *ApplicationCaseVerdict {
 
-	if !ae.Ready() {
+	if len(frames) == 0 || !ae.Ready() {
+		return nil
+	}
+
+	stamp := common.TimeToStamp(time.Now())
+
+	if !ae.Exists(stamp) {
 		return nil
 	}
 
@@ -2010,7 +2074,7 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 	if frame == nil {
 		return nil
 	}
-	frame.stamp = common.TimeToStamp(time.Now())
+	frame.stamp = stamp
 
 	pattern := ae.predictPattern(frame)
 	cs, score := cases.Match(pattern)
@@ -2018,12 +2082,15 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 		return nil
 	}
 
+	begin := frames[0].Stamp()
+	end := frames[len(frames)-1].Stamp()
+
 	return &ApplicationCaseVerdict{
 		frame: frame,
 		acase: cs,
 		score: score,
-		begin: frames[0].Stamp(),
-		end:   frames[len(frames)-1].Stamp(),
+		begin: begin,
+		end:   end,
 	}
 }
 
