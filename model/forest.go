@@ -41,11 +41,18 @@ type ForestModelData struct {
 	items       *ttlcache.Cache[common.Hash, *iforest.Forest]
 }
 
+type ForestModelVerdict interface {
+	Name() string
+	Description() string
+	RootCause() string
+}
+
 type ForestModelDetection struct {
-	hash  common.Hash
-	begin common.Stamp
-	end   common.Stamp
-	deps  *common.Dependencies
+	hash    common.Hash
+	verdict ForestModelVerdict
+	begin   common.Stamp
+	end     common.Stamp
+	deps    *common.Dependencies
 }
 
 type ForestModelDetections struct {
@@ -82,328 +89,6 @@ type ForestModelFileData struct {
 	Times []common.Stamp
 }
 
-func (fd *ForestModelData) setMassDetections(found []*ForestModelDetection, detections *ForestModelDetections) {
-
-	hash := common.Hash(0)
-	min := common.Stamp(math.MaxUint64)
-	max := common.Stamp(0)
-	deps := common.NewDependencies()
-
-	for _, d := range found {
-
-		h := d.hash
-		mi := d.begin
-		ma := d.end
-
-		if mi < min {
-			hash = h
-			min = mi
-		}
-		if ma > max {
-			max = ma
-		}
-		deps.AddOrUpdate(h, nil)
-	}
-
-	if hash == 0 {
-		return
-	}
-	detections.AddOrUpdate(hash, min, max, deps)
-}
-
-func (fd *ForestModelData) findSimilar(measurements *common.Measurements, hash common.Hash, stamp common.Stamp) []common.Hash {
-
-	r := []common.Hash{}
-	hashes := []common.Hash{}
-
-	// find signal for hash
-	signal := measurements.FindSignal(stamp, hash)
-	if utils.IsEmpty(signal) {
-		return r
-	}
-
-	// gather all similar hashes, apps mostly
-	as := signal.AsApplicationSignal()
-	if as != nil {
-		if as.Application() > 0 {
-			hashes = append(hashes, as.Application())
-		}
-	}
-
-	hs := signal.AsHostSignal()
-	if hs != nil {
-		if hs.Hash() > 0 {
-			hashes = append(hashes, hs.Hash())
-		}
-	}
-
-	if len(hashes) == 0 {
-		return r
-	}
-
-	// find similar signals based on similar hashes
-	signals := measurements.FindSignals(stamp, hashes)
-
-	for _, signal := range signals {
-		r = append(r, signal.Hash())
-	}
-	return r
-}
-
-func (fd *ForestModelData) findSimilars(measurements *common.Measurements, found []*ForestModelDetection, hash common.Hash, stamps []common.Stamp) []common.Hash {
-
-	r := []common.Hash{}
-
-	for _, stamp := range stamps {
-
-		similars := fd.findSimilar(measurements, hash, stamp)
-		for _, h := range similars {
-
-			if utils.Contains(r, h) {
-				continue
-			}
-
-			// check if it's in found
-			exists := false
-			for _, f := range found {
-				if f == nil {
-					continue
-				}
-				if f.hash == h {
-					exists = true
-					break
-				}
-			}
-
-			// skip if it's not in found
-			if !exists {
-				continue
-			}
-
-			r = append(r, h)
-		}
-	}
-	return r
-}
-
-func (fd *ForestModelData) findDependecies(measurements *common.Measurements,
-	found map[common.Hash]*common.Dependencies,
-	hashes []common.Hash, stamps []common.Stamp) *common.Dependencies {
-
-	if len(hashes) == 0 {
-		return nil
-	}
-
-	r := common.NewDependencies()
-
-	required := []common.Hash{}
-	rest := make(map[common.Hash]*common.Dependencies)
-
-	// find out which are already exists
-	for _, h := range hashes {
-		ds, ok := found[h]
-		if ok {
-			rest[h] = ds
-			continue
-		}
-		required = append(required, h)
-	}
-
-	// find only required dependecies
-	if len(required) > 0 {
-		for _, stamp := range stamps {
-
-			deps := measurements.Dependencies(stamp, required)
-			if deps == nil {
-				continue
-			}
-
-			for h, ds := range deps.Items() {
-				found[h] = ds
-				r.AddOrUpdate(h, ds)
-			}
-		}
-	}
-
-	// add the rest
-	for h, ds := range rest {
-		r.AddOrUpdate(h, ds)
-	}
-
-	return r
-}
-
-func (fd *ForestModelData) setHashDetections(found []*ForestModelDetection, detections *ForestModelDetections, dsd common.DataSourceData) {
-
-	measurements := dsd.Measurements()
-	names := dsd.Names()
-	temp := make(map[common.Hash]*common.Dependencies)
-
-	for _, d := range found {
-
-		hash := d.hash
-		min := d.begin
-		max := d.end
-
-		t1 := common.StampToTime(min)
-		t2 := common.StampToTime(max)
-
-		hn := names.FindByHash(hash)
-		similars := fd.findSimilars(measurements, found, hash, []common.Stamp{min, max})
-
-		fd.logger.Debug("%s: Found detection %s (similar %d) duration %s...", fd.name, hn, len(similars), t2.Sub(t1))
-
-		deps := fd.findDependecies(measurements, temp, similars, []common.Stamp{min, max})
-		detections.AddOrUpdate(hash, min, max, deps)
-	}
-}
-
-func (fd *ForestModelData) detect(dsd common.DataSourceData, detections *ForestModelDetections, filter []string) error {
-
-	/*measurements := dsd.Measurements()
-
-	hashes := fd.findHashes(dsd.Names(), filter)
-	data, times := fd.prepare(measurements, hashes)
-	if len(data) == 0 {
-		return nil
-	}
-
-	gr := &errgroup.Group{}
-	gr.SetLimit(fd.concurrency)
-
-	errs := make(chan error, len(data))
-
-	found := &sync.Map{}
-	var size atomic.Int32
-
-	for h, d := range data {
-
-		gr.Go(func() error {
-
-			item := fd.items.Get(h)
-			if item == nil {
-				return nil
-			}
-
-			f := item.Value()
-			if f == nil {
-				return nil
-			}
-
-			labels, scores, err := f.Predict(d)
-			if err != nil {
-				errs <- err
-				return nil
-			}
-
-			stamps := []common.Stamp{}
-			for i, label := range labels {
-
-				detected := label == 1
-				if !detected {
-					continue
-				}
-
-				timeExists := len(times[h]) > i
-				scoreExists := len(scores) > i
-
-				if !timeExists || !scoreExists {
-					continue
-				}
-				stamps = append(stamps, times[h][i])
-			}
-			if len(stamps) > 0 {
-				found.Store(h, stamps)
-				size.Add(1)
-			}
-			return nil
-		})
-	}
-	gr.Wait()
-	close(errs)
-
-	all := []error{}
-	for e := range errs {
-		all = append(all, e)
-	}
-	err := errors.Join(all...)
-
-	l1 := size.Load()
-	l2 := int32(len(data))
-
-	// if nothing happened => exit
-	if l1 == 0 {
-		return err
-	}
-
-	// if all triggered => false positive
-	if l1 == l2 {
-		return err
-	}
-
-	p := float64((l1 * 100) / l2)
-
-	// if false triggered => false positive
-	if p >= fd.false {
-		return err
-	}
-
-	temp := []*ForestModelDetection{}
-	found.Range(func(key, value any) bool {
-
-		hash := key.(common.Hash)
-		stamps := value.([]common.Stamp)
-		if len(stamps) == 0 {
-			return true
-		}
-		slices.Sort(stamps)
-		min := stamps[0]
-		max := stamps[len(stamps)-1]
-		temp = append(temp, NewForestModelDetection(hash, min, max, nil))
-		return true
-	})
-
-	// if mass triggered => only mass detection
-	if p >= fd.mass {
-		fd.setMassDetections(temp, detections)
-		return err
-	}
-
-	// if not mass triggered => per hash detection
-	fd.setHashDetections(temp, detections, dsd)
-	return err
-	*/
-	return nil
-}
-
-type ForestModelFileForest struct {
-	Forest *iforest.Forest
-}
-
-func (fd *ForestModelData) loadForest(c *ttlcache.Cache[common.Hash, *iforest.Forest], key common.Hash) *ttlcache.Item[common.Hash, *iforest.Forest] {
-
-	/*fpath := filepath.Join(fd.path, fmt.Sprintf("%d.data", key))
-
-	f, err := os.Open(fpath)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	br := bufio.NewReader(f)
-	decoder := gob.NewDecoder(br)
-
-	fmff := ForestModelFileForest{}
-	err = decoder.Decode(&fmff)
-	if err != nil {
-		return nil
-	}
-
-	item := c.Set(key, fmff.Forest, ttlcache.DefaultTTL)
-	return item*/
-	return nil
-}
-
 // ForestModelDetection
 
 func (fd *ForestModelDetection) ID() string {
@@ -415,18 +100,14 @@ func (fd *ForestModelDetection) Begin() common.Stamp {
 }
 
 func (fd *ForestModelDetection) End() common.Stamp {
-	return fd.end
+	return fd.begin
 }
 
-func (fd *ForestModelDetection) Cases() []common.Case {
-	return []common.Case{}
-}
-
-func NewForestModelDetection(hash common.Hash, begin, end common.Stamp, deps *common.Dependencies) *ForestModelDetection {
+func NewForestModelDetection(hash common.Hash, min, max common.Stamp, deps *common.Dependencies) *ForestModelDetection {
 	return &ForestModelDetection{
 		hash:  hash,
-		begin: begin,
-		end:   end,
+		begin: min,
+		end:   max,
 		deps:  deps,
 	}
 }
@@ -456,7 +137,7 @@ func (fd *ForestModelDetections) unsafeFind(hash common.Hash, min, max common.St
 	item := fd.items.Get(hash)
 	if item != nil {
 		d := item.Value()
-		if d != nil && d.begin <= min {
+		if d != nil && d.Begin() <= min {
 			return d
 		}
 	}
@@ -488,14 +169,17 @@ func (fd *ForestModelDetections) Find(hash common.Hash, min, max common.Stamp) *
 	return fd.unsafeFind(hash, min, max)
 }
 
-func (fd *ForestModelDetections) AddOrUpdate(hash common.Hash, min, max common.Stamp, deps *common.Dependencies) {
+func (fd *ForestModelDetections) AddOrUpdate(hash common.Hash, min, max common.Stamp, deps *common.Dependencies) (*ForestModelDetection, bool) {
 
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 
+	exists := true
+
 	d := fd.unsafeFind(hash, min, max)
 	if d == nil {
 		d = NewForestModelDetection(hash, min, max, deps)
+		exists = false
 	} else {
 		if d.begin > min {
 			d.begin = min
@@ -513,6 +197,7 @@ func (fd *ForestModelDetections) AddOrUpdate(hash common.Hash, min, max common.S
 		}
 	}
 	fd.items.Set(d.hash, d, ttlcache.DefaultTTL)
+	return d, exists
 }
 
 func (fd *ForestModelDetections) Size() int {
@@ -693,6 +378,192 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 	return nil
 }
 
+func (fm *ForestModel) setMassDetections(found []*ForestModelDetection) {
+
+	hash := common.Hash(0)
+	min := common.Stamp(math.MaxUint64)
+	max := common.Stamp(0)
+	deps := common.NewDependencies()
+
+	var first *ForestModelDetection
+
+	for _, d := range found {
+
+		h := d.hash
+		mi := d.Begin()
+		ma := d.End()
+
+		if mi < min {
+			first = d
+			hash = h
+			min = mi
+		}
+		if ma > max {
+			max = ma
+		}
+		deps.AddOrUpdate(h, nil)
+	}
+
+	if hash == 0 {
+		return
+	}
+	d, exists := fm.detections.AddOrUpdate(hash, min, max, deps)
+	if !exists && d != nil && first != nil {
+		d.verdict = first.verdict
+	}
+}
+
+func (fm *ForestModel) findDependecies(measurements *common.Measurements,
+	found map[common.Hash]*common.Dependencies,
+	hashes []common.Hash, stamps []common.Stamp) *common.Dependencies {
+
+	if len(hashes) == 0 {
+		return nil
+	}
+
+	r := common.NewDependencies()
+
+	required := []common.Hash{}
+	rest := make(map[common.Hash]*common.Dependencies)
+
+	// find out which are already exists
+	for _, h := range hashes {
+		ds, ok := found[h]
+		if ok {
+			rest[h] = ds
+			continue
+		}
+		required = append(required, h)
+	}
+
+	// find only required dependecies
+	if len(required) > 0 {
+		for _, stamp := range stamps {
+
+			deps := measurements.Dependencies(stamp, required)
+			if deps == nil {
+				continue
+			}
+
+			for h, ds := range deps.Items() {
+				found[h] = ds
+				r.AddOrUpdate(h, ds)
+			}
+		}
+	}
+
+	// add the rest
+	for h, ds := range rest {
+		r.AddOrUpdate(h, ds)
+	}
+
+	return r
+}
+
+func (fm *ForestModel) findSimilar(measurements *common.Measurements, hash common.Hash, stamp common.Stamp) []common.Hash {
+
+	r := []common.Hash{}
+	hashes := []common.Hash{}
+
+	// find signal for hash
+	signal := measurements.FindSignal(stamp, hash)
+	if utils.IsEmpty(signal) {
+		return r
+	}
+
+	// gather all similar hashes, apps mostly
+	as := signal.AsApplicationSignal()
+	if as != nil {
+		if as.Application() > 0 {
+			hashes = append(hashes, as.Application())
+		}
+	}
+
+	hs := signal.AsHostSignal()
+	if hs != nil {
+		if hs.Hash() > 0 {
+			hashes = append(hashes, hs.Hash())
+		}
+	}
+
+	if len(hashes) == 0 {
+		return r
+	}
+
+	// find similar signals based on similar hashes
+	signals := measurements.FindSignals(stamp, hashes)
+
+	for _, signal := range signals {
+		r = append(r, signal.Hash())
+	}
+	return r
+}
+
+func (fm *ForestModel) findSimilars(measurements *common.Measurements, found []*ForestModelDetection, hash common.Hash, stamps []common.Stamp) []common.Hash {
+
+	r := []common.Hash{}
+
+	for _, stamp := range stamps {
+
+		similars := fm.findSimilar(measurements, hash, stamp)
+		for _, h := range similars {
+
+			if utils.Contains(r, h) {
+				continue
+			}
+
+			// check if it's in found
+			exists := false
+			for _, f := range found {
+				if f == nil {
+					continue
+				}
+				if f.hash == h {
+					exists = true
+					break
+				}
+			}
+
+			// skip if it's not in found
+			if !exists {
+				continue
+			}
+
+			r = append(r, h)
+		}
+	}
+	return r
+}
+
+func (fm *ForestModel) setHashDetections(found []*ForestModelDetection, data common.DataSourceData) {
+
+	measurements := data.Measurements()
+	names := data.Names()
+	temp := make(map[common.Hash]*common.Dependencies)
+
+	for _, d := range found {
+
+		hash := d.hash
+		min := d.begin
+		max := d.end
+
+		hn := names.FindByHash(hash)
+		similars := fm.findSimilars(measurements, found, hash, []common.Stamp{min, max})
+
+		verdict := "none"
+		if !utils.IsEmpty(d.verdict) {
+			verdict = fmt.Sprintf("%s / %s", d.verdict.Name(), d.verdict.RootCause())
+		}
+		fm.logger.Debug("%s: Found detection %s (similar %d): %s", fm.Name(), hn, len(similars), verdict)
+
+		deps := fm.findDependecies(measurements, temp, similars, []common.Stamp{min, max})
+		n, exists := fm.detections.AddOrUpdate(hash, min, max, deps)
+		if !exists && n != nil {
+			n.verdict = d.verdict
+		}
+	}
+}
+
 func (fm *ForestModel) detect(data common.DataSourceData) error {
 
 	measurements := data.Measurements()
@@ -705,7 +576,10 @@ func (fm *ForestModel) detect(data common.DataSourceData) error {
 
 	gr := &errgroup.Group{}
 	gr.SetLimit(fm.options.Concurrency)
+
+	length := len(appFrames) + len(hostFrames)
 	errs := make(chan error, len(appFrames)+len(hostFrames))
+
 	verdicts := &sync.Map{}
 
 	// run apps engine
@@ -734,7 +608,9 @@ func (fm *ForestModel) detect(data common.DataSourceData) error {
 					errs <- err
 					return nil
 				}
-				fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+				if engine.Ready() {
+					fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+				}
 			}
 			verdict := engine.Diagnose(frames, fm.appCases)
 			if verdict != nil {
@@ -751,7 +627,53 @@ func (fm *ForestModel) detect(data common.DataSourceData) error {
 	for e := range errs {
 		all = append(all, e)
 	}
-	return errors.Join(all...)
+	err := errors.Join(all...)
+
+	found := []*ForestModelDetection{}
+	verdicts.Range(func(key, value any) bool {
+
+		var detection *ForestModelDetection
+
+		hash := key.(common.Hash)
+		appVerdict, ok := value.(*forest.ApplicationCaseVerdict)
+		if ok {
+			detection = NewForestModelDetection(hash, appVerdict.Begin(), appVerdict.End(), nil)
+			detection.verdict = appVerdict
+		}
+		if detection != nil {
+			found = append(found, detection)
+		}
+		return true
+	})
+
+	l1 := len(found)
+	l2 := length
+
+	// if nothing happened => exit
+	if l1 == 0 {
+		return err
+	}
+
+	// if all triggered => false positive
+	if l1 == l2 {
+		return err
+	}
+
+	p := float64((l1 * 100) / l2)
+	// if false triggered => false positive
+	if p >= fm.options.DetectionFalse {
+		return err
+	}
+
+	// if mass triggered => only mass detection
+	if p >= fm.options.DetectionMass {
+		fm.setMassDetections(found)
+		return err
+	}
+
+	// if not mass triggered => per hash detection
+	fm.setHashDetections(found, data)
+	return err
 }
 
 func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfterDetect) error {

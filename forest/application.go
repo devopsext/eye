@@ -35,8 +35,11 @@ type ApplicationCasePattern struct {
 }
 
 type ApplicationCaseVerdict struct {
-	Case  *ApplicationCase
-	Score int
+	frame *ApplicationFrame
+	acase *ApplicationCase
+	score int
+	begin common.Stamp
+	end   common.Stamp
 }
 
 type ApplicationCase struct {
@@ -237,7 +240,7 @@ func (ac *ApplicationCases) Add(impact common.CaseImpact, category common.CaseCa
 	return c
 }
 
-func (ac *ApplicationCases) getScore(observed, expected ApplicationCasePattern) int {
+func (ac *ApplicationCases) getScore(observed, expected *ApplicationCasePattern) int {
 
 	score := 0
 	check := func(obs, exp common.CaseLevel) {
@@ -262,13 +265,17 @@ func (ac *ApplicationCases) getScore(observed, expected ApplicationCasePattern) 
 	return score
 }
 
-func (ac *ApplicationCases) Match(pattern ApplicationCasePattern) (*ApplicationCase, int) {
+func (ac *ApplicationCases) Match(pattern *ApplicationCasePattern) (*ApplicationCase, int) {
 
 	bestScore := -1
 	var bestCase *ApplicationCase
 
+	if pattern == nil {
+		return bestCase, bestScore
+	}
+
 	for _, c := range ac.list {
-		score := ac.getScore(pattern, c.pattern)
+		score := ac.getScore(pattern, &c.pattern)
 		if score > bestScore {
 			bestScore = score
 			bestCase = c
@@ -1005,6 +1012,28 @@ func NewApplicationCases() *ApplicationCases {
 		})
 
 	return cases
+}
+
+// ApplicationCaseVerdict
+
+func (acv *ApplicationCaseVerdict) Begin() common.Stamp {
+	return acv.begin
+}
+
+func (acv *ApplicationCaseVerdict) End() common.Stamp {
+	return acv.end
+}
+
+func (acv *ApplicationCaseVerdict) Name() string {
+	return acv.acase.name
+}
+
+func (acv *ApplicationCaseVerdict) Description() string {
+	return acv.acase.description
+}
+
+func (acv *ApplicationCaseVerdict) RootCause() string {
+	return acv.acase.rootCause
 }
 
 // ApplicationTrafficValues
@@ -1758,7 +1787,7 @@ func (ae *ApplicationEngine) Clone() *ApplicationEngine {
 	}
 }
 
-func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) ApplicationCasePattern {
+func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) *ApplicationCasePattern {
 
 	t := common.StampToTime(frame.stamp)
 
@@ -1767,6 +1796,11 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) Application
 	inLabels, _, _ := ae.inForest.Predict([][]float64{inVec})
 	satLabels, _, _ := ae.satForest.Predict([][]float64{satVec})
 	outLabels, _, _ := ae.outForest.Predict([][]float64{outVec})
+
+	// no labels
+	if len(inLabels) == 0 || len(satLabels) == 0 || len(outLabels) == 0 {
+		return nil
+	}
 
 	inAnom := inLabels[0] == 1
 	satAnom := satLabels[0] == 1
@@ -1795,7 +1829,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) Application
 	outLatLevel := ae.inProfiler.Classify(t, outThruTotalIdx+1, outVec[inThruTotalIdx+1], outAnom, outVal[inThruTotalIdx+1])
 	outErrLevel := ae.inProfiler.Classify(t, outThruTotalIdx+2, outVec[inThruTotalIdx+2], outAnom, outVal[inThruTotalIdx+2])
 
-	return ApplicationCasePattern{
+	return &ApplicationCasePattern{
 		inRequests:    inReqLevel,
 		inThroughput:  inThruLevel,
 		inLatency:     inLatLevel,
@@ -1951,7 +1985,21 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) *Applicat
 	}
 }
 
+func (ae *ApplicationEngine) Ready() bool {
+
+	if !ae.inForest.Trained || !ae.inForest.Tested ||
+		!ae.satForest.Trained || !ae.satForest.Tested ||
+		!ae.outForest.Trained || !ae.outForest.Tested {
+		return false
+	}
+	return true
+}
+
 func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *ApplicationCases) *ApplicationCaseVerdict {
+
+	if !ae.Ready() {
+		return nil
+	}
 
 	// sort frames by time stamp
 	slices.SortFunc(frames, func(a *ApplicationFrame, b *ApplicationFrame) int {
@@ -1971,8 +2019,11 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 	}
 
 	return &ApplicationCaseVerdict{
-		Case:  cs,
-		Score: score,
+		frame: frame,
+		acase: cs,
+		score: score,
+		begin: frames[0].Stamp(),
+		end:   frames[len(frames)-1].Stamp(),
 	}
 }
 
