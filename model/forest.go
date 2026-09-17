@@ -45,6 +45,8 @@ type ForestModelVerdict interface {
 	Name() string
 	Description() string
 	RootCause() string
+	Category() common.CaseCategory
+	Impact() common.CaseImpact
 }
 
 type ForestModelDetection struct {
@@ -551,10 +553,14 @@ func (fm *ForestModel) setHashDetections(found []*ForestModelDetection, data com
 		similars := fm.findSimilars(measurements, found, hash, []common.Stamp{min, max})
 
 		verdict := "none"
+		category := "none"
+		impact := "none"
 		if !utils.IsEmpty(d.verdict) {
-			verdict = fmt.Sprintf("%s / %s", d.verdict.Name(), d.verdict.RootCause())
+			verdict = d.verdict.Name()
+			category = common.CaseCategoryToString(d.verdict.Category())
+			impact = common.CaseImpactToString(d.verdict.Impact())
 		}
-		fm.logger.Debug("%s: Found detection %s (similar %d): %s", fm.Name(), hn, len(similars), verdict)
+		fm.logger.Debug("%s: Found detection %s (similar %d): %s (%s / %s)", fm.Name(), hn, len(similars), verdict, category, impact)
 
 		deps := fm.findDependecies(measurements, temp, similars, []common.Stamp{min, max})
 		n, exists := fm.detections.AddOrUpdate(hash, min, max, deps)

@@ -109,6 +109,8 @@ var forestModelOptions = model.ForestModelOptions{
 		TrafficMaxSlots: envGet("FOREST_MODEL_APPLICATION_TRAFFIC_MAX_SLOTS", model.ForestModelApplicationMaxSlots).(int),
 		RangeMultiplier: envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", model.ForestModelApplicationRangeMultiplier).(float64),
 		MinScore:        envGet("FOREST_MODEL_APPLICATION_MIN_SCORE", 6).(int),
+		Categories:      envGet("FOREST_MODEL_APPLICATION_CATEGORIES", "").(string),
+		Impacts:         envGet("FOREST_MODEL_APPLICATION_IMPACTS", "").(string),
 	},
 }
 

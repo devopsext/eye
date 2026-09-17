@@ -128,6 +128,8 @@ type ApplicationEngineOptions struct {
 	TrafficMaxSlots int
 	RangeMultiplier float64
 	MinScore        int
+	Categories      string
+	Impacts         string
 }
 
 type ApplicationEngineFileIncoming struct {
@@ -177,6 +179,9 @@ type ApplicationEngine struct {
 	inProfiler  *ApplicationProfiler
 	satProfiler *ApplicationProfiler
 	outProfiler *ApplicationProfiler
+
+	categories []common.CaseCategory
+	impacts    []common.CaseImpact
 }
 
 const (
@@ -1036,6 +1041,14 @@ func (acv *ApplicationCaseVerdict) Description() string {
 
 func (acv *ApplicationCaseVerdict) RootCause() string {
 	return acv.acase.rootCause
+}
+
+func (acv *ApplicationCaseVerdict) Category() common.CaseCategory {
+	return acv.acase.impact
+}
+
+func (acv *ApplicationCaseVerdict) Impact() common.CaseImpact {
+	return acv.acase.category
 }
 
 // ApplicationTrafficValues
@@ -2078,7 +2091,12 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 
 	pattern := ae.predictPattern(frame)
 	cs, score := cases.Match(pattern)
-	if cs == nil || score < ae.options.MinScore {
+	if cs == nil || score <= ae.options.MinScore {
+		return nil
+	}
+
+	if !(utils.Contains(ae.categories, cs.category) &&
+		utils.Contains(ae.impacts, cs.impact)) {
 		return nil
 	}
 
@@ -2095,6 +2113,16 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 }
 
 func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {
+
+	categories := common.StringToCaseCategories(options.Categories)
+	if len(categories) == 0 {
+		categories = common.AllCaseCategories()
+	}
+
+	impacts := common.StringToCaseImpacts(options.Impacts)
+	if len(impacts) == 0 {
+		impacts = common.AllCaseImpacts()
+	}
 
 	return &ApplicationEngine{
 
@@ -2114,5 +2142,8 @@ func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *Ap
 		inProfiler:  NewApplicationProfiler(options.RangeMultiplier),
 		satProfiler: NewApplicationProfiler(options.RangeMultiplier),
 		outProfiler: NewApplicationProfiler(options.RangeMultiplier),
+
+		categories: categories,
+		impacts:    impacts,
 	}
 }
