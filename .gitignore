@@ -30,3 +30,4 @@ heap.pprof
 .forest
 .prometheus.yaml
 .slack.tpl
+.generate

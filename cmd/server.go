@@ -8,6 +8,7 @@ import (
 	"github.com/devopsext/eye/common"
 	"github.com/devopsext/eye/datasource"
 	"github.com/devopsext/eye/forest"
+	"github.com/devopsext/eye/generator"
 	"github.com/devopsext/eye/handler"
 	"github.com/devopsext/eye/model"
 	"github.com/devopsext/eye/notifier"
@@ -90,17 +91,26 @@ var promShortOptions = datasource.PrometheusOptions{
 	TimeFormat:  envGet("PROMETHEUS_SHORT_TIME_FORMAT", time.DateTime).(string),
 }
 
+var pushgatewayOptions = generator.PushgatewayOptions{
+
+	Name:     envGet("PUSHGATEWAY_NAME", "Pushgateway").(string),
+	URL:      envStringExpand("PUSHGATEWAY_URL", ""),
+	Timeout:  envGet("PUSHGATEWAY_TIMEOUT", 30).(int),
+	Insecure: envGet("PUSHGATEWAY_INSECURE", false).(bool),
+	Schedule: envGet("PUSHGATEWAY_SCHEDULE", "").(string),
+	Files:    envGet("PUSHGATEWAY_FILES", "").(string),
+}
+
 var testModelOptions = model.TestModelOptions{
 	WaitInterval: envGet("TEST_MODEL_WAIT_INTERVAL", "").(string),
 }
 
 var forestModelOptions = model.ForestModelOptions{
-	Concurrency:    envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
-	Filter:         strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
-	EngineTTL:      envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
-	DetectionTTL:   envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
-	DetectionMass:  envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
-	DetectionFalse: envGet("FOREST_MODEL_DETECTION_FALSE", 50.0).(float64),
+	Concurrency:   envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
+	Filter:        strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
+	EngineTTL:     envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
+	DetectionTTL:  envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
+	DetectionMass: envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
 	ApplicationOptions: forest.ApplicationEngineOptions{
 		Path:            envGet("FOREST_MODEL_APPLICATION_PATH", "").(string),
 		TreesNumber:     envGet("FOREST_MODEL_APPLICATION_TREES_NUMBER", model.ForestModelTreesNumber).(int),
@@ -149,9 +159,16 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			models.Add(model.NewTestModel(testModelOptions, obs))
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 
+			datasources := common.NewDataSources()
+			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.OnTrain))
+			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.OnDetect))
+
+			generators := common.NewGenerators()
+			generators.Add(generator.NewPushgateway(pushgatewayOptions, obs))
+
 			schedules := common.NewSchedules()
-			schedules.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.OnTrain))
-			schedules.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.OnDetect))
+			schedules.AddDatasources(datasources)
+			schedules.AddGenerators(generators)
 			scheduler := server.NewScheduler(schedules, obs)
 
 			handlers := common.NewHandlers()
@@ -240,7 +257,6 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&forestModelOptions.EngineTTL, "forest-model-engine-ttl", forestModelOptions.EngineTTL, "Forest model engine ttl")
 	flags.StringVar(&forestModelOptions.DetectionTTL, "forest-model-detection-ttl", forestModelOptions.DetectionTTL, "Forest model detection ttl")
 	flags.Float64Var(&forestModelOptions.DetectionMass, "forest-model-detection-mass", forestModelOptions.DetectionMass, "Forest model detection mass threshold")
-	flags.Float64Var(&forestModelOptions.DetectionFalse, "forest-model-detection-false", forestModelOptions.DetectionFalse, "Forest model detection false threshold")
 	// add application options ....
 
 	// Slack

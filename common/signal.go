@@ -1217,7 +1217,7 @@ func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
 
 	for _, h := range hashes {
 
-		if as.application == h || as.host == h {
+		if as.hash == h || as.application == h || as.host == h {
 			return true
 		}
 	}
