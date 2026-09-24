@@ -141,6 +141,10 @@ func (pg *Pushgateway) Generate(values common.GeneratorValues) error {
 	return pg.push(values)
 }
 
+func (pg *Pushgateway) SetData(data common.DataSourceData) error {
+	return nil
+}
+
 func (pg *Pushgateway) Start(wg *sync.WaitGroup) {
 
 	if !pg.mu.TryLock() {

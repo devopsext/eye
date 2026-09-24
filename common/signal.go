@@ -211,6 +211,15 @@ type Measurements struct {
 	items MeasurementsItems
 }
 
+type Schema struct {
+}
+
+type SchemasItems = map[string]Schema
+type Schemas struct {
+	mu    sync.Mutex
+	items SchemasItems
+}
+
 func SignalKindToString(kind SignalKind) string {
 
 	switch kind {
@@ -1550,5 +1559,20 @@ func NewMeasurements() *Measurements {
 		first: math.MaxUint64,
 		last:  0,
 		items: make(MeasurementsItems),
+	}
+}
+
+// Schema
+
+// Schemas
+
+func (ss *Schemas) AddOrUpdate() {
+
+}
+
+func NewSchemas() *Schemas {
+
+	return &Schemas{
+		items: make(SchemasItems),
 	}
 }

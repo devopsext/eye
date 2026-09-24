@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VictoriaMetrics/metricsql"
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
 	toolsVendors "github.com/devopsext/tools/vendors"
@@ -81,6 +82,7 @@ type PrometheusData struct {
 	hosts        *common.Hosts
 	applications *common.Applications
 	measurements *common.Measurements
+	schemas      *common.Schemas
 	from         common.Stamp
 	first        common.Stamp
 	last         common.Stamp
@@ -99,8 +101,12 @@ type Prometheus struct {
 	promOptions   PrometheusOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
-	onData        common.DataSourceOnData
+	onData        []common.DataSourceOnData
 }
+
+const (
+	PrometheusNameLabel = "__name__"
+)
 
 // PrometheusData
 
@@ -122,6 +128,10 @@ func (pd *PrometheusData) Applications() *common.Applications {
 
 func (pd *PrometheusData) Measurements() *common.Measurements {
 	return pd.measurements
+}
+
+func (pd *PrometheusData) Schemas() *common.Schemas {
+	return pd.schemas
 }
 
 func (pd *PrometheusData) From() common.Stamp {
@@ -529,6 +539,80 @@ func (p *Prometheus) getStampedValue(values []any) (bool, common.Stamp, float64)
 	return true, stamp, val
 }
 
+func (p *Prometheus) parseQuery(q string) map[string]common.Labels {
+
+	r := make(map[string]common.Labels)
+
+	expr, err := metricsql.Parse(q)
+	if err != nil {
+		return r
+	}
+
+	findName := func(fs []metricsql.LabelFilter) string {
+		for _, f := range fs {
+			if f.Label == PrometheusNameLabel {
+				return f.Value
+			}
+
+		}
+		return ""
+	}
+
+	skipLabels := []string{PrometheusNameLabel}
+
+	setLabels := func(fs []metricsql.LabelFilter, lbs common.Labels) {
+		for _, f := range fs {
+
+			index := slices.Index(skipLabels, f.Label)
+			if index >= 0 {
+				continue
+			}
+			if f.IsRegexp {
+				continue
+			}
+			lbs[f.Label] = f.Value
+		}
+	}
+
+	visitChild := func(e metricsql.Expr) {
+		me, ok := e.(*metricsql.MetricExpr)
+		if !ok || me.IsEmpty() {
+			return
+		}
+
+		for _, fs := range me.LabelFilterss {
+
+			name := findName(fs)
+			if name == "" {
+				continue
+			}
+			lbs := r[name]
+			if lbs == nil {
+				lbs = make(common.Labels)
+			}
+			setLabels(fs, lbs)
+			r[name] = lbs
+		}
+	}
+
+	metricsql.VisitAll(expr, func(child metricsql.Expr) {
+		visitChild(child)
+	})
+
+	return r
+}
+
+func (p *Prometheus) setSchema(data *PrometheusData, q string, lbs []common.Labels, min, max float64) {
+
+	qlbs := p.parseQuery(q)
+	for k, _ := range qlbs {
+		if k != "" {
+			continue
+		}
+	}
+	// data.schemas.AddOrUpdate()
+}
+
 func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Time) (*common.Hosts, error) {
 
 	promData, err := p.loadData(q, from, to)
@@ -541,12 +625,14 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 		return hosts, nil
 	}
 
+	labels := []common.Labels{}
 	for _, dr := range promData.Result {
 
 		name := dr.Labels[common.HostName]
 		if utils.IsEmpty(name) {
 			continue
 		}
+		labels = append(labels, dr.Labels)
 		nameOn := dr.Labels[common.HostOn]
 		findOn := !utils.IsEmpty(nameOn)
 
@@ -592,6 +678,7 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 			hosts.AddOrUpdate(stamp, host)
 		}
 	}
+	p.setSchema(data, q, labels, 1, 1)
 	return hosts, nil
 }
 
@@ -681,13 +768,14 @@ func (p *Prometheus) loadApplications(data *PrometheusData, q string, from, to t
 		return apps, nil
 	}
 
+	labels := []common.Labels{}
 	for _, dr := range promData.Result {
 
 		name := dr.Labels[common.ApplicationName]
 		if utils.IsEmpty(name) {
 			continue
 		}
-
+		labels = append(labels, dr.Labels)
 		labelsHash := data.attributes.AddOrUpdate(dr.Labels)
 
 		for _, v := range dr.Values {
@@ -705,6 +793,7 @@ func (p *Prometheus) loadApplications(data *PrometheusData, q string, from, to t
 			apps.AddOrUpdate(stamp, app)
 		}
 	}
+	p.setSchema(data, q, labels, 1, 1)
 	return apps, nil
 }
 
@@ -783,7 +872,7 @@ func (p *Prometheus) gatherApplicationsBySpan(data *PrometheusData, query string
 	return nil
 }
 
-func (p *Prometheus) loadModelData(data *PrometheusData, q string, from, to time.Time) (PrometheusSeries, error) {
+func (p *Prometheus) loadSeriesData(data *PrometheusData, q string, from, to time.Time) (PrometheusSeries, error) {
 
 	promData, err := p.loadData(q, from, to)
 	if err != nil {
@@ -795,7 +884,13 @@ func (p *Prometheus) loadModelData(data *PrometheusData, q string, from, to time
 		return modelData, nil
 	}
 
+	labels := []common.Labels{}
+	min := math.MaxFloat64
+	max := 0.0
+
 	for _, dr := range promData.Result {
+
+		labels = append(labels, dr.Labels)
 
 		for _, v := range dr.Values {
 
@@ -809,8 +904,16 @@ func (p *Prometheus) loadModelData(data *PrometheusData, q string, from, to time
 				Value: value,
 			}
 			modelData[stamp] = append(modelData[stamp], v)
+
+			if value > max {
+				max = value
+			}
+			if value < min {
+				min = value
+			}
 		}
 	}
+	p.setSchema(data, q, labels, min, max)
 	return modelData, nil
 }
 
@@ -826,7 +929,7 @@ func (p *Prometheus) gatherSignals(data *PrometheusData, queries map[common.Sign
 
 		gr.Go(func() error {
 
-			data, err := p.loadModelData(data, q, from, to)
+			data, err := p.loadSeriesData(data, q, from, to)
 			if err != nil {
 				return err
 			}
@@ -1372,6 +1475,7 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 			hosts:        common.NewHosts(),
 			applications: common.NewApplications(),
 			measurements: common.NewMeasurements(),
+			schemas:      common.NewSchemas(),
 			from:         common.TimeToStamp(from),
 			first:        s1,
 			last:         s2,
@@ -1383,13 +1487,24 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		}
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
 
-		if p.onData != nil {
+		if len(p.onData) > 0 {
+
 			go func() {
 
-				err := p.onData(data)
-				if err != nil {
-					return
+				gr := &errgroup.Group{}
+				for _, on := range p.onData {
+
+					if on == nil {
+						continue
+					}
+
+					gr.Go(func() error {
+						on(data)
+						return nil
+					})
 				}
+
+				gr.Wait()
 
 				state.AddOrUpdateTimes(t1, t2)
 
@@ -1468,7 +1583,7 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 }
 
 func NewPrometheus(options PrometheusOptions, signalOptions PrometheusSignalOptions,
-	observability *common.Observability, onData common.DataSourceOnData) *Prometheus {
+	observability *common.Observability, onData ...common.DataSourceOnData) *Prometheus {
 
 	return &Prometheus{
 		promOptions:   options,

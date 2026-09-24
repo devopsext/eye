@@ -11,6 +11,7 @@ type DataSourceData interface {
 	Hosts() *Hosts
 	Applications() *Applications
 	Measurements() *Measurements
+	Schemas() *Schemas
 	From() Stamp
 	First() Stamp
 	Last() Stamp

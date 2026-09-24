@@ -159,12 +159,12 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			models.Add(model.NewTestModel(testModelOptions, obs))
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 
-			datasources := common.NewDataSources()
-			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.OnTrain))
-			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.OnDetect))
-
 			generators := common.NewGenerators()
 			generators.Add(generator.NewPushgateway(pushgatewayOptions, obs))
+
+			datasources := common.NewDataSources()
+			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.OnTrain, generators.OnData))
+			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.OnDetect))
 
 			schedules := common.NewSchedules()
 			schedules.AddDatasources(datasources)

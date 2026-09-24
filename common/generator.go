@@ -21,6 +21,7 @@ type Generator interface {
 	Name() string
 	Schedule() string
 	Start(wg *sync.WaitGroup)
+	SetData(data DataSourceData) error
 	Generate(values GeneratorValues) error
 }
 
@@ -47,6 +48,18 @@ func (gs *Generators) Find(name string) Generator {
 		}
 	}
 	return nil
+}
+
+func (gs *Generators) OnData(data DataSourceData) error {
+
+	var err error
+	for _, g := range gs.list {
+		e := g.SetData(data)
+		if e != nil {
+			err = e
+		}
+	}
+	return err
 }
 
 func NewGenerators() *Generators {

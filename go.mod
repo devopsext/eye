@@ -32,6 +32,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.2.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/VictoriaMetrics/metrics v1.40.0 // indirect
+	github.com/VictoriaMetrics/metricsql v0.87.4 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/beevik/etree v1.5.0 // indirect
 	github.com/blues/jsonata-go v1.5.4 // indirect
