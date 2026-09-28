@@ -336,3 +336,31 @@ func Max[T Number](slice []T) T {
 func Len[T any](s []T) int {
 	return len(s)
 }
+
+func MetricLabelsPath(metric string, labels Labels) string {
+
+	if metric == "" {
+		return ""
+	}
+
+	iter := maps.Keys(labels)
+	keys := slices.Collect(iter)
+	sort.Strings(keys)
+
+	var builder strings.Builder
+	builder.WriteString(metric)
+
+	if len(keys) == 0 {
+		return builder.String()
+	}
+	builder.WriteString("/")
+
+	for idx, k := range keys {
+		builder.WriteString(labels[k])
+		if idx < len(keys)-1 {
+			builder.WriteString("/")
+		}
+	}
+
+	return builder.String()
+}

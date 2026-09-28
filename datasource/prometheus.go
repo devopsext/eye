@@ -539,13 +539,14 @@ func (p *Prometheus) getStampedValue(values []any) (bool, common.Stamp, float64)
 	return true, stamp, val
 }
 
-func (p *Prometheus) parseQuery(q string) map[string]common.Labels {
+func (p *Prometheus) parseQuery(q string) (map[string]common.Labels, map[string]common.SchemaSigns) {
 
-	r := make(map[string]common.Labels)
+	lr := make(map[string]common.Labels)
+	sr := make(map[string]common.SchemaSigns)
 
 	expr, err := metricsql.Parse(q)
 	if err != nil {
-		return r
+		return lr, sr
 	}
 
 	findName := func(fs []metricsql.LabelFilter) string {
@@ -553,14 +554,13 @@ func (p *Prometheus) parseQuery(q string) map[string]common.Labels {
 			if f.Label == PrometheusNameLabel {
 				return f.Value
 			}
-
 		}
 		return ""
 	}
 
 	skipLabels := []string{PrometheusNameLabel}
 
-	setLabels := func(fs []metricsql.LabelFilter, lbs common.Labels) {
+	setLabels := func(fs []metricsql.LabelFilter, lbs common.Labels, sgs common.SchemaSigns) {
 		for _, f := range fs {
 
 			index := slices.Index(skipLabels, f.Label)
@@ -571,10 +571,22 @@ func (p *Prometheus) parseQuery(q string) map[string]common.Labels {
 				continue
 			}
 			lbs[f.Label] = f.Value
+
+			sign := common.SchemaSignEQ
+			if f.IsRegexp {
+				sign = common.SchemaSignER
+				if f.IsNegative {
+					sign = common.SchemaSignNR
+				}
+			} else if f.IsNegative {
+				sign = common.SchemaSignNE
+			}
+			sgs[f.Label] = sign
 		}
 	}
 
 	visitChild := func(e metricsql.Expr) {
+
 		me, ok := e.(*metricsql.MetricExpr)
 		if !ok || me.IsEmpty() {
 			return
@@ -586,12 +598,17 @@ func (p *Prometheus) parseQuery(q string) map[string]common.Labels {
 			if name == "" {
 				continue
 			}
-			lbs := r[name]
+			lbs := lr[name]
 			if lbs == nil {
 				lbs = make(common.Labels)
 			}
-			setLabels(fs, lbs)
-			r[name] = lbs
+			sgs := sr[name]
+			if sgs == nil {
+				sgs = make(common.SchemaSigns)
+			}
+			setLabels(fs, lbs, sgs)
+			lr[name] = lbs
+			sr[name] = sgs
 		}
 	}
 
@@ -599,18 +616,23 @@ func (p *Prometheus) parseQuery(q string) map[string]common.Labels {
 		visitChild(child)
 	})
 
-	return r
+	return lr, sr
 }
 
-func (p *Prometheus) setSchema(data *PrometheusData, q string, lbs []common.Labels, min, max float64) {
+func (p *Prometheus) setSchemas(data *PrometheusData, q string, arr []common.Labels, min, max float64) {
 
-	qlbs := p.parseQuery(q)
-	for k, _ := range qlbs {
-		if k != "" {
-			continue
+	lbs, sgs := p.parseQuery(q)
+	for name, item := range lbs {
+		labels := item
+		signs := sgs[name]
+		for _, lbs := range arr {
+			for n, lb := range lbs {
+				labels[n] = lb
+				signs[n] = common.SchemaSignEQ
+			}
 		}
+		data.schemas.AddOrUpdate(q, name, labels, signs, min, max)
 	}
-	// data.schemas.AddOrUpdate()
 }
 
 func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Time) (*common.Hosts, error) {
@@ -678,11 +700,15 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 			hosts.AddOrUpdate(stamp, host)
 		}
 	}
-	p.setSchema(data, q, labels, 1, 1)
+	p.setSchemas(data, q, labels, 1, 1)
 	return hosts, nil
 }
 
 func (p *Prometheus) gatherHostsByQuery(data *PrometheusData, query string, from, to time.Time) (*common.Hosts, error) {
+
+	if query == "" {
+		return nil, nil
+	}
 
 	when := time.Now()
 
@@ -793,11 +819,15 @@ func (p *Prometheus) loadApplications(data *PrometheusData, q string, from, to t
 			apps.AddOrUpdate(stamp, app)
 		}
 	}
-	p.setSchema(data, q, labels, 1, 1)
+	p.setSchemas(data, q, labels, 1, 1)
 	return apps, nil
 }
 
 func (p *Prometheus) gatherApplicationsByQuery(data *PrometheusData, query string, from, to time.Time) (*common.Applications, error) {
+
+	if query == "" {
+		return nil, nil
+	}
 
 	when := time.Now()
 
@@ -913,7 +943,7 @@ func (p *Prometheus) loadSeriesData(data *PrometheusData, q string, from, to tim
 			}
 		}
 	}
-	p.setSchema(data, q, labels, min, max)
+	p.setSchemas(data, q, labels, min, max)
 	return modelData, nil
 }
 

@@ -99,6 +99,7 @@ var pushgatewayOptions = generator.PushgatewayOptions{
 	Insecure: envGet("PUSHGATEWAY_INSECURE", false).(bool),
 	Schedule: envGet("PUSHGATEWAY_SCHEDULE", "").(string),
 	Files:    envGet("PUSHGATEWAY_FILES", "").(string),
+	Outdir:   envGet("PUSHGATEWAY_OUTDIR", "").(string),
 }
 
 var testModelOptions = model.TestModelOptions{

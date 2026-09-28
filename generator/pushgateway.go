@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
@@ -26,6 +27,7 @@ type PushgatewayOptions struct {
 	Insecure bool
 	Schedule string
 	Files    string
+	Outdir   string
 }
 
 type Pushgateway struct {
@@ -63,11 +65,12 @@ func (pg *Pushgateway) labels(v *common.GeneratorValue) string {
 
 	for idx, key := range keys {
 
-		format := "%s=\"%s\""
+		sign := "="
+		format := "%s%s\"%s\""
 		if idx > 0 {
 			format = fmt.Sprintf(",%s", format)
 		}
-		fmt.Fprintf(&sb, format, key, v.Labels[key])
+		fmt.Fprintf(&sb, format, key, sign, v.Labels[key])
 	}
 	return sb.String()
 }
@@ -89,7 +92,6 @@ func (pg *Pushgateway) value(v *common.GeneratorValue) float64 {
 		max := *v.Value.Max
 		return min + rand.Float64()*(max-min)
 	}
-
 	return 1
 }
 
@@ -101,6 +103,10 @@ func (pg *Pushgateway) push(values common.GeneratorValues) error {
 	for n, item := range values {
 
 		if item == nil {
+			continue
+		}
+
+		if item.Disabled {
 			continue
 		}
 
@@ -141,37 +147,111 @@ func (pg *Pushgateway) Generate(values common.GeneratorValues) error {
 	return pg.push(values)
 }
 
-func (pg *Pushgateway) SetData(data common.DataSourceData) error {
+func (pg *Pushgateway) save(values common.GeneratorValues) error {
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	name := pg.Name()
+
+	stamp := time.Now().UnixMilli()
+
+	dir := filepath.Join(pg.options.Outdir, fmt.Sprintf("%d", stamp))
+	if !utils.DirExists(dir) {
+		os.MkdirAll(dir, os.ModePerm)
+	}
+
+	findByMetric := func(metric string) common.GeneratorValues {
+
+		r := make(common.GeneratorValues)
+		for n, item := range values {
+			if item.Metric == metric {
+				r[n] = item
+			}
+		}
+		return r
+	}
+
+	keys := []string{}
+	for _, vl := range values {
+		if !utils.Contains(keys, vl.Metric) {
+			keys = append(keys, vl.Metric)
+		}
+	}
+	slices.Sort(keys)
+
+	for _, k := range keys {
+
+		vls := findByMetric(k)
+		if len(vls) == 0 {
+			continue
+		}
+
+		data, err := yaml.Marshal(vls)
+		if err != nil {
+			pg.logger.Error("%s: Cannot marshal %s, error: %s", name, k, err)
+			continue
+		}
+
+		path := filepath.Join(dir, fmt.Sprintf("%s.yaml", k))
+		err = os.WriteFile(path, data, os.ModePerm)
+		if err != nil {
+			pg.logger.Error("%s: Cannot write to file %s, error: %s", name, path, err)
+			continue
+		}
+	}
+
 	return nil
 }
 
-func (pg *Pushgateway) Start(wg *sync.WaitGroup) {
+func (pg *Pushgateway) SetData(data common.DataSourceData) error {
 
-	if !pg.mu.TryLock() {
-		return
-	}
-	defer pg.mu.Unlock()
-
-	baseDir := filepath.Dir(pg.options.Files)
-	if !utils.DirExists(baseDir) {
-		return
+	schemas := data.Schemas()
+	if schemas == nil {
+		return nil
 	}
 
-	wg.Add(1)
-	defer wg.Done()
+	values := make(common.GeneratorValues)
+	for _, schema := range schemas.Items() {
+		if schema == nil {
+			continue
+		}
+
+		hash := schema.Hash()
+		metric := schema.Metric()
+		labels := schema.Labels()
+
+		name := fmt.Sprintf("%d", hash)
+
+		value := &common.GeneratorValue{
+			Metric:   metric,
+			Labels:   labels,
+			Disabled: false,
+		}
+		min := schema.Min()
+		value.Value.Min = &min
+		max := schema.Max()
+		value.Value.Max = &max
+		values[name] = value
+	}
+
+	return pg.save(values)
+}
+
+func (pg *Pushgateway) load() map[string]common.GeneratorValues {
 
 	name := pg.Name()
-	pg.logger.Info("%s: Generating from %s...", name, baseDir)
 
 	files, err := filepath.Glob(pg.options.Files)
 	if err != nil {
-		pg.logger.Error("%s: Cannot find files in %s, error: %s", name, baseDir, err)
-		return
+		pg.logger.Error("%s: Cannot find files %s, error: %s", name, pg.options.Files, err)
+		return nil
 	}
 
 	if len(files) == 0 {
-		pg.logger.Info("%s: No files found in %s", name, baseDir)
-		return
+		pg.logger.Info("%s: No files found  %s", name, pg.options.Files)
+		return nil
 	}
 
 	found := make(map[string]common.GeneratorValues)
@@ -192,9 +272,23 @@ func (pg *Pushgateway) Start(wg *sync.WaitGroup) {
 		}
 		found[file] = values
 	}
+	return found
+}
+
+func (pg *Pushgateway) Start(wg *sync.WaitGroup) {
+
+	if !pg.mu.TryLock() {
+		return
+	}
+	defer pg.mu.Unlock()
+
+	wg.Add(1)
+	defer wg.Done()
+
+	name := pg.Name()
+	found := pg.load()
 
 	if len(found) == 0 {
-		pg.logger.Info("%s: No values found in %s", name, baseDir)
 		return
 	}
 

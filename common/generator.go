@@ -9,10 +9,11 @@ type GeneratorValue struct {
 	Metric string
 	Labels map[string]string
 	Value  struct {
-		Default *float64
-		Min     *float64
-		Max     *float64
+		Default *float64 `yaml:",omitempty"`
+		Min     *float64 `yaml:",omitempty"`
+		Max     *float64 `yaml:",omitempty"`
 	}
+	Disabled bool
 }
 
 type GeneratorValues = map[string]*GeneratorValue

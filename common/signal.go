@@ -211,10 +211,28 @@ type Measurements struct {
 	items MeasurementsItems
 }
 
+type SchemaSign = int
+
+const (
+	SchemaSignEQ = iota // =
+	SchemaSignNE        // !=
+	SchemaSignER        // ~
+	SchemaSignNR        // !~
+)
+
+type SchemaSigns = map[string]SchemaSign
 type Schema struct {
+	hash   Hash
+	query  string
+	metric string
+	labels Labels
+	signs  SchemaSigns
+	min    float64
+	max    float64
+	count  int
 }
 
-type SchemasItems = map[string]Schema
+type SchemasItems = map[Hash]*Schema
 type Schemas struct {
 	mu    sync.Mutex
 	items SchemasItems
@@ -1564,10 +1582,94 @@ func NewMeasurements() *Measurements {
 
 // Schema
 
+func (s *Schema) Hash() Hash {
+	return s.hash
+}
+
+func (s *Schema) Query() string {
+	return s.query
+}
+
+func (s *Schema) Metric() string {
+	return s.metric
+}
+
+func (s *Schema) Labels() Labels {
+	return s.labels
+}
+
+func (s *Schema) Signs() SchemaSigns {
+	return s.signs
+}
+
+func (s *Schema) Min() float64 {
+	return s.min
+}
+
+func (s *Schema) Max() float64 {
+	return s.max
+}
+
+func (s *Schema) Count() int {
+	return s.count
+}
+
+func (s *Schema) Merge(query, metric string, labels Labels, signs SchemaSigns, min, max float64) {
+	s.query = query
+	s.metric = metric
+	s.labels = MergeMaps(s.labels, labels)
+	s.signs = MergeMaps(s.signs, signs)
+	if s.min > min {
+		s.min = min
+	}
+	if s.max < max {
+		s.max = max
+	}
+}
+
+func NewSchema(hash Hash, query, metric string, labels Labels, signs SchemaSigns, min, max float64) *Schema {
+
+	return &Schema{
+		hash:   hash,
+		query:  query,
+		metric: metric,
+		labels: labels,
+		signs:  signs,
+		min:    min,
+		max:    max,
+	}
+}
+
 // Schemas
 
-func (ss *Schemas) AddOrUpdate() {
+func (ss *Schemas) Items() SchemasItems {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
 
+	return ss.items
+}
+
+func (ss *Schemas) AddOrUpdate(query, metric string, labels Labels, signs SchemaSigns, min, max float64) {
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	hash := Map2Hash32(labels)
+	if hash == 0 {
+		return
+	}
+
+	if ss.items == nil {
+		ss.items = make(SchemasItems)
+	}
+
+	s := ss.items[hash]
+	if s == nil {
+		s = NewSchema(hash, query, metric, labels, signs, min, max)
+	} else {
+		s.Merge(query, metric, labels, signs, min, max)
+	}
+	ss.items[hash] = s
 }
 
 func NewSchemas() *Schemas {
