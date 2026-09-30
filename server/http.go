@@ -58,6 +58,11 @@ func (h *HttpServer) processPath(path string, mux *http.ServeMux, p common.HttpH
 
 func (h *HttpServer) Start(wg *sync.WaitGroup) {
 
+	items := h.handlers.Items()
+	if len(items) == 0 {
+		return
+	}
+
 	wg.Add(1)
 	go func(wg *sync.WaitGroup) {
 
@@ -121,9 +126,13 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 		mux := http.NewServeMux()
 
 		for _, p := range h.handlers.Items() {
-			hp, _ := p.(common.HttpHandler)
+			hp, ok := p.(common.HttpHandler)
+			if !ok {
+				h.logger.Debug("Http Server handler: %s is invalid", p.Name())
+				continue
+			}
 			if !utils.IsEmpty(hp) {
-				h.processPath(hp.URL(), mux, hp)
+				h.processPath(hp.Path(), mux, hp)
 			}
 		}
 

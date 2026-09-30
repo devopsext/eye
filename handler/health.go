@@ -9,7 +9,7 @@ import (
 )
 
 type HttpHealthHandlerOptions struct {
-	URL string
+	Path string
 }
 
 type HttpHealthHandler struct {
@@ -23,8 +23,8 @@ func (h *HttpHealthHandler) Name() string {
 	return "Health"
 }
 
-func (h *HttpHealthHandler) URL() string {
-	return h.options.URL
+func (h *HttpHealthHandler) Path() string {
+	return h.options.Path
 }
 
 func (h *HttpHealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {

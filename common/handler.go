@@ -11,7 +11,7 @@ type Handler interface {
 
 type HttpHandler interface {
 	Handler
-	URL() string
+	Path() string
 	HandleHttpRequest(w http.ResponseWriter, r *http.Request) error
 }
 

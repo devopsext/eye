@@ -137,11 +137,16 @@ var httpServerOptions = server.HttpServerOptions{
 }
 
 var httpHealthHandlerOptions = handler.HttpHealthHandlerOptions{
-	URL: envGet("HTTP_HEALTH_URL", "/health").(string),
+	Path: envGet("HTTP_HEALTH_PATH", "/health").(string),
+}
+
+var httpApplicationHandlerOptions = handler.HttpApplicationHandlerOptions{
+	Path: envGet("HTTP_APPLICATION_PATH", "/app").(string),
+	Page: envStringExpand("HTTP_APPLICATION_PAGE", ""),
 }
 
 var httpInspectHandlerOptions = handler.HttpInspectHandlerOptions{
-	URL: envGet("HTTP_INSPECT_URL", "/inspect").(string),
+	Path: envGet("HTTP_INSPECT_PATH", "/inspect").(string),
 }
 
 func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
@@ -174,6 +179,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			handlers := common.NewHandlers()
 			handlers.Add(handler.NewHttpHealthHandler(httpHealthHandlerOptions, obs))
+			handlers.Add(handler.NewHttpApplicationHandler(httpApplicationHandlerOptions, obs))
 			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
 			http := server.NewHttpServer(httpServerOptions, handlers, obs)
 
@@ -198,8 +204,10 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&httpServerOptions.Key, "http-server-key", httpServerOptions.Key, "Http server key file or content")
 	flags.IntVar(&httpServerOptions.Timeout, "http-server-timeout", httpServerOptions.Timeout, "Http server timeout")
 
-	flags.StringVar(&httpHealthHandlerOptions.URL, "http-health-url", httpHealthHandlerOptions.URL, "Http health handler url")
-	flags.StringVar(&httpInspectHandlerOptions.URL, "http-inspect-url", httpInspectHandlerOptions.URL, "Http inspect handler url")
+	flags.StringVar(&httpHealthHandlerOptions.Path, "http-health-path", httpHealthHandlerOptions.Path, "Http health handler path")
+	flags.StringVar(&httpApplicationHandlerOptions.Path, "http-application-path", httpApplicationHandlerOptions.Path, "Http application handler path")
+	flags.StringVar(&httpApplicationHandlerOptions.Page, "http-application-page", httpApplicationHandlerOptions.Page, "Http application handler page")
+	flags.StringVar(&httpInspectHandlerOptions.Path, "http-inspect-path", httpInspectHandlerOptions.Path, "Http inspect handler path")
 
 	// Prometheus signals
 	flags.StringVar(&promSignalOptions.AppQuery, "prometheus-app-query", promSignalOptions.AppQuery, "Prometheus app query")

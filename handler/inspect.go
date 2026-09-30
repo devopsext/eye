@@ -20,7 +20,7 @@ type HttpInspectHandlerResponse struct {
 }
 
 type HttpInspectHandlerOptions struct {
-	URL string
+	Path string
 }
 
 type HttpInspectHandler struct {
@@ -34,8 +34,8 @@ func (h *HttpInspectHandler) Name() string {
 	return "Inspect"
 }
 
-func (h *HttpInspectHandler) URL() string {
-	return h.options.URL
+func (h *HttpInspectHandler) Path() string {
+	return h.options.Path
 }
 
 func (h *HttpInspectHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
