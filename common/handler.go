@@ -3,6 +3,8 @@ package common
 import (
 	"net/http"
 	"reflect"
+
+	"github.com/devopsext/utils"
 )
 
 type Handler interface {
@@ -41,13 +43,31 @@ func (ps *Handlers) Find(name string) Handler {
 }
 
 func (ps *Handlers) FindHttpHandler(name string) HttpHandler {
-	for _, p := range ps.list {
-		hp, ok := p.(HttpHandler)
+	for _, h := range ps.list {
+		if utils.IsEmpty(h) {
+			continue
+		}
+		hp, ok := h.(HttpHandler)
 		if ok && hp.Name() == name {
 			return hp
 		}
 	}
 	return nil
+}
+
+func (ps *Handlers) Subscribers() []ModelDetectionSubscriber {
+
+	r := []ModelDetectionSubscriber{}
+	for _, h := range ps.list {
+		if utils.IsEmpty(h) {
+			continue
+		}
+		s, ok := h.(ModelDetectionSubscriber)
+		if ok {
+			r = append(r, s)
+		}
+	}
+	return r
 }
 
 func NewHandlers() *Handlers {

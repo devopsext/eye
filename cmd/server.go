@@ -161,7 +161,12 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			notifiers := common.NewNotifiers()
 			notifiers.Add(notifier.NewSlack(slackOptions, obs))
 
-			models := common.NewModels(notifiers)
+			handlers := common.NewHandlers()
+			handlers.Add(handler.NewHttpHealthHandler(httpHealthHandlerOptions, obs))
+			handlers.Add(handler.NewHttpApplicationHandler(httpApplicationHandlerOptions, obs))
+			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
+
+			models := common.NewModels(notifiers.Subscribers(), handlers.Subscribers())
 			models.Add(model.NewTestModel(testModelOptions, obs))
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 
@@ -169,18 +174,14 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			generators.Add(generator.NewPushgateway(pushgatewayOptions, obs))
 
 			datasources := common.NewDataSources()
-			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.OnTrain, generators.OnData))
-			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.OnDetect))
+			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.Train, generators.SetData))
+			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.Detect))
 
 			schedules := common.NewSchedules()
 			schedules.AddDatasources(datasources)
 			schedules.AddGenerators(generators)
 			scheduler := server.NewScheduler(schedules, obs)
 
-			handlers := common.NewHandlers()
-			handlers.Add(handler.NewHttpHealthHandler(httpHealthHandlerOptions, obs))
-			handlers.Add(handler.NewHttpApplicationHandler(httpApplicationHandlerOptions, obs))
-			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
 			http := server.NewHttpServer(httpServerOptions, handlers, obs)
 
 			servers := common.NewServers()

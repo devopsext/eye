@@ -2,11 +2,12 @@ package common
 
 import (
 	"reflect"
+
+	"github.com/devopsext/utils"
 )
 
 type Notifier interface {
 	Name() string
-	Notify(anomalies []Anomaly)
 }
 
 type Notifiers struct {
@@ -27,11 +28,29 @@ func (ns *Notifiers) Add(n Notifier) {
 
 func (ns *Notifiers) Find(name string) Notifier {
 	for _, n := range ns.list {
+		if utils.IsEmpty(n) {
+			continue
+		}
 		if n.Name() == name {
 			return n
 		}
 	}
 	return nil
+}
+
+func (ns *Notifiers) Subscribers() []ModelAnomalySubscriber {
+
+	r := []ModelAnomalySubscriber{}
+	for _, n := range ns.list {
+		if utils.IsEmpty(n) {
+			continue
+		}
+		s, ok := n.(ModelAnomalySubscriber)
+		if ok {
+			r = append(r, s)
+		}
+	}
+	return r
 }
 
 func NewNotifiers() *Notifiers {

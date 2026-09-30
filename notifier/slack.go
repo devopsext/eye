@@ -2,7 +2,6 @@ package notifier
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	vendors "github.com/devopsext/tools/vendors"
 	"github.com/devopsext/utils"
 	"github.com/jellydator/ttlcache/v3"
-	"golang.org/x/sync/errgroup"
 )
 
 type SlackOptions struct {
@@ -50,7 +48,7 @@ func (s *Slack) renderTemplate(template *toolsRender.TextTemplate, obj interface
 	return b, nil
 }
 
-func (s *Slack) notifyAnomaly(anomaly common.Anomaly, channel, thread string) (*vendors.SlackMessageResponse, error) {
+func (s *Slack) notifyAnomaly(anomaly common.ModelAnomaly, channel, thread string) (*vendors.SlackMessageResponse, error) {
 
 	if utils.IsEmpty(anomaly) {
 		return nil, nil
@@ -93,9 +91,9 @@ func (s *Slack) findNotify(id string) *SlackNotify {
 	return item.Value()
 }
 
-func (s *Slack) Notify(anomalies []common.Anomaly) {
+func (s *Slack) Anomaly(anomaly common.ModelAnomaly) {
 
-	if len(anomalies) == 0 {
+	/*if len(anomalies) == 0 {
 		return
 	}
 
@@ -169,6 +167,7 @@ func (s *Slack) Notify(anomalies []common.Anomaly) {
 	}
 
 	s.logger.Debug("%s: Notifying finished in %s", name, time.Since(when))
+	*/
 }
 
 func NewSlack(options SlackOptions, observability *common.Observability) *Slack {

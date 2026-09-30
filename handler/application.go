@@ -30,6 +30,10 @@ func (h *HttpApplicationHandler) Path() string {
 	return h.options.Path
 }
 
+func (h *HttpApplicationHandler) Detection(detection common.ModelDetection) {
+	h.logger.Debug("asasdasdas")
+}
+
 func (h *HttpApplicationHandler) handlePage(w http.ResponseWriter) error {
 
 	data, err := utils.Content(h.options.Page)

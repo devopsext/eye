@@ -2,19 +2,40 @@ package common
 
 import (
 	"reflect"
+
+	"github.com/devopsext/utils"
 )
 
-type ModelAfterDetect = func(anomalies []Anomaly)
+type ModelAnomaly interface {
+	ID() string
+	Begin() Stamp
+	End() Stamp
+}
+
+type ModelDetection interface {
+}
+
+type ModelAnomalySubscriber interface {
+	Anomaly(anomaly ModelAnomaly)
+}
+
+type ModelDetectionSubscriber interface {
+	Detection(detection ModelDetection)
+}
+
+type ModelOnAnomaly = func(anomaly ModelAnomaly)
+type ModelOnDetection = func(detection ModelDetection)
 
 type Model interface {
 	Name() string
 	Train(data DataSourceData) error
-	Detect(data DataSourceData, after ModelAfterDetect) error
+	Detect(data DataSourceData, onDetection ModelOnDetection, onAnomaly ModelOnAnomaly) error
 }
 
 type Models struct {
-	list      []Model
-	notifiers *Notifiers
+	list                 []Model
+	anomalySubscribers   []ModelAnomalySubscriber
+	detectionSubscribers []ModelDetectionSubscriber
 }
 
 func (ms *Models) Items() []Model {
@@ -38,7 +59,7 @@ func (ms *Models) Find(name string) Model {
 	return nil
 }
 
-func (ms *Models) OnTrain(data DataSourceData) error {
+func (ms *Models) Train(data DataSourceData) error {
 
 	var err error
 	for _, m := range ms.list {
@@ -50,19 +71,11 @@ func (ms *Models) OnTrain(data DataSourceData) error {
 	return err
 }
 
-func (ms *Models) afterDetect(anomalies []Anomaly) {
-
-	list := ms.notifiers.Items()
-	for _, n := range list {
-		n.Notify(anomalies)
-	}
-}
-
-func (ms *Models) OnDetect(data DataSourceData) error {
+func (ms *Models) Detect(data DataSourceData) error {
 
 	var err error
 	for _, m := range ms.list {
-		e := m.Detect(data, ms.afterDetect)
+		e := m.Detect(data, ms.detection, ms.anomaly)
 		if e != nil {
 			err = e
 		}
@@ -70,8 +83,29 @@ func (ms *Models) OnDetect(data DataSourceData) error {
 	return err
 }
 
-func NewModels(notifiers *Notifiers) *Models {
+func (ms *Models) detection(detection ModelDetection) {
+
+	for _, s := range ms.detectionSubscribers {
+		if utils.IsEmpty(s) {
+			continue
+		}
+		s.Detection(detection)
+	}
+}
+
+func (ms *Models) anomaly(anomaly ModelAnomaly) {
+
+	for _, s := range ms.anomalySubscribers {
+		if utils.IsEmpty(s) {
+			continue
+		}
+		s.Anomaly(anomaly)
+	}
+}
+
+func NewModels(anomalySubscribers []ModelAnomalySubscriber, detectionSubscribers []ModelDetectionSubscriber) *Models {
 	return &Models{
-		notifiers: notifiers,
+		anomalySubscribers:   anomalySubscribers,
+		detectionSubscribers: detectionSubscribers,
 	}
 }

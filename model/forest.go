@@ -115,12 +115,12 @@ func NewForestModelDetection(hash common.Hash, min, max common.Stamp, deps *comm
 
 // ForestModelDetections
 
-func (fd *ForestModelDetections) Anomalies() []common.Anomaly {
+func (fd *ForestModelDetections) Anomalies() []common.ModelAnomaly {
 
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 
-	r := []common.Anomaly{}
+	r := []common.ModelAnomaly{}
 	fd.items.Range(func(item *ttlcache.Item[common.Hash, *ForestModelDetection]) bool {
 
 		d := item.Value()
@@ -590,7 +590,7 @@ func (fm *ForestModel) setManyDetections(found []*ForestModelDetection, data com
 	}
 }
 
-func (fm *ForestModel) detect(data common.DataSourceData) error {
+func (fm *ForestModel) detect(data common.DataSourceData, onDetection common.ModelOnDetection) error {
 
 	measurements := data.Measurements()
 
@@ -643,6 +643,10 @@ func (fm *ForestModel) detect(data common.DataSourceData) error {
 			verdict := engine.Diagnose(frames, fm.appCases)
 			if verdict != nil {
 				verdicts.Store(hash, verdict)
+			}
+
+			if onDetection != nil {
+				//go onDetection()
 			}
 			return nil
 		})
@@ -701,14 +705,14 @@ func (fm *ForestModel) detect(data common.DataSourceData) error {
 	return err
 }
 
-func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfterDetect) error {
+func (fm *ForestModel) Detect(data common.DataSourceData, onDetection common.ModelOnDetection, onAnomaly common.ModelOnAnomaly) error {
 
 	when := time.Now()
 	name := fm.Name()
 
 	fm.logger.Info("%s: Detecting...", name)
 
-	err := fm.detect(data)
+	err := fm.detect(data, onDetection)
 	if err != nil {
 		fm.logger.Error("%s: Detecting failed in %s error %s", name, time.Since(when), err)
 		return err
@@ -736,8 +740,13 @@ func (fm *ForestModel) Detect(data common.DataSourceData, after common.ModelAfte
 			fm.logger.Debug("%s: Found detection %s%s: %s (%s / %s)", name, n, deps, verdict, category, impact)
 		}
 
-		if after != nil {
-			go after(fm.detections.Anomalies())
+		anomalies := fm.detections.Anomalies()
+		if onAnomaly != nil && len(anomalies) > 0 {
+			go func() {
+				for _, a := range anomalies {
+					onAnomaly(a)
+				}
+			}()
 		}
 	}
 

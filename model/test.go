@@ -36,7 +36,7 @@ func (t *TestModel) Train(data common.DataSourceData) error {
 	return nil
 }
 
-func (t *TestModel) Detect(data common.DataSourceData, after common.ModelAfterDetect) error {
+func (t *TestModel) Detect(data common.DataSourceData, onDetection common.ModelOnDetection, onAnomaly common.ModelOnAnomaly) error {
 
 	name := t.Name()
 	t.logger.Info("%s: Detecting...", name)

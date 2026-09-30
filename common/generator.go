@@ -51,7 +51,7 @@ func (gs *Generators) Find(name string) Generator {
 	return nil
 }
 
-func (gs *Generators) OnData(data DataSourceData) error {
+func (gs *Generators) SetData(data DataSourceData) error {
 
 	var err error
 	for _, g := range gs.list {
