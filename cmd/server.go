@@ -103,10 +103,12 @@ var pushgatewayOptions = generator.PushgatewayOptions{
 }
 
 var testModelOptions = model.TestModelOptions{
+	Enabled:      envGet("TEST_MODEL_ENABLED", false).(bool),
 	WaitInterval: envGet("TEST_MODEL_WAIT_INTERVAL", "").(string),
 }
 
 var forestModelOptions = model.ForestModelOptions{
+	Enabled:       envGet("FOREST_MODEL_ENABLED", false).(bool),
 	Concurrency:   envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
 	Filter:        strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
 	EngineTTL:     envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
@@ -141,7 +143,7 @@ var httpHealthHandlerOptions = handler.HttpHealthHandlerOptions{
 }
 
 var httpApplicationHandlerOptions = handler.HttpApplicationHandlerOptions{
-	Path: envGet("HTTP_APPLICATION_PATH", "/app").(string),
+	Path: envGet("HTTP_APPLICATION_PATH", "/app,/app/").(string),
 	Page: envStringExpand("HTTP_APPLICATION_PAGE", ""),
 }
 
@@ -166,7 +168,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			handlers.Add(handler.NewHttpApplicationHandler(httpApplicationHandlerOptions, obs))
 			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
 
-			models := common.NewModels(notifiers.Subscribers(), handlers.Subscribers())
+			models := common.NewModels(notifiers.Subscribers(), handlers.FrameSubscribers(), handlers.StateSubscribers())
 			models.Add(model.NewTestModel(testModelOptions, obs))
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 

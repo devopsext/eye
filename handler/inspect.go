@@ -30,12 +30,18 @@ type HttpInspectHandler struct {
 	meter         sreCommon.Meter
 }
 
+// HttpInspectHandler
+
 func (h *HttpInspectHandler) Name() string {
 	return "Inspect"
 }
 
 func (h *HttpInspectHandler) Path() string {
 	return h.options.Path
+}
+
+func (h *HttpInspectHandler) Start() {
+	//
 }
 
 func (h *HttpInspectHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {

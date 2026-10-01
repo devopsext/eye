@@ -31,3 +31,4 @@ heap.pprof
 .prometheus.yaml
 .slack.tpl
 .generate
+prometheus.yml

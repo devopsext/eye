@@ -769,18 +769,27 @@
 
         async function fetchModelState() {
             try {
-                const res = await fetch('/api/state');
+                const res = await fetch('{{.ApiStatePath}}');
                 const data = await res.json();
                 const ms = document.getElementById('modelStatus');
                 if (data.state === 'ready') {
                     ms.style.color = '#10b981';
-                    ms.innerText = '● Model: Ready';
+                    ms.innerText = '● ' + data.model + ': Ready';
                 } else if (data.state === 'training') {
                     ms.style.color = '#f59e0b';
-                    ms.innerText = '● Model: Training...';
+                    ms.innerText = '● ' + data.model + ': Training...';
+                } else if (data.state === 'trainerror') {
+                    ms.style.color = '#ef4444';
+                    ms.innerText = '● ' + data.model + ': Train error';
+                } else if (data.state === 'detecting') {
+                    ms.style.color = 'rgb(49, 43, 226)';
+                    ms.innerText = '● ' + data.model + ': Detecting...';
+                } else if (data.state === 'detecterror') {
+                    ms.style.color = '#ef4444';
+                    ms.innerText = '● ' + data.model + ': Detect error';
                 } else {
                     ms.style.color = '#ef4444';
-                    ms.innerText = '● Model: Not Ready';
+                    ms.innerText = '● ' + data.model + ': Not Ready';
                 }
             } catch(e) {}
         }
@@ -790,7 +799,7 @@
         function connectWS() {
             const loc = window.location;
             const wsProtocol = loc.protocol === 'https:' ? 'wss://' : 'ws://';
-            ws = new WebSocket(wsProtocol + loc.host + '/ws');
+            ws = new WebSocket(wsProtocol + loc.host + '{{.WebsocketPath}}');
 
             ws.onopen = function() {
                 const wsStatus = document.getElementById('wsStatus');

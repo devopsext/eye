@@ -1,12 +1,19 @@
 package handler
 
 import (
+	"encoding/json"
+	"maps"
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
 	"github.com/devopsext/utils"
+	"github.com/gorilla/websocket"
 )
 
 type HttpApplicationHandlerOptions struct {
@@ -20,7 +27,22 @@ type HttpApplicationHandler struct {
 	logger        sreCommon.Logger
 	meter         sreCommon.Meter
 	page          string
+	//
+	wsMutex    sync.Mutex
+	wsClients  map[*websocket.Conn]bool
+	wsUpgrader websocket.Upgrader
+	broadcast  chan common.ModelFrame
+	//
+	stMutex sync.Mutex
+	stMap   map[string]string
 }
+
+const (
+	HttpApplicationHandlerWebsocketPath = "/ws"
+	HttpApplicationHandlerApiStatePath  = "/api/state"
+)
+
+// HttpApplicationHandler
 
 func (h *HttpApplicationHandler) Name() string {
 	return "Application"
@@ -30,11 +52,43 @@ func (h *HttpApplicationHandler) Path() string {
 	return h.options.Path
 }
 
-func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
-	h.logger.Debug("asasdasdas")
+func (h *HttpApplicationHandler) updateWsClients() {
+
+	for {
+		frame := <-h.broadcast
+		h.wsMutex.Lock()
+		for client := range h.wsClients {
+			_ = client.WriteJSON(frame)
+		}
+		h.wsMutex.Unlock()
+	}
 }
 
-func (h *HttpApplicationHandler) handlePage(w http.ResponseWriter) error {
+func (h *HttpApplicationHandler) Start() {
+	go h.updateWsClients()
+}
+
+func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
+
+	if utils.IsEmpty(frame) {
+		return
+	}
+	h.broadcast <- frame
+}
+
+func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {
+
+	if utils.IsEmpty(model) {
+		return
+	}
+
+	h.stMutex.Lock()
+	defer h.stMutex.Unlock()
+
+	h.stMap[model.Name()] = common.ModelStateToString(state)
+}
+
+func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) error {
 
 	data, err := utils.Content(h.options.Page)
 	if err != nil {
@@ -46,22 +100,114 @@ func (h *HttpApplicationHandler) handlePage(w http.ResponseWriter) error {
 		return err
 	}
 
-	return pageTemplate.Execute(w, nil)
+	type tpl struct {
+		WebsocketPath string
+		ApiStatePath  string
+	}
+
+	websocketPath, _ := url.JoinPath(path, HttpApplicationHandlerWebsocketPath)
+	apiStatePath, _ := url.JoinPath(path, HttpApplicationHandlerApiStatePath)
+
+	return pageTemplate.Execute(w, &tpl{
+		WebsocketPath: websocketPath,
+		ApiStatePath:  apiStatePath,
+	})
 }
 
-func (h *HttpApplicationHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {
+func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.Request) error {
 
-	url := r.URL
-	if url == nil {
-		return h.handlePage(w)
+	ws, err := h.wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return nil
 	}
+	defer ws.Close()
 
-	switch url.Path {
-	case h.options.Path:
-		return h.handlePage(w)
+	h.wsMutex.Lock()
+	h.wsClients[ws] = true
+	h.wsMutex.Unlock()
+
+	name := h.Name()
+
+	for {
+		_, msg, err := ws.ReadMessage()
+		if err != nil {
+			h.wsMutex.Lock()
+			delete(h.wsClients, ws)
+			h.wsMutex.Unlock()
+			break
+		}
+
+		var payload struct {
+			Type        string `json:"type"`
+			Application string `json:"application"`
+		}
+		err = json.Unmarshal(msg, &payload)
+		if err != nil {
+			h.logger.Error("%s: Cannot unmarshal message: %s, error: %s", name, msg, err)
+			break
+		}
+		if payload.Type == "filter" && payload.Application != "" {
+			//setActiveService(payload.Service)
+		}
 	}
-
 	return nil
+}
+
+func (h *HttpApplicationHandler) handleApiState(w http.ResponseWriter) error {
+
+	h.stMutex.Lock()
+	defer h.stMutex.Unlock()
+
+	model := "Unknown"
+	state := "unknown"
+
+	w.Header().Set("Content-Type", "application/json")
+
+	type response struct {
+		Model string `json:"model"`
+		State string `json:"state"`
+	}
+
+	keys := slices.Collect(maps.Keys(h.stMap))
+	if len(keys) > 0 {
+		model = keys[0]
+		state = h.stMap[model]
+	}
+
+	data, err := json.Marshal(&response{
+		Model: model,
+		State: state,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
+}
+
+func (h *HttpApplicationHandler) HandleHttpRequest(path string, w http.ResponseWriter, r *http.Request) error {
+
+	u := r.URL
+	if u == nil {
+		return h.handlePage(path, w)
+	}
+
+	rest, found := strings.CutPrefix(u.Path, path)
+	if !found {
+		return h.handlePage(path, w)
+	}
+	if !strings.HasPrefix(rest, "/") {
+		rest = "/" + rest
+	}
+
+	switch rest {
+	case HttpApplicationHandlerWebsocketPath:
+		return h.handleWebsocket(w, r)
+	case HttpApplicationHandlerApiStatePath:
+		return h.handleApiState(w)
+	default:
+		return h.handlePage(path, w)
+	}
 }
 
 func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observability *common.Observability) *HttpApplicationHandler {
@@ -85,5 +231,13 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 		observability: observability,
 		logger:        observability.Logs(),
 		meter:         observability.Metrics(),
+
+		//
+		wsClients: make(map[*websocket.Conn]bool),
+		wsUpgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
+		},
+		//
+		stMap: make(map[string]string),
 	}
 }

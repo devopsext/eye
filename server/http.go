@@ -34,10 +34,14 @@ type HttpServer struct {
 
 type HttpProcessHandleFunc = func(w http.ResponseWriter, r *http.Request)
 
-func (h *HttpServer) processPath(path string, mux *http.ServeMux, p common.HttpHandler) {
+func (h *HttpServer) setPath(path string, mux *http.ServeMux, p common.HttpHandler) {
 
-	paths := strings.Split(path, ",")
+	paths := strings.Split(path, ";")
 	for _, path := range paths {
+
+		if utils.IsEmpty(path) {
+			continue
+		}
 
 		labels := make(sreCommon.Labels)
 		labels["path"] = path
@@ -48,7 +52,7 @@ func (h *HttpServer) processPath(path string, mux *http.ServeMux, p common.HttpH
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 
 			requests.Inc()
-			err := p.HandleHttpRequest(w, r)
+			err := p.HandleHttpRequest(path, w, r)
 			if err != nil {
 				errors.Inc()
 			}
@@ -132,7 +136,8 @@ func (h *HttpServer) Start(wg *sync.WaitGroup) {
 				continue
 			}
 			if !utils.IsEmpty(hp) {
-				h.processPath(hp.Path(), mux, hp)
+				h.setPath(hp.Path(), mux, hp)
+				p.Start()
 			}
 		}
 

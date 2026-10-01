@@ -18,7 +18,7 @@ import (
 )
 
 type ForestModelOptions struct {
-	//Path           string
+	Enabled     bool
 	Concurrency int
 	Filter      []string // filter by apps and hosts
 
@@ -40,14 +40,6 @@ type ForestModelData struct {
 	items       *ttlcache.Cache[common.Hash, *iforest.Forest]
 }
 
-type ForestModelVerdict interface {
-	Name() string
-	Description() string
-	RootCause() string
-	Category() common.CaseCategory
-	Impact() common.CaseImpact
-}
-
 type ForestModelApplicationFrame struct {
 	frame   *forest.ApplicationFrame
 	verdict *forest.ApplicationCaseVerdict
@@ -55,7 +47,7 @@ type ForestModelApplicationFrame struct {
 
 type ForestModelDetection struct {
 	hash    common.Hash
-	verdict ForestModelVerdict
+	verdict common.ModelVerdict
 	begin   common.Stamp
 	end     common.Stamp
 	deps    *common.Dependencies
@@ -97,6 +89,13 @@ type ForestModelFileData struct {
 
 // ForestModelApplicationFrame
 
+func (af *ForestModelApplicationFrame) Stamp() common.Stamp {
+	if af.frame == nil {
+		return common.Stamp(0)
+	}
+	return af.frame.Stamp()
+}
+
 func (af *ForestModelApplicationFrame) Begin() common.Stamp {
 	if af.frame == nil {
 		return common.Stamp(0)
@@ -109,6 +108,10 @@ func (af *ForestModelApplicationFrame) End() common.Stamp {
 		return common.Stamp(0)
 	}
 	return af.frame.End()
+}
+
+func (af *ForestModelApplicationFrame) Verdict() common.ModelVerdict {
+	return af.verdict
 }
 
 // ForestModelDetection
@@ -258,7 +261,11 @@ func NewForestModelDetections(ttl time.Duration) *ForestModelDetections {
 // ForestModel
 
 func (fm *ForestModel) Name() string {
-	return "ForestModel"
+	return "Forest"
+}
+
+func (fm *ForestModel) Enabled() bool {
+	return fm.options.Enabled
 }
 
 func (fm *ForestModel) findHashes(names *common.Names, filter []string) []common.Hash {
@@ -415,6 +422,10 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 }
 
 func (fm *ForestModel) Train(data common.DataSourceData) error {
+
+	if !fm.options.Enabled {
+		return nil
+	}
 
 	when := time.Now()
 	name := fm.Name()
@@ -740,6 +751,10 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 }
 
 func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
+
+	if !fm.options.Enabled {
+		return nil
+	}
 
 	when := time.Now()
 	name := fm.Name()

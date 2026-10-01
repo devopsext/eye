@@ -19,12 +19,18 @@ type HttpHealthHandler struct {
 	meter         sreCommon.Meter
 }
 
+// HttpHealthHandler
+
 func (h *HttpHealthHandler) Name() string {
 	return "Health"
 }
 
 func (h *HttpHealthHandler) Path() string {
 	return h.options.Path
+}
+
+func (h *HttpHealthHandler) Start() {
+	//
 }
 
 func (h *HttpHealthHandler) HandleHttpRequest(w http.ResponseWriter, r *http.Request) error {

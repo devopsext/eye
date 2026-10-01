@@ -9,12 +9,13 @@ import (
 
 type Handler interface {
 	Name() string
+	Start()
 }
 
 type HttpHandler interface {
 	Handler
 	Path() string
-	HandleHttpRequest(w http.ResponseWriter, r *http.Request) error
+	HandleHttpRequest(path string, w http.ResponseWriter, r *http.Request) error
 }
 
 type Handlers struct {
@@ -55,7 +56,7 @@ func (ps *Handlers) FindHttpHandler(name string) HttpHandler {
 	return nil
 }
 
-func (ps *Handlers) Subscribers() []ModelFrameSubscriber {
+func (ps *Handlers) FrameSubscribers() []ModelFrameSubscriber {
 
 	r := []ModelFrameSubscriber{}
 	for _, h := range ps.list {
@@ -63,6 +64,21 @@ func (ps *Handlers) Subscribers() []ModelFrameSubscriber {
 			continue
 		}
 		s, ok := h.(ModelFrameSubscriber)
+		if ok {
+			r = append(r, s)
+		}
+	}
+	return r
+}
+
+func (ps *Handlers) StateSubscribers() []ModelStateSubscriber {
+
+	r := []ModelStateSubscriber{}
+	for _, h := range ps.list {
+		if utils.IsEmpty(h) {
+			continue
+		}
+		s, ok := h.(ModelStateSubscriber)
 		if ok {
 			r = append(r, s)
 		}

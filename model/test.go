@@ -9,6 +9,7 @@ import (
 )
 
 type TestModelOptions struct {
+	Enabled      bool
 	WaitInterval string
 }
 
@@ -20,10 +21,18 @@ type TestModel struct {
 }
 
 func (t *TestModel) Name() string {
-	return "TestModel"
+	return "Test"
+}
+
+func (t *TestModel) Enabled() bool {
+	return t.options.Enabled
 }
 
 func (t *TestModel) Train(data common.DataSourceData) error {
+
+	if !t.options.Enabled {
+		return nil
+	}
 
 	name := t.Name()
 	t.logger.Info("%s: Training...", name)
@@ -37,6 +46,10 @@ func (t *TestModel) Train(data common.DataSourceData) error {
 }
 
 func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
+
+	if !t.options.Enabled {
+		return nil
+	}
 
 	name := t.Name()
 	t.logger.Info("%s: Detecting...", name)
