@@ -30,7 +30,7 @@ func (h *HttpApplicationHandler) Path() string {
 	return h.options.Path
 }
 
-func (h *HttpApplicationHandler) Detection(detection common.ModelDetection) {
+func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	h.logger.Debug("asasdasdas")
 }
 

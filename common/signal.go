@@ -3,6 +3,7 @@ package common
 import (
 	"maps"
 	"math"
+	"regexp"
 	"slices"
 	"sync"
 
@@ -438,8 +439,11 @@ func (ns *Names) FindByHashes(hashes []Hash) []string {
 	return r
 }
 
-func (ns *Names) FindByName(name string) Hash {
+func (ns *Names) FindByName2(name string) Hash {
 
+	if name == "" {
+		return 0
+	}
 	if ns.items == nil {
 		return 0
 	}
@@ -454,6 +458,32 @@ func (ns *Names) FindByName(name string) Hash {
 		return 0
 	}
 	return hash
+}
+
+func (ns *Names) FindByRegex(regex string) []Hash {
+
+	r := []Hash{}
+
+	if regex == "" {
+		return r
+	}
+
+	if ns.items == nil {
+		return r
+	}
+
+	re, err := regexp.Compile(regex)
+	if err != nil {
+		return r
+	}
+
+	ns.items.Range(func(key Hash, value string) bool {
+		if re.MatchString(value) {
+			r = append(r, key)
+		}
+		return true
+	})
+	return r
 }
 
 func NewNames() *Names {

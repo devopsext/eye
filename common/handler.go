@@ -55,14 +55,14 @@ func (ps *Handlers) FindHttpHandler(name string) HttpHandler {
 	return nil
 }
 
-func (ps *Handlers) Subscribers() []ModelDetectionSubscriber {
+func (ps *Handlers) Subscribers() []ModelFrameSubscriber {
 
-	r := []ModelDetectionSubscriber{}
+	r := []ModelFrameSubscriber{}
 	for _, h := range ps.list {
 		if utils.IsEmpty(h) {
 			continue
 		}
-		s, ok := h.(ModelDetectionSubscriber)
+		s, ok := h.(ModelFrameSubscriber)
 		if ok {
 			r = append(r, s)
 		}

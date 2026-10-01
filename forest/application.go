@@ -35,11 +35,8 @@ type ApplicationCasePattern struct {
 }
 
 type ApplicationCaseVerdict struct {
-	frame *ApplicationFrame
 	acase *ApplicationCase
 	score int
-	begin common.Stamp
-	end   common.Stamp
 }
 
 type ApplicationCase struct {
@@ -64,7 +61,10 @@ type HostSaturationValue *common.Saturation
 type ApplicationFrames []*ApplicationFrame
 
 type ApplicationFrame struct {
+	//
 	stamp common.Stamp
+	begin common.Stamp
+	end   common.Stamp
 	//
 	inRequests   ApplicationTrafficValues
 	inThroughput ApplicationTrafficValues
@@ -1023,14 +1023,6 @@ func NewApplicationCases() *ApplicationCases {
 
 // ApplicationCaseVerdict
 
-func (acv *ApplicationCaseVerdict) Begin() common.Stamp {
-	return acv.begin
-}
-
-func (acv *ApplicationCaseVerdict) End() common.Stamp {
-	return acv.end
-}
-
 func (acv *ApplicationCaseVerdict) Name() string {
 	return acv.acase.name
 }
@@ -1085,6 +1077,14 @@ func (af *ApplicationFrame) Valid() bool {
 
 func (af *ApplicationFrame) Stamp() common.Stamp {
 	return af.stamp
+}
+
+func (af *ApplicationFrame) Begin() common.Stamp {
+	return af.begin
+}
+
+func (af *ApplicationFrame) End() common.Stamp {
+	return af.end
 }
 
 func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal) *ApplicationFrame {
@@ -1903,7 +1903,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) *Applicatio
 	}
 }
 
-func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) *ApplicationFrame {
+func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) ApplicationFrame {
 
 	sumTraffic := func(values, sum ApplicationTrafficValues, count map[common.TrafficKind]int) {
 
@@ -2025,7 +2025,7 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) *Applicat
 		maxOutErrors = maxErrors(f.outErrors, maxOutErrors)
 	}
 
-	return &ApplicationFrame{
+	return ApplicationFrame{
 		inRequests:   avgTraffic(sumInRequests, cntInRequests),
 		inThroughput: avgTraffic(sumInThroughput, cntInThroughput),
 		inLatency:    maxInLatency,
@@ -2066,15 +2066,9 @@ func (ae *ApplicationEngine) Exists(stamp common.Stamp) bool {
 	return index != -1
 }
 
-func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *ApplicationCases) *ApplicationCaseVerdict {
+func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationFrame {
 
-	if len(frames) == 0 || !ae.Ready() {
-		return nil
-	}
-
-	stamp := common.TimeToStamp(time.Now())
-
-	if !ae.Exists(stamp) {
+	if len(frames) == 0 {
 		return nil
 	}
 
@@ -2083,11 +2077,29 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
+	stamp := common.TimeToStamp(time.Now())
 	frame := ae.aggregateFrames(frames)
+
+	frame.stamp = stamp
+	frame.begin = frames[0].Stamp()
+	frame.end = frames[len(frames)-1].Stamp()
+
+	return &frame
+}
+
+func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *ApplicationCases) *ApplicationCaseVerdict {
+
 	if frame == nil {
 		return nil
 	}
-	frame.stamp = stamp
+
+	if !ae.Ready() {
+		return nil
+	}
+
+	if !ae.Exists(frame.stamp) {
+		return nil
+	}
 
 	pattern := ae.predictPattern(frame)
 	cs, score := cases.Match(pattern)
@@ -2100,15 +2112,9 @@ func (ae *ApplicationEngine) Diagnose(frames ApplicationFrames, cases *Applicati
 		return nil
 	}
 
-	begin := frames[0].Stamp()
-	end := frames[len(frames)-1].Stamp()
-
 	return &ApplicationCaseVerdict{
-		frame: frame,
 		acase: cs,
 		score: score,
-		begin: begin,
-		end:   end,
 	}
 }
 

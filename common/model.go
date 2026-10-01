@@ -12,30 +12,30 @@ type ModelAnomaly interface {
 	End() Stamp
 }
 
-type ModelDetection interface {
+type ModelFrame interface {
 }
 
 type ModelAnomalySubscriber interface {
 	Anomaly(anomaly ModelAnomaly)
 }
 
-type ModelDetectionSubscriber interface {
-	Detection(detection ModelDetection)
+type ModelFrameSubscriber interface {
+	Frame(frame ModelFrame)
 }
 
 type ModelOnAnomaly = func(anomaly ModelAnomaly)
-type ModelOnDetection = func(detection ModelDetection)
+type ModelOnFrame = func(frame ModelFrame)
 
 type Model interface {
 	Name() string
 	Train(data DataSourceData) error
-	Detect(data DataSourceData, onDetection ModelOnDetection, onAnomaly ModelOnAnomaly) error
+	Detect(data DataSourceData, onFrame ModelOnFrame, onAnomaly ModelOnAnomaly) error
 }
 
 type Models struct {
-	list                 []Model
-	anomalySubscribers   []ModelAnomalySubscriber
-	detectionSubscribers []ModelDetectionSubscriber
+	list               []Model
+	anomalySubscribers []ModelAnomalySubscriber
+	frameSubscribers   []ModelFrameSubscriber
 }
 
 func (ms *Models) Items() []Model {
@@ -75,7 +75,7 @@ func (ms *Models) Detect(data DataSourceData) error {
 
 	var err error
 	for _, m := range ms.list {
-		e := m.Detect(data, ms.detection, ms.anomaly)
+		e := m.Detect(data, ms.frame, ms.anomaly)
 		if e != nil {
 			err = e
 		}
@@ -83,13 +83,13 @@ func (ms *Models) Detect(data DataSourceData) error {
 	return err
 }
 
-func (ms *Models) detection(detection ModelDetection) {
+func (ms *Models) frame(frame ModelFrame) {
 
-	for _, s := range ms.detectionSubscribers {
+	for _, s := range ms.frameSubscribers {
 		if utils.IsEmpty(s) {
 			continue
 		}
-		s.Detection(detection)
+		s.Frame(frame)
 	}
 }
 
@@ -103,9 +103,9 @@ func (ms *Models) anomaly(anomaly ModelAnomaly) {
 	}
 }
 
-func NewModels(anomalySubscribers []ModelAnomalySubscriber, detectionSubscribers []ModelDetectionSubscriber) *Models {
+func NewModels(anomalySubscribers []ModelAnomalySubscriber, frameSubscribers []ModelFrameSubscriber) *Models {
 	return &Models{
-		anomalySubscribers:   anomalySubscribers,
-		detectionSubscribers: detectionSubscribers,
+		anomalySubscribers: anomalySubscribers,
+		frameSubscribers:   frameSubscribers,
 	}
 }

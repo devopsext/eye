@@ -48,6 +48,11 @@ type ForestModelVerdict interface {
 	Impact() common.CaseImpact
 }
 
+type ForestModelApplicationFrame struct {
+	frame   *forest.ApplicationFrame
+	verdict *forest.ApplicationCaseVerdict
+}
+
 type ForestModelDetection struct {
 	hash    common.Hash
 	verdict ForestModelVerdict
@@ -88,6 +93,22 @@ const (
 type ForestModelFileData struct {
 	Data  [][]float64
 	Times []common.Stamp
+}
+
+// ForestModelApplicationFrame
+
+func (af *ForestModelApplicationFrame) Begin() common.Stamp {
+	if af.frame == nil {
+		return common.Stamp(0)
+	}
+	return af.frame.Begin()
+}
+
+func (af *ForestModelApplicationFrame) End() common.Stamp {
+	if af.frame == nil {
+		return common.Stamp(0)
+	}
+	return af.frame.End()
 }
 
 // ForestModelDetection
@@ -251,11 +272,16 @@ func (fm *ForestModel) findHashes(names *common.Names, filter []string) []common
 			continue
 		}
 
-		hash := names.FindByName(name)
-		if hash == 0 {
+		hashes := names.FindByRegex(name)
+		if len(hashes) == 0 {
 			continue
 		}
-		r = append(r, hash)
+		for _, h := range hashes {
+			if utils.Contains(r, h) {
+				continue
+			}
+			r = append(r, h)
+		}
 	}
 	return r
 }
@@ -590,7 +616,7 @@ func (fm *ForestModel) setManyDetections(found []*ForestModelDetection, data com
 	}
 }
 
-func (fm *ForestModel) detect(data common.DataSourceData, onDetection common.ModelOnDetection) error {
+func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOnFrame) error {
 
 	measurements := data.Measurements()
 
@@ -608,7 +634,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onDetection common.Mod
 	gr := &errgroup.Group{}
 	gr.SetLimit(fm.options.Concurrency)
 	errs := make(chan error, length)
-	verdicts := &sync.Map{}
+	verdictFrames := &sync.Map{}
 
 	// run apps engine
 	for hash, frames := range appFrames {
@@ -640,13 +666,21 @@ func (fm *ForestModel) detect(data common.DataSourceData, onDetection common.Mod
 					fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
 				}
 			}
-			verdict := engine.Diagnose(frames, fm.appCases)
-			if verdict != nil {
-				verdicts.Store(hash, verdict)
+
+			appFrame := engine.Consolidate(frames)
+			appVerdict := engine.Diagnose(appFrame, fm.appCases)
+
+			verdictFrame := &ForestModelApplicationFrame{
+				frame:   appFrame,
+				verdict: appVerdict,
 			}
 
-			if onDetection != nil {
-				//go onDetection()
+			if appVerdict != nil {
+				verdictFrames.Store(hash, verdictFrame)
+			}
+
+			if onFrame != nil {
+				go onFrame(verdictFrame)
 			}
 			return nil
 		})
@@ -662,15 +696,15 @@ func (fm *ForestModel) detect(data common.DataSourceData, onDetection common.Mod
 	err := errors.Join(all...)
 
 	found := []*ForestModelDetection{}
-	verdicts.Range(func(key, value any) bool {
+	verdictFrames.Range(func(key, value any) bool {
 
 		var detection *ForestModelDetection
 
 		hash := key.(common.Hash)
-		appVerdict, ok := value.(*forest.ApplicationCaseVerdict)
+		appFrame, ok := value.(*ForestModelApplicationFrame)
 		if ok {
-			detection = NewForestModelDetection(hash, appVerdict.Begin(), appVerdict.End(), nil)
-			detection.verdict = appVerdict
+			detection = NewForestModelDetection(hash, appFrame.Begin(), appFrame.End(), nil)
+			detection.verdict = appFrame.verdict
 		}
 		if detection != nil {
 			found = append(found, detection)
@@ -705,14 +739,14 @@ func (fm *ForestModel) detect(data common.DataSourceData, onDetection common.Mod
 	return err
 }
 
-func (fm *ForestModel) Detect(data common.DataSourceData, onDetection common.ModelOnDetection, onAnomaly common.ModelOnAnomaly) error {
+func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
 
 	when := time.Now()
 	name := fm.Name()
 
 	fm.logger.Info("%s: Detecting...", name)
 
-	err := fm.detect(data, onDetection)
+	err := fm.detect(data, onFrame)
 	if err != nil {
 		fm.logger.Error("%s: Detecting failed in %s error %s", name, time.Since(when), err)
 		return err
