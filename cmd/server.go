@@ -168,7 +168,13 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			handlers.Add(handler.NewHttpApplicationHandler(httpApplicationHandlerOptions, obs))
 			handlers.Add(handler.NewHttpInspectHandler(httpInspectHandlerOptions, obs))
 
-			models := common.NewModels(notifiers.Subscribers(), handlers.FrameSubscribers(), handlers.StateSubscribers())
+			modelSubscribers := &common.ModelSubscribers{
+				Anomalies: notifiers.Subscribers(),
+				Frames:    handlers.FrameSubscribers(),
+				States:    handlers.StateSubscribers(),
+			}
+
+			models := common.NewModels(modelSubscribers)
 			models.Add(model.NewTestModel(testModelOptions, obs))
 			models.Add(model.NewForestModel(forestModelOptions, obs))
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/devopsext/eye/common"
 	sreCommon "github.com/devopsext/sre/common"
@@ -21,6 +22,20 @@ type HttpApplicationHandlerOptions struct {
 	Page string
 }
 
+type HttpApplicationHandlerDataPoint struct {
+	Timestamp time.Time
+	Metric    string
+	Value     float64
+	Max       float64
+	Min       float64
+}
+
+type HttpApplicationHandlerData struct {
+	Ident     string
+	Timestamp time.Time
+	Points    []HttpApplicationHandlerDataPoint
+}
+
 type HttpApplicationHandler struct {
 	options       HttpApplicationHandlerOptions
 	observability *common.Observability
@@ -28,10 +43,10 @@ type HttpApplicationHandler struct {
 	meter         sreCommon.Meter
 	page          string
 	//
-	wsMutex    sync.Mutex
-	wsClients  map[*websocket.Conn]bool
-	wsUpgrader websocket.Upgrader
-	broadcast  chan common.ModelFrame
+	wsMutex     sync.Mutex
+	wsClients   map[*websocket.Conn]bool
+	wsUpgrader  websocket.Upgrader
+	datachannel chan HttpApplicationHandlerData
 	//
 	stMutex sync.Mutex
 	stMap   map[string]string
@@ -55,10 +70,10 @@ func (h *HttpApplicationHandler) Path() string {
 func (h *HttpApplicationHandler) updateWsClients() {
 
 	for {
-		frame := <-h.broadcast
+		data := <-h.datachannel
 		h.wsMutex.Lock()
 		for client := range h.wsClients {
-			_ = client.WriteJSON(frame)
+			_ = client.WriteJSON(data)
 		}
 		h.wsMutex.Unlock()
 	}
@@ -73,7 +88,39 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	if utils.IsEmpty(frame) {
 		return
 	}
-	h.broadcast <- frame
+
+	ident := frame.Ident()
+	if utils.IsEmpty(ident) {
+		return
+	}
+
+	fPoints := frame.Points()
+	if len(fPoints) == 0 {
+		return
+	}
+
+	points := []HttpApplicationHandlerDataPoint{}
+	for _, p := range fPoints {
+
+		metric := p.Metric()
+		if utils.IsEmpty(metric) {
+			continue
+		}
+		point := HttpApplicationHandlerDataPoint{
+			Timestamp: p.Timestamp(),
+			Metric:    p.Metric(),
+			Value:     p.Value(),
+			Max:       p.Max(),
+			Min:       p.Min(),
+		}
+		points = append(points, point)
+	}
+
+	h.datachannel <- HttpApplicationHandlerData{
+		Ident:     ident,
+		Timestamp: time.Now(),
+		Points:    points,
+	}
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {

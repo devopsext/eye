@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"reflect"
+	"time"
 
 	"github.com/devopsext/utils"
 )
@@ -27,11 +28,18 @@ type ModelVerdict interface {
 	Impact() CaseImpact
 }
 
+type ModelDataPoint interface {
+	Timestamp() time.Time
+	Metric() string
+	Value() float64
+	Max() float64
+	Min() float64
+}
+
 type ModelFrame interface {
-	Stamp() Stamp
-	Begin() Stamp
-	End() Stamp
+	Ident() string
 	Verdict() ModelVerdict
+	Points() []ModelDataPoint
 }
 
 type ModelFrameSubscriber interface {
@@ -55,6 +63,12 @@ type ModelStateSubscriber interface {
 	State(model Model, state ModelState)
 }
 
+type ModelSubscribers struct {
+	Anomalies []ModelAnomalySubscriber
+	Frames    []ModelFrameSubscriber
+	States    []ModelStateSubscriber
+}
+
 type Model interface {
 	Name() string
 	Enabled() bool
@@ -63,10 +77,8 @@ type Model interface {
 }
 
 type Models struct {
-	list               []Model
-	anomalySubscribers []ModelAnomalySubscriber
-	frameSubscribers   []ModelFrameSubscriber
-	stateSubscribers   []ModelStateSubscriber
+	list        []Model
+	subscribers *ModelSubscribers
 }
 
 func ModelStateToString(state ModelState) string {
@@ -114,7 +126,7 @@ func (ms *Models) Find(name string) Model {
 
 func (ms *Models) state(model Model, state ModelState) {
 
-	for _, s := range ms.stateSubscribers {
+	for _, s := range ms.subscribers.States {
 		if utils.IsEmpty(s) {
 			continue
 		}
@@ -166,7 +178,7 @@ func (ms *Models) Detect(data DataSourceData) error {
 
 func (ms *Models) frame(frame ModelFrame) {
 
-	for _, s := range ms.frameSubscribers {
+	for _, s := range ms.subscribers.Frames {
 		if utils.IsEmpty(s) {
 			continue
 		}
@@ -176,7 +188,7 @@ func (ms *Models) frame(frame ModelFrame) {
 
 func (ms *Models) anomaly(anomaly ModelAnomaly) {
 
-	for _, s := range ms.anomalySubscribers {
+	for _, s := range ms.subscribers.Anomalies {
 		if utils.IsEmpty(s) {
 			continue
 		}
@@ -184,14 +196,9 @@ func (ms *Models) anomaly(anomaly ModelAnomaly) {
 	}
 }
 
-func NewModels(
-	anomalySubscribers []ModelAnomalySubscriber,
-	frameSubscribers []ModelFrameSubscriber,
-	stateSubscribers []ModelStateSubscriber) *Models {
+func NewModels(subsrcibers *ModelSubscribers) *Models {
 
 	return &Models{
-		anomalySubscribers: anomalySubscribers,
-		frameSubscribers:   frameSubscribers,
-		stateSubscribers:   stateSubscribers,
+		subscribers: subsrcibers,
 	}
 }

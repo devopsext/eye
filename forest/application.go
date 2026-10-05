@@ -62,6 +62,9 @@ type ApplicationFrames []*ApplicationFrame
 
 type ApplicationFrame struct {
 	//
+	application common.Hash
+	host        common.Hash
+	//
 	stamp common.Stamp
 	begin common.Stamp
 	end   common.Stamp
@@ -1087,10 +1090,22 @@ func (af *ApplicationFrame) End() common.Stamp {
 	return af.end
 }
 
+func (af *ApplicationFrame) Application() common.Hash {
+	return af.application
+}
+
+func (af *ApplicationFrame) Host() common.Hash {
+	return af.host
+}
+
 func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal) *ApplicationFrame {
 
 	r := &ApplicationFrame{
+		application: appSignal.Application(),
+		//
 		stamp: stamp,
+		begin: stamp,
+		end:   stamp,
 		//
 		inRequests:   appSignal.IncomingTraffic.RequestsAvg(),
 		inThroughput: appSignal.IncomingTraffic.ThroughputAvg(),
@@ -1107,6 +1122,7 @@ func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal
 	}
 
 	if !utils.IsEmpty(hostSignal) {
+		r.host = hostSignal.Hash()
 		r.hostCPU = hostSignal.Saturation.CPUMax()
 		r.hostMem = hostSignal.Saturation.MemoryMax()
 	}
@@ -2079,6 +2095,9 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 
 	stamp := common.TimeToStamp(time.Now())
 	frame := ae.aggregateFrames(frames)
+
+	frame.application = frames[0].Application()
+	frame.host = frames[0].Host()
 
 	frame.stamp = stamp
 	frame.begin = frames[0].Stamp()

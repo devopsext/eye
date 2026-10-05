@@ -43,6 +43,7 @@ type ForestModelData struct {
 type ForestModelApplicationFrame struct {
 	frame   *forest.ApplicationFrame
 	verdict *forest.ApplicationCaseVerdict
+	data    common.DataSourceData
 }
 
 type ForestModelDetection struct {
@@ -89,29 +90,56 @@ type ForestModelFileData struct {
 
 // ForestModelApplicationFrame
 
-func (af *ForestModelApplicationFrame) Stamp() common.Stamp {
-	if af.frame == nil {
-		return common.Stamp(0)
-	}
-	return af.frame.Stamp()
-}
-
-func (af *ForestModelApplicationFrame) Begin() common.Stamp {
+func (af *ForestModelApplicationFrame) begin() common.Stamp {
 	if af.frame == nil {
 		return common.Stamp(0)
 	}
 	return af.frame.Begin()
 }
 
-func (af *ForestModelApplicationFrame) End() common.Stamp {
+func (af *ForestModelApplicationFrame) end() common.Stamp {
 	if af.frame == nil {
 		return common.Stamp(0)
 	}
 	return af.frame.End()
 }
 
+func (af *ForestModelApplicationFrame) Ident() string {
+
+	if af.frame == nil {
+		return ""
+	}
+
+	if utils.IsEmpty(af.data) {
+		return ""
+	}
+
+	names := af.data.Names()
+	if names == nil {
+		return ""
+	}
+
+	app := names.FindByHash(af.frame.Application())
+	if utils.IsEmpty(app) {
+		return ""
+	}
+	host := names.FindByHash(af.frame.Host())
+
+	return fmt.Sprintf("%s/%s", app, host)
+}
+
 func (af *ForestModelApplicationFrame) Verdict() common.ModelVerdict {
 	return af.verdict
+}
+
+func (af *ForestModelApplicationFrame) Points() []common.ModelDataPoint {
+
+	r := []common.ModelDataPoint{}
+	if af.frame == nil {
+		return r
+	}
+
+	return r
 }
 
 // ForestModelDetection
@@ -684,6 +712,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			verdictFrame := &ForestModelApplicationFrame{
 				frame:   appFrame,
 				verdict: appVerdict,
+				data:    data,
 			}
 
 			if appVerdict != nil {
@@ -714,7 +743,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 		hash := key.(common.Hash)
 		appFrame, ok := value.(*ForestModelApplicationFrame)
 		if ok {
-			detection = NewForestModelDetection(hash, appFrame.Begin(), appFrame.End(), nil)
+			detection = NewForestModelDetection(hash, appFrame.begin(), appFrame.end(), nil)
 			detection.verdict = appFrame.verdict
 		}
 		if detection != nil {
