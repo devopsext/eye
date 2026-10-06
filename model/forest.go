@@ -42,6 +42,7 @@ type ForestModelData struct {
 
 type ForestModelApplicationFrame struct {
 	frame   *forest.ApplicationFrame
+	points  *forest.ApplicationFramePoints
 	verdict *forest.ApplicationCaseVerdict
 	data    common.DataSourceData
 }
@@ -104,6 +105,13 @@ func (af *ForestModelApplicationFrame) end() common.Stamp {
 	return af.frame.End()
 }
 
+func (af *ForestModelApplicationFrame) Timestamp() time.Time {
+	if af.frame == nil {
+		return time.Now()
+	}
+	return common.StampToTime(af.frame.Stamp())
+}
+
 func (af *ForestModelApplicationFrame) Ident() string {
 
 	if af.frame == nil {
@@ -125,6 +133,10 @@ func (af *ForestModelApplicationFrame) Ident() string {
 	}
 	host := names.FindByHash(af.frame.Host())
 
+	if utils.IsEmpty(host) {
+		return app
+	}
+
 	return fmt.Sprintf("%s/%s", app, host)
 }
 
@@ -132,14 +144,60 @@ func (af *ForestModelApplicationFrame) Verdict() common.ModelVerdict {
 	return af.verdict
 }
 
-func (af *ForestModelApplicationFrame) Points() []common.ModelDataPoint {
-
-	r := []common.ModelDataPoint{}
-	if af.frame == nil {
-		return r
+func (af *ForestModelApplicationFrame) InRequests() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
 	}
+	return af.points.InRequets()
+}
 
-	return r
+func (af *ForestModelApplicationFrame) InThroughput() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.InThroughput()
+}
+
+func (af *ForestModelApplicationFrame) InLatency() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.InLatency()
+}
+
+func (af *ForestModelApplicationFrame) InErrors() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.InErrors()
+}
+
+func (af *ForestModelApplicationFrame) OutRequests() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.OutRequets()
+}
+
+func (af *ForestModelApplicationFrame) OutThroughput() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.OutThroughput()
+}
+
+func (af *ForestModelApplicationFrame) OutLatency() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.OutLatency()
+}
+
+func (af *ForestModelApplicationFrame) OutErrors() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.OutErrors()
 }
 
 // ForestModelDetection
@@ -707,11 +765,12 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			appFrame := engine.Consolidate(frames)
-			appVerdict := engine.Diagnose(appFrame, fm.appCases)
+			appPoints, appVerdict := engine.Diagnose(appFrame, fm.appCases)
 
 			verdictFrame := &ForestModelApplicationFrame{
 				frame:   appFrame,
 				verdict: appVerdict,
+				points:  appPoints,
 				data:    data,
 			}
 

@@ -23,17 +23,26 @@ type HttpApplicationHandlerOptions struct {
 }
 
 type HttpApplicationHandlerDataPoint struct {
-	Timestamp time.Time
-	Metric    string
-	Value     float64
-	Max       float64
-	Min       float64
+	Timestamp time.Time `json:"timestamp"`
+	Metric    string    `json:"metric"`
+	Value     float64   `json:"value"`
+	Max       float64   `json:"max"`
+	Min       float64   `json:"min"`
+}
+
+type HttpApplicationHandlerDataVerdict struct {
+	Name      string `json:"name"`
+	Impact    string `json:"impact"`
+	Score     int    `json:"score"`
+	Category  string `json:"category"`
+	RootCause string `json:"root_cause"`
 }
 
 type HttpApplicationHandlerData struct {
-	Ident     string
-	Timestamp time.Time
-	Points    []HttpApplicationHandlerDataPoint
+	Ident     string                             `json:"ident"`
+	Timestamp time.Time                          `json:"timestamp"`
+	Points    []HttpApplicationHandlerDataPoint  `json:"points"`
+	Verdict   *HttpApplicationHandlerDataVerdict `json:"verdict"`
 }
 
 type HttpApplicationHandler struct {
@@ -56,6 +65,18 @@ const (
 	HttpApplicationHandlerWebsocketPath = "/ws"
 	HttpApplicationHandlerApiStatePath  = "/api/state"
 )
+
+// HttpApplicationHandlerDataPoint
+
+func NewHttpApplicationHandlerDataPoint(timestamp time.Time, metric string, value, min, max float64) HttpApplicationHandlerDataPoint {
+	return HttpApplicationHandlerDataPoint{
+		Timestamp: timestamp,
+		Metric:    metric,
+		Value:     value,
+		Min:       min,
+		Max:       max,
+	}
+}
 
 // HttpApplicationHandler
 
@@ -89,37 +110,81 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		return
 	}
 
-	ident := frame.Ident()
+	af, ok := frame.(common.ModelApplicationFrame)
+	if !ok {
+		return
+	}
+
+	ident := af.Ident()
 	if utils.IsEmpty(ident) {
 		return
 	}
 
-	fPoints := frame.Points()
-	if len(fPoints) == 0 {
+	ts := af.Timestamp()
+
+	points := []HttpApplicationHandlerDataPoint{}
+
+	inReq := af.InRequests()
+	if !utils.IsEmpty(inReq) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InRequests", inReq.Value(), inReq.Min(), inReq.Max()))
+	}
+	inThru := af.InThroughput()
+	if !utils.IsEmpty(inThru) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InThroughput", inThru.Value(), inThru.Min(), inThru.Max()))
+	}
+	inLat := af.InLatency()
+	if !utils.IsEmpty(inLat) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InLatency", inLat.Value(), inLat.Min(), inLat.Max()))
+	}
+	inErr := af.InErrors()
+	if !utils.IsEmpty(inErr) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InErrors", inErr.Value(), inErr.Min(), inErr.Max()))
+	}
+	//
+	outReq := af.OutRequests()
+	if !utils.IsEmpty(outReq) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutRequests", outReq.Value(), outReq.Min(), outReq.Max()))
+	}
+	outThru := af.OutThroughput()
+	if !utils.IsEmpty(outThru) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutThroughput", outThru.Value(), outThru.Min(), outThru.Max()))
+	}
+	outLat := af.OutLatency()
+	if !utils.IsEmpty(outLat) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutLatency", outLat.Value(), outLat.Min(), outLat.Max()))
+	}
+	outErr := af.OutErrors()
+	if !utils.IsEmpty(outErr) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutErrors", outErr.Value(), outErr.Min(), outErr.Max()))
+	}
+
+	if len(points) == 0 {
 		return
 	}
 
-	points := []HttpApplicationHandlerDataPoint{}
-	for _, p := range fPoints {
+	var verdict *HttpApplicationHandlerDataVerdict
 
-		metric := p.Metric()
-		if utils.IsEmpty(metric) {
-			continue
+	v := af.Verdict()
+	if !utils.IsEmpty(v) {
+
+		impact := common.CaseImpactToString(v.Impact())
+		if !utils.IsEmpty(impact) {
+
+			verdict = &HttpApplicationHandlerDataVerdict{
+				Name:      v.Name(),
+				Impact:    impact,
+				Score:     v.Score(),
+				Category:  common.CaseCategoryToString(v.Category()),
+				RootCause: v.RootCause(),
+			}
 		}
-		point := HttpApplicationHandlerDataPoint{
-			Timestamp: p.Timestamp(),
-			Metric:    p.Metric(),
-			Value:     p.Value(),
-			Max:       p.Max(),
-			Min:       p.Min(),
-		}
-		points = append(points, point)
 	}
 
 	h.datachannel <- HttpApplicationHandlerData{
 		Ident:     ident,
-		Timestamp: time.Now(),
+		Timestamp: af.Timestamp(),
 		Points:    points,
+		Verdict:   verdict,
 	}
 }
 
@@ -148,16 +213,20 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 	}
 
 	type tpl struct {
-		WebsocketPath string
-		ApiStatePath  string
+		WebsocketPath     string
+		ApiStatePath      string
+		CaseImpactSevere  string
+		CaseImpactAverage string
 	}
 
 	websocketPath, _ := url.JoinPath(path, HttpApplicationHandlerWebsocketPath)
 	apiStatePath, _ := url.JoinPath(path, HttpApplicationHandlerApiStatePath)
 
 	return pageTemplate.Execute(w, &tpl{
-		WebsocketPath: websocketPath,
-		ApiStatePath:  apiStatePath,
+		WebsocketPath:     websocketPath,
+		ApiStatePath:      apiStatePath,
+		CaseImpactSevere:  common.CaseImpactToString(common.CaseImpactSevere),
+		CaseImpactAverage: common.CaseImpactToString(common.CaseImpactAverage),
 	})
 }
 
@@ -285,6 +354,7 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		//
-		stMap: make(map[string]string),
+		stMap:       make(map[string]string),
+		datachannel: make(chan HttpApplicationHandlerData),
 	}
 }

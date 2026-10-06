@@ -26,11 +26,11 @@ type ModelVerdict interface {
 	RootCause() string
 	Category() CaseCategory
 	Impact() CaseImpact
+	Score() int
 }
 
 type ModelDataPoint interface {
 	Timestamp() time.Time
-	Metric() string
 	Value() float64
 	Max() float64
 	Min() float64
@@ -38,8 +38,20 @@ type ModelDataPoint interface {
 
 type ModelFrame interface {
 	Ident() string
+	Timestamp() time.Time
 	Verdict() ModelVerdict
-	Points() []ModelDataPoint
+}
+
+type ModelApplicationFrame interface {
+	ModelFrame
+	InRequests() ModelDataPoint
+	InThroughput() ModelDataPoint
+	InLatency() ModelDataPoint
+	InErrors() ModelDataPoint
+	OutRequests() ModelDataPoint
+	OutThroughput() ModelDataPoint
+	OutLatency() ModelDataPoint
+	OutErrors() ModelDataPoint
 }
 
 type ModelFrameSubscriber interface {

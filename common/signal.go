@@ -254,6 +254,25 @@ func SignalKindToString(kind SignalKind) string {
 	return ""
 }
 
+func TrafficKindToString(kind TrafficKind) string {
+
+	switch kind {
+	case TrafficKindRps:
+		return TrafficKindRpsName
+	case TrafficKindQps:
+		return TrafficKindQpsName
+	case TrafficKindCps:
+		return TrafficKindCpsName
+	case TrafficKindMps:
+		return TrafficKindMpsName
+	case TrafficKindTps:
+		return TrafficKindTpsName
+	case TrafficKindBps:
+		return TrafficKindBpsName
+	}
+	return ""
+}
+
 func TrafficKindByName(kind string) TrafficKind {
 
 	switch kind {

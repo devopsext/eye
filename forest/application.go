@@ -60,6 +60,24 @@ type HostSaturationValue *common.Saturation
 
 type ApplicationFrames []*ApplicationFrame
 
+type ApplicationFramePoint struct {
+	timestamp time.Time
+	value     float64
+	max       float64
+	min       float64
+}
+
+type ApplicationFramePoints struct {
+	inRequests    *ApplicationFramePoint
+	inThroughput  *ApplicationFramePoint
+	inLatency     *ApplicationFramePoint
+	inErrors      *ApplicationFramePoint
+	outRequests   *ApplicationFramePoint
+	outThroughput *ApplicationFramePoint
+	outLatency    *ApplicationFramePoint
+	outErrors     *ApplicationFramePoint
+}
+
 type ApplicationFrame struct {
 	//
 	application common.Hash
@@ -1046,6 +1064,10 @@ func (acv *ApplicationCaseVerdict) Impact() common.CaseImpact {
 	return acv.acase.category
 }
 
+func (acv *ApplicationCaseVerdict) Score() int {
+	return acv.score
+}
+
 // ApplicationTrafficValues
 
 func (tvs ApplicationTrafficValues) Sum() (common.Traffic, bool) {
@@ -1060,19 +1082,73 @@ func (tvs ApplicationTrafficValues) Sum() (common.Traffic, bool) {
 	return tot, hasValid
 }
 
+// ApplicationFramePoint
+
+func (fp *ApplicationFramePoint) Timestamp() time.Time {
+	return fp.timestamp
+}
+
+func (fp *ApplicationFramePoint) Value() float64 {
+	return fp.value
+}
+
+func (fp *ApplicationFramePoint) Max() float64 {
+	return fp.max
+}
+
+func (fp *ApplicationFramePoint) Min() float64 {
+	return fp.min
+}
+
+func NewApplicationFramePoint(timestamp time.Time, value, min, max float64) *ApplicationFramePoint {
+
+	return &ApplicationFramePoint{
+		timestamp: timestamp,
+		value:     value,
+		max:       max,
+		min:       min,
+	}
+}
+
+// ApplicationFramePoints
+
+func (fp *ApplicationFramePoints) InRequets() *ApplicationFramePoint {
+	return fp.inRequests
+}
+
+func (fp *ApplicationFramePoints) InThroughput() *ApplicationFramePoint {
+	return fp.inThroughput
+}
+
+func (fp *ApplicationFramePoints) InLatency() *ApplicationFramePoint {
+	return fp.inLatency
+}
+
+func (fp *ApplicationFramePoints) InErrors() *ApplicationFramePoint {
+	return fp.inErrors
+}
+
+func (fp *ApplicationFramePoints) OutRequets() *ApplicationFramePoint {
+	return fp.inRequests
+}
+
+func (fp *ApplicationFramePoints) OutThroughput() *ApplicationFramePoint {
+	return fp.inThroughput
+}
+
+func (fp *ApplicationFramePoints) OutLatency() *ApplicationFramePoint {
+	return fp.inLatency
+}
+
+func (fp *ApplicationFramePoints) OutErrors() *ApplicationFramePoint {
+	return fp.inErrors
+}
+
 // ApplicationFrame
 
 func (af *ApplicationFrame) Valid() bool {
 
 	if af.stamp == 0 {
-		return false
-	}
-
-	if len(af.inRequests) == 0 && len(af.outRequests) == 0 {
-		return false
-	}
-
-	if len(af.inThroughput) == 0 && len(af.outThroughput) == 0 {
 		return false
 	}
 	return true
@@ -1400,18 +1476,20 @@ func (ae *ApplicationEngine) weeklyMinuteKey(t time.Time) int {
 	return (weekday * 24 * 60) + (hour * 60) + minute
 }
 
-func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool) {
+func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool, points *ApplicationFramePoints) {
 
 	t := common.StampToTime(f.stamp)
 	timeVec := ae.extractTimeVectors(t)
 
 	inSlotWidth := ae.inReqSlots.MaxSlots + 2
+	inReqIdx := inSlotWidth - 1
 
 	inReqMeds := ae.getMedians(ae.inProfiler, t, 0, inSlotWidth)
 	inThruMeds := ae.getMedians(ae.inProfiler, t, inSlotWidth, inSlotWidth)
 
 	inReqSlots, inReqVal := ae.inReqSlots.VectorizeTraffic(f.inRequests, false, inReqMeds)
 	inThruSlots, inThruVal := ae.inThruSlots.VectorizeTraffic(f.inThroughput, false, inThruMeds)
+	inThruIdx := inReqIdx + inSlotWidth
 
 	inLatIdx := len(inReqSlots) + len(inThruSlots)
 	inErrIdx := inLatIdx + 1
@@ -1511,15 +1589,14 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 	}
 
 	outSlotWidth := ae.outReqSlots.MaxSlots + 2
+	outReqIdx := outSlotWidth - 1
 
 	outReqMeds := ae.getMedians(ae.outProfiler, t, 0, outSlotWidth)
 	outThruMeds := ae.getMedians(ae.outProfiler, t, outSlotWidth, outSlotWidth)
 
 	outReqSlots, outReqVal := ae.outReqSlots.VectorizeTraffic(f.outRequests, false, outReqMeds)
 	outThruSlots, outThruVal := ae.outThruSlots.VectorizeTraffic(f.outThroughput, false, outThruMeds)
-
-	/*outLatIdx := len(outReqSlots) + len(outThruSlots)
-	outErrIdx := inLatIdx + 1*/
+	outThruIdx := outReqIdx + outSlotWidth
 
 	outLatIdx := ae.outReqSlots.MaxSlots + 2 + ae.outReqSlots.MaxSlots + 2
 	outErrIdx := outLatIdx + 1
@@ -1587,7 +1664,83 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 		outValid = append(outValid, true) // Time is always valid
 	}
 
-	return inVec, satVec, outVec, inValid, satValid, outValid
+	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
+		if profiler.isFitted && len(profiler.Buckets[b]) > col {
+			st := profiler.Buckets[b][col]
+			upper := st.Q3 + (profiler.K * st.IQR)
+			lower := st.Q1 - (profiler.K * st.IQR)
+			if lower < 0 {
+				lower = 0
+			}
+			return upper, lower
+		}
+
+		// Default for bounded saturation metrics (AppCPU, HostCPU)
+		if isPercentage {
+			return 100.0, 0.0
+		}
+
+		// Dynamic default derived directly from the incoming frame value:
+		// Sets a dynamic corridor (e.g., ±50% of the observed baseline)
+		if val > 0 {
+			return val * 1.5, math.Max(0, val*0.5)
+		}
+
+		// Fallback if metric arrives as 0 before fitting
+		return 1.0, 0.0
+	}
+
+	points = &ApplicationFramePoints{}
+
+	if len(inVec) > inReqIdx {
+		val := inVec[inReqIdx]
+		max, min := getLimits(ae.inProfiler, inReqIdx, val, false)
+		points.inRequests = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(inVec) > inThruIdx {
+		val := inVec[inThruIdx]
+		max, min := getLimits(ae.inProfiler, inThruIdx, val, false)
+		points.inThroughput = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(inVec) > inLatIdx {
+		val := inVec[inLatIdx]
+		max, min := getLimits(ae.inProfiler, inLatIdx, val, false)
+		points.inLatency = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(inVec) > inErrIdx {
+		val := inVec[inErrIdx]
+		max, min := getLimits(ae.inProfiler, inErrIdx, val, false)
+		points.inErrors = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(outVec) > outReqIdx {
+		val := outVec[outReqIdx]
+		max, min := getLimits(ae.outProfiler, outReqIdx, val, false)
+		points.inRequests = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(outVec) > outThruIdx {
+		val := outVec[outThruIdx]
+		max, min := getLimits(ae.outProfiler, outThruIdx, val, false)
+		points.inThroughput = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(outVec) > outLatIdx {
+		val := outVec[outLatIdx]
+		max, min := getLimits(ae.outProfiler, outLatIdx, val, false)
+		points.outLatency = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if len(outVec) > outErrIdx {
+		val := outVec[outErrIdx]
+		max, min := getLimits(ae.outProfiler, outErrIdx, val, false)
+		points.inErrors = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	return inVec, satVec, outVec, inValid, satValid, outValid, points
 }
 
 func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL, tR []common.Stamp, inL, satL, outL, inR, satR, outR [][]float64) {
@@ -1662,7 +1815,7 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 
 	for _, f := range temp {
 
-		iv, sv, ov, _, _, _ := ae.extractVectors(f)
+		iv, sv, ov, _, _, _, _ := ae.extractVectors(f)
 		stamps = append(stamps, f.stamp)
 		inData = append(inData, iv)
 		satData = append(satData, sv)
@@ -1861,11 +2014,11 @@ func (ae *ApplicationEngine) Clone() *ApplicationEngine {
 	}
 }
 
-func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) *ApplicationCasePattern {
+func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*ApplicationFramePoints, *ApplicationCasePattern) {
 
 	t := common.StampToTime(frame.stamp)
 
-	inVec, satVec, outVec, inVal, satVal, outVal := ae.extractVectors(frame)
+	inVec, satVec, outVec, inVal, satVal, outVal, points := ae.extractVectors(frame)
 
 	inLabels, _, _ := ae.inForest.Predict([][]float64{inVec})
 	satLabels, _, _ := ae.satForest.Predict([][]float64{satVec})
@@ -1873,7 +2026,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) *Applicatio
 
 	// no labels
 	if len(inLabels) == 0 || len(satLabels) == 0 || len(outLabels) == 0 {
-		return nil
+		return points, nil
 	}
 
 	inAnom := inLabels[0] == 1
@@ -1903,7 +2056,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) *Applicatio
 	outLatLevel := ae.inProfiler.Classify(t, outThruTotalIdx+1, outVec[inThruTotalIdx+1], outAnom, outVal[inThruTotalIdx+1])
 	outErrLevel := ae.inProfiler.Classify(t, outThruTotalIdx+2, outVec[inThruTotalIdx+2], outAnom, outVal[inThruTotalIdx+2])
 
-	return &ApplicationCasePattern{
+	pattern := &ApplicationCasePattern{
 		inRequests:    inReqLevel,
 		inThroughput:  inThruLevel,
 		inLatency:     inLatLevel,
@@ -1917,6 +2070,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) *Applicatio
 		outLatency:    outLatLevel,
 		outErrors:     outErrLevel,
 	}
+	return points, pattern
 }
 
 func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) ApplicationFrame {
@@ -2106,35 +2260,36 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 	return &frame
 }
 
-func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *ApplicationCases) *ApplicationCaseVerdict {
+func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *ApplicationCases) (*ApplicationFramePoints, *ApplicationCaseVerdict) {
 
 	if frame == nil {
-		return nil
+		return nil, nil
 	}
 
 	if !ae.Ready() {
-		return nil
+		return nil, nil
 	}
 
 	if !ae.Exists(frame.stamp) {
-		return nil
+		return nil, nil
 	}
 
-	pattern := ae.predictPattern(frame)
+	points, pattern := ae.predictPattern(frame)
 	cs, score := cases.Match(pattern)
 	if cs == nil || score <= ae.options.MinScore {
-		return nil
+		return points, nil
 	}
 
 	if !(utils.Contains(ae.categories, cs.category) &&
 		utils.Contains(ae.impacts, cs.impact)) {
-		return nil
+		return points, nil
 	}
 
-	return &ApplicationCaseVerdict{
+	verdict := &ApplicationCaseVerdict{
 		acase: cs,
 		score: score,
 	}
+	return points, verdict
 }
 
 func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {

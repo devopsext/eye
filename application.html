@@ -199,49 +199,31 @@
         let hoveredIndex = null;
 
         const defaultOrderedMetrics = [
-            "InRequests", "OutRequests", "AppCPU",
-            "InLatency", "OutLatency", "HostCPU",
+            "InRequests", "OutRequests", 
+            "InLatency", "OutLatency",
             "InErrors", "OutErrors",
-            "InThroughput", "OutThroughput"
+            "InThroughput", "OutThroughput",
+            "AppCPU", "HostCPU",
+            "AppMem", "HostMem",
         ];
 
         let orderedMetrics = [...defaultOrderedMetrics];
         let maximizedChartKey = null;
 
         const metricsConfig = {
-            "InRequests": { label: "In Request" },
+            "InRequests": { label: "In Requests" },
+            "InThroughput": { label: "In Throughput" },
             "InLatency": { label: "In Latency" },
             "InErrors": { label: "In Errors" },
-            "InThroughput": { label: "In Throughput" },
-            "OutRequests": { label: "Out Request" },
+            "OutRequests": { label: "Out Requests" },
+            "OutThroughput": { label: "Out Throughput" },
             "OutLatency": { label: "Out Latency" },
             "OutErrors": { label: "Out Errors" },
-            "OutThroughput": { label: "Out Throughput" },
-            "AppCPU": { label: "App CPU Saturation" },
-            "HostCPU": { label: "Host CPU Saturation" }
+            "AppCPU": { label: "App CPU" },
+            "AppMem": { label: "App Memory" },
+            "HostCPU": { label: "Host CPU" },
+            "HostMem": { label: "Host Memory" }
         };
-
-        async function fetchApplications() {
-            try {
-                const res = await fetch('/api/applications');
-                const data = await res.json();
-                if (data && Array.isArray(data.applications)) {
-                    availableApplications = data.applications;
-                    const datalist = document.getElementById('applicationList');
-                    datalist.innerHTML = '';
-                    availableApplications.forEach(app => {
-                        if (!applicationCache[app]) {
-                            applicationCache[app] = { rawSeries: {}, verdictsHtml: "" };
-                        }
-                        const opt = document.createElement('option');
-                        opt.value = app;
-                        datalist.appendChild(opt);
-                    });
-                }
-            } catch(err) {
-                console.error("Failed to load applications from API", err);
-            }
-        }
 
         function updateMetricColor(newColor) {
             sharedMetricColor = newColor;
@@ -288,7 +270,6 @@
             if (savedMax) {
                 maximizedChartKey = savedMax;
             }
-            await fetchApplications();
             initCharts();
             connectWS();
         });
@@ -309,7 +290,7 @@
             const gridRect = mainGrid.getBoundingClientRect();
             const newVerdictWidth = gridRect.right - e.clientX - 8;
             const minWidth = 280;
-            const maxWidth = gridRect.width - 400;
+            const maxWidth = gridRect.width - 500;
             if (newVerdictWidth >= minWidth && newVerdictWidth <= maxWidth) {
                 mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px ' + newVerdictWidth + 'px';
                 localStorage.setItem('verdictWidth', newVerdictWidth);
@@ -781,6 +762,16 @@
         setInterval(fetchModelState, 1000);
         fetchModelState();
 
+        function addApplication(app) {
+            if (!applicationCache[app]) {
+                const datalist = document.getElementById('applicationList');
+                const opt = document.createElement('option');
+                opt.value = app;
+                datalist.appendChild(opt);
+                applicationCache[app] = { rawSeries: {}, verdictsHtml: "" };
+            }
+        }
+
         function connectWS() {
             const loc = window.location;
             const wsProtocol = loc.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -797,71 +788,72 @@
 
             ws.onmessage = function(event) {
                 const v = JSON.parse(event.data);
-                const targetApplication = v.app_identity.app_name;
-                const timeLabel = new Date(v.observation_time).toLocaleTimeString();
+                const app = v.ident;
 
-                if (v.dimensions) {
-                    v.dimensions.forEach(dim => {
-                        if (!applicationCache[targetApplication]) {
-                            applicationCache[targetApplication] = { rawSeries: {}, verdictsHtml: "" };
+                if (app === '') {
+                    return
+                }
+                const timeLabel = new Date(v.timestamp).toLocaleTimeString();
+
+                if (v.points) {
+                    v.points.forEach(point => {
+                        addApplication(app);
+                        if (!applicationCache[app].rawSeries[point.metric]) {
+                            applicationCache[app].rawSeries[point.metric] = [];
                         }
-                        if (!applicationCache[targetApplication].rawSeries[dim.metric_name]) {
-                            applicationCache[targetApplication].rawSeries[dim.metric_name] = [];
-                        }
-                        applicationCache[targetApplication].rawSeries[dim.metric_name].push({
+                        applicationCache[app].rawSeries[point.metric].push({
                             time: timeLabel,
-                            val: dim.value,
-                            up: dim.upper_limit,
-                            lo: dim.lower_limit
+                            val: point.value,
+                            up: point.max,
+                            lo: point.min
                         });
-                        if (applicationCache[targetApplication].rawSeries[dim.metric_name].length > 200) {
-                            applicationCache[targetApplication].rawSeries[dim.metric_name].shift();
+                        if (applicationCache[app].rawSeries[point.metric].length > 200) {
+                            applicationCache[app].rawSeries[point.metric].shift();
                         }
                     });
                 }
 
-                if (targetApplication === currentFilter) {
-                    if (v.dimensions) {
-                        v.dimensions.forEach(dim => {
-                            if (charts[dim.metric_name]) {
-                                redrawChart(dim.metric_name);
+                if (app === currentFilter) {
+
+                    if (v.points) {
+                        v.points.forEach(point => {
+                            if (charts[point.metric]) {
+                                redrawChart(point.metric);
                             }
                         });
                     }
 
-                    const tbody = document.getElementById('verdictTableBody');
-                    let badgeClass = 'badge-zero';
-                    if (v.impact_level === 'Most Impactful') badgeClass = 'badge-most';
-                    else if (v.impact_level === 'Average Impact') badgeClass = 'badge-avg';
+                    if (v.verdict) {
 
-                    const row = document.createElement('tr');
-                    row.setAttribute('data-time', timeLabel);
-                    if (timeLabel === selectedTimeLabel) row.className = 'selected';
-                    
-                    const largeHint = '═══════════════════════════════════════\n' +
-                                      '          INCIDENT VERDICT REPORT      \n' +
-                                      '═══════════════════════════════════════\n' +
-                                      '• Application: ' + v.app_identity.app_name + '\n' +
-                                      '• Impact Level: ' + v.impact_level + '\n' +
-                                      '• Score: ' + v.score + '\n' +
-                                      '• Category: ' + v.category + '\n' +
-                                      '• Event Name: ' + v.name + '\n' +
-                                      '• Root Cause Analysis:\n  ' + v.root_cause + '\n' +
-                                      '• Impaired Instance: ' + v.impaired_instance + '\n' +
-                                      '• Culprit Host: ' + v.culprit_host + '\n' +
-                                      '═══════════════════════════════════════';
-                    row.title = largeHint;
+                        const vv = v.verdict
+                        const tbody = document.getElementById('verdictTableBody');
+                        let badgeClass = 'badge-zero';
+                        if (vv.impact === '{{.CaseImpactSevere}}') badgeClass = 'badge-most';
+                        else if (vv.impact === '{{.CaseImpactAverage}}') badgeClass = 'badge-avg';
 
-                    row.innerHTML = '<td>' + timeLabel + '</td>' +
-                        '<td><strong>' + v.app_identity.app_name + '</strong></td>' +
-                        '<td><span class="badge ' + badgeClass + '">' + v.impact_level + '</span><span class="score-num">(score: ' + v.score + ')</span></td>';
-                    
-                    row.onclick = function() { selectVerdict(timeLabel, row); };
+                        const row = document.createElement('tr');
+                        row.setAttribute('data-time', timeLabel);
+                        if (timeLabel === selectedTimeLabel) row.className = 'selected';
+                        
+                        const largeHint = '• Application: ' + v.ident + '\n' +
+                                          '• Impact: ' + vv.impact + '\n' +
+                                          '• Score: ' + vv.score + '\n' +
+                                          '• Category: ' + vv.category + '\n' +
+                                          '• Event Name: ' + vv.name + '\n' +
+                                          '• Root Cause:  ' + vv.root_cause + '\n';
+                        row.title = largeHint;
 
-                    tbody.insertBefore(row, tbody.firstChild);
-                    if (tbody.rows.length > 30) tbody.deleteRow(tbody.rows.length - 1);
+                        row.innerHTML = '<td>' + timeLabel + '</td>' +
+                            '<td><strong>' + v.ident + '</strong></td>' +
+                            '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span><span class="score-num">(score: ' + vv.score + ')</span></td>';
+                        
+                        row.onclick = function() { selectVerdict(timeLabel, row); };
 
-                    applicationCache[currentFilter].verdictsHtml = tbody.innerHTML;
+                        tbody.insertBefore(row, tbody.firstChild);
+                        if (tbody.rows.length > 30) tbody.deleteRow(tbody.rows.length - 1);
+
+                        applicationCache[currentFilter].verdictsHtml = tbody.innerHTML;
+                    }
                 }
             };
 
