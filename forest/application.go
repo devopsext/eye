@@ -76,6 +76,10 @@ type ApplicationFramePoints struct {
 	outThroughput *ApplicationFramePoint
 	outLatency    *ApplicationFramePoint
 	outErrors     *ApplicationFramePoint
+	appCPU        *ApplicationFramePoint
+	appMem        *ApplicationFramePoint
+	hostCPU       *ApplicationFramePoint
+	hostMem       *ApplicationFramePoint
 }
 
 type ApplicationFrame struct {
@@ -1144,6 +1148,22 @@ func (fp *ApplicationFramePoints) OutErrors() *ApplicationFramePoint {
 	return fp.inErrors
 }
 
+func (fp *ApplicationFramePoints) CPU() *ApplicationFramePoint {
+	return fp.appCPU
+}
+
+func (fp *ApplicationFramePoints) Memory() *ApplicationFramePoint {
+	return fp.appMem
+}
+
+func (fp *ApplicationFramePoints) HostCPU() *ApplicationFramePoint {
+	return fp.hostCPU
+}
+
+func (fp *ApplicationFramePoints) HostMemory() *ApplicationFramePoint {
+	return fp.hostMem
+}
+
 // ApplicationFrame
 
 func (af *ApplicationFrame) Valid() bool {
@@ -1741,6 +1761,30 @@ func (ae *ApplicationEngine) extractVectors(f *ApplicationFrame) (inVec, satVec,
 		val := outVec[outErrIdx]
 		max, min := getLimits(ae.outProfiler, outErrIdx, val, false)
 		points.inErrors = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if appCPUValid {
+		val := satVec[0]
+		max, min := getLimits(ae.satProfiler, 0, val, true)
+		points.appCPU = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if appMemValid {
+		val := satVec[1]
+		max, min := getLimits(ae.satProfiler, 0, val, true)
+		points.appMem = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if hostCPUValid {
+		val := satVec[2]
+		max, min := getLimits(ae.satProfiler, 0, val, true)
+		points.hostCPU = NewApplicationFramePoint(t, val, min, max)
+	}
+
+	if hostMemValid {
+		val := satVec[3]
+		max, min := getLimits(ae.satProfiler, 0, val, true)
+		points.hostMem = NewApplicationFramePoint(t, val, min, max)
 	}
 
 	return inVec, satVec, outVec, inValid, satValid, outValid, points

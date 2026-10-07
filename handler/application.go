@@ -112,6 +112,7 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 
 	af, ok := frame.(common.ModelApplicationFrame)
 	if !ok {
+		h.logger.Debug("%s: Frame %s is not supported", frame.Ident(), h.Name())
 		return
 	}
 
@@ -156,6 +157,23 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	outErr := af.OutErrors()
 	if !utils.IsEmpty(outErr) {
 		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutErrors", outErr.Value(), outErr.Min(), outErr.Max()))
+	}
+	//
+	appCPU := af.CPU()
+	if !utils.IsEmpty(appCPU) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationCPU", appCPU.Value(), appCPU.Min(), appCPU.Max()))
+	}
+	appMem := af.Memory()
+	if !utils.IsEmpty(appMem) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationMemory", appMem.Value(), appMem.Min(), appMem.Max()))
+	}
+	hostCPU := af.HostCPU()
+	if !utils.IsEmpty(hostCPU) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostCPU", hostCPU.Value(), hostCPU.Min(), hostCPU.Max()))
+	}
+	hostMem := af.HostMemory()
+	if !utils.IsEmpty(hostMem) {
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max()))
 	}
 
 	if len(points) == 0 {

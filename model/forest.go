@@ -200,6 +200,34 @@ func (af *ForestModelApplicationFrame) OutErrors() common.ModelDataPoint {
 	return af.points.OutErrors()
 }
 
+func (af *ForestModelApplicationFrame) CPU() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.CPU()
+}
+
+func (af *ForestModelApplicationFrame) Memory() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.Memory()
+}
+
+func (af *ForestModelApplicationFrame) HostCPU() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.HostCPU()
+}
+
+func (af *ForestModelApplicationFrame) HostMemory() common.ModelDataPoint {
+	if af.points == nil {
+		return nil
+	}
+	return af.points.HostMemory()
+}
+
 // ForestModelDetection
 
 func (fd *ForestModelDetection) ID() string {

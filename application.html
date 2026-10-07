@@ -141,8 +141,8 @@
 
         <label for="timeframeSelect"><strong>Frame:</strong></label>
         <select id="timeframeSelect" onchange="changeTimeframe()">
-            <option value="60">1 Min</option>
-            <option value="180" selected>3 Min</option>
+            <option value="60" selected>1 Min</option>
+            <option value="180">3 Min</option>
             <option value="300">5 Min</option>
             <option value="600">10 Min</option>
         </select>
@@ -203,8 +203,8 @@
             "InLatency", "OutLatency",
             "InErrors", "OutErrors",
             "InThroughput", "OutThroughput",
-            "AppCPU", "HostCPU",
-            "AppMem", "HostMem",
+            "ApplicationCPU", "HostCPU",
+            "ApplicationMemory", "HostMemory",
         ];
 
         let orderedMetrics = [...defaultOrderedMetrics];
@@ -219,10 +219,10 @@
             "OutThroughput": { label: "Out Throughput" },
             "OutLatency": { label: "Out Latency" },
             "OutErrors": { label: "Out Errors" },
-            "AppCPU": { label: "App CPU" },
-            "AppMem": { label: "App Memory" },
+            "ApplicationCPU": { label: "Application CPU" },
+            "ApplicationMemory": { label: "Application Memory" },
             "HostCPU": { label: "Host CPU" },
-            "HostMem": { label: "Host Memory" }
+            "HostMemory": { label: "Host Memory" }
         };
 
         function updateMetricColor(newColor) {
