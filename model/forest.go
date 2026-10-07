@@ -414,8 +414,9 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 
 			as := signal.AsApplicationSignal()
 			if as != nil {
-				hs := measurements.FindHostSignal(stamp, as.Host())
-				frame := forest.NewApplicationFrame(stamp, as, hs)
+				host := as.Host()
+				hs := measurements.FindHostSignal(stamp, host)
+				frame := forest.NewApplicationFrame(stamp, as, hs, host)
 				if frame != nil && frame.Valid() {
 					appFrames[hash] = append(appFrames[hash], frame)
 				}

@@ -1174,10 +1174,11 @@ func (af *ApplicationFrame) Host() common.Hash {
 	return af.host
 }
 
-func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal) *ApplicationFrame {
+func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal, host common.Hash) *ApplicationFrame {
 
 	r := &ApplicationFrame{
 		application: appSignal.Application(),
+		host:        host,
 		//
 		stamp: stamp,
 		begin: stamp,
@@ -1198,7 +1199,9 @@ func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal
 	}
 
 	if !utils.IsEmpty(hostSignal) {
-		r.host = hostSignal.Hash()
+		if r.host == common.Hash(0) {
+			r.host = hostSignal.Hash()
+		}
 		r.hostCPU = hostSignal.Saturation.CPUMax()
 		r.hostMem = hostSignal.Saturation.MemoryMax()
 	}

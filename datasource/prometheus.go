@@ -619,17 +619,15 @@ func (p *Prometheus) parseQuery(q string) (map[string]common.Labels, map[string]
 	return lr, sr
 }
 
-func (p *Prometheus) setSchemas(data *PrometheusData, q string, arr []common.Labels, min, max float64) {
+func (p *Prometheus) setSchemas(data *PrometheusData, q string, lbs common.Labels, min, max float64) {
 
-	lbs, sgs := p.parseQuery(q)
-	for name, item := range lbs {
+	items, sgs := p.parseQuery(q)
+	for name, item := range items {
 		labels := item
 		signs := sgs[name]
-		for _, lbs := range arr {
-			for n, lb := range lbs {
-				labels[n] = lb
-				signs[n] = common.SchemaSignEQ
-			}
+		for n, lb := range lbs {
+			labels[n] = lb
+			signs[n] = common.SchemaSignEQ
 		}
 		data.schemas.AddOrUpdate(q, name, labels, signs, min, max)
 	}
@@ -647,14 +645,12 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 		return hosts, nil
 	}
 
-	labels := []common.Labels{}
 	for _, dr := range promData.Result {
 
 		name := dr.Labels[common.HostName]
 		if utils.IsEmpty(name) {
 			continue
 		}
-		labels = append(labels, dr.Labels)
 		nameOn := dr.Labels[common.HostOn]
 		findOn := !utils.IsEmpty(nameOn)
 
@@ -699,8 +695,8 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 			}
 			hosts.AddOrUpdate(stamp, host)
 		}
+		p.setSchemas(data, q, dr.Labels, 1, 1)
 	}
-	p.setSchemas(data, q, labels, 1, 1)
 	return hosts, nil
 }
 
@@ -794,14 +790,12 @@ func (p *Prometheus) loadApplications(data *PrometheusData, q string, from, to t
 		return apps, nil
 	}
 
-	labels := []common.Labels{}
 	for _, dr := range promData.Result {
 
 		name := dr.Labels[common.ApplicationName]
 		if utils.IsEmpty(name) {
 			continue
 		}
-		labels = append(labels, dr.Labels)
 		labelsHash := data.attributes.AddOrUpdate(dr.Labels)
 
 		for _, v := range dr.Values {
@@ -818,8 +812,8 @@ func (p *Prometheus) loadApplications(data *PrometheusData, q string, from, to t
 			}
 			apps.AddOrUpdate(stamp, app)
 		}
+		p.setSchemas(data, q, dr.Labels, 1, 1)
 	}
-	p.setSchemas(data, q, labels, 1, 1)
 	return apps, nil
 }
 
@@ -914,13 +908,10 @@ func (p *Prometheus) loadSeriesData(data *PrometheusData, q string, from, to tim
 		return modelData, nil
 	}
 
-	labels := []common.Labels{}
-	min := math.MaxFloat64
-	max := 0.0
-
 	for _, dr := range promData.Result {
 
-		labels = append(labels, dr.Labels)
+		min := math.MaxFloat64
+		max := 0.0
 
 		for _, v := range dr.Values {
 
@@ -942,8 +933,9 @@ func (p *Prometheus) loadSeriesData(data *PrometheusData, q string, from, to tim
 				min = value
 			}
 		}
+		p.setSchemas(data, q, dr.Labels, min, max)
 	}
-	p.setSchemas(data, q, labels, min, max)
+
 	return modelData, nil
 }
 

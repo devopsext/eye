@@ -147,7 +147,11 @@ func (pg *Pushgateway) Generate(values common.GeneratorValues) error {
 	return pg.push(values)
 }
 
-func (pg *Pushgateway) save(values common.GeneratorValues) error {
+func (pg *Pushgateway) save(values common.GeneratorValues, outdir string) error {
+
+	if utils.IsEmpty(outdir) {
+		return nil
+	}
 
 	if len(values) == 0 {
 		return nil
@@ -157,7 +161,7 @@ func (pg *Pushgateway) save(values common.GeneratorValues) error {
 
 	stamp := time.Now().UnixMilli()
 
-	dir := filepath.Join(pg.options.Outdir, fmt.Sprintf("%d", stamp))
+	dir := filepath.Join(outdir, fmt.Sprintf("%d", stamp))
 	if !utils.DirExists(dir) {
 		os.MkdirAll(dir, os.ModePerm)
 	}
@@ -207,6 +211,10 @@ func (pg *Pushgateway) save(values common.GeneratorValues) error {
 
 func (pg *Pushgateway) SetData(data common.DataSourceData) error {
 
+	if utils.IsEmpty(pg.options.Outdir) {
+		return nil
+	}
+
 	schemas := data.Schemas()
 	if schemas == nil {
 		return nil
@@ -236,12 +244,16 @@ func (pg *Pushgateway) SetData(data common.DataSourceData) error {
 		values[name] = value
 	}
 
-	return pg.save(values)
+	return pg.save(values, pg.options.Outdir)
 }
 
 func (pg *Pushgateway) load() map[string]common.GeneratorValues {
 
 	name := pg.Name()
+
+	if utils.IsEmpty(pg.options.Files) {
+		return nil
+	}
 
 	files, err := filepath.Glob(pg.options.Files)
 	if err != nil {
@@ -250,7 +262,7 @@ func (pg *Pushgateway) load() map[string]common.GeneratorValues {
 	}
 
 	if len(files) == 0 {
-		pg.logger.Info("%s: No files found  %s", name, pg.options.Files)
+		pg.logger.Debug("%s: No files found %s", name, pg.options.Files)
 		return nil
 	}
 
