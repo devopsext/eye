@@ -5,15 +5,25 @@ import (
 	"sync"
 )
 
+type GeneratorValueKind = string
+
+const (
+	GeneratorValueKindMin     = "min"
+	GeneratorValueKindMax     = "max"
+	GeneratorValueKindAverage = "average"
+)
+
 type GeneratorValue struct {
-	Metric string
-	Labels map[string]string
-	Value  struct {
-		Default *float64 `yaml:",omitempty"`
-		Min     *float64 `yaml:",omitempty"`
-		Max     *float64 `yaml:",omitempty"`
+	Metric   string
+	Labels   map[string]string
+	Kind     GeneratorValueKind `yaml:"kind,omitempty"`
+	Devation *float64           `yaml:"deviation,omitempty"`
+	Value    struct {
+		Min *float64 `yaml:",omitempty"`
+		Max *float64 `yaml:",omitempty"`
 	}
 	Disabled bool
+	Only     bool
 }
 
 type GeneratorValues = map[string]*GeneratorValue

@@ -77,11 +77,9 @@ type ForestModel struct {
 }
 
 const (
-	ForestModelTreesNumber                = 100
-	ForestModelSubsampleSize              = 256
-	ForestModelOutlierRatio               = 0.01
-	ForestModelApplicationMaxSlots        = 4
-	ForestModelApplicationRangeMultiplier = 1.5
+	ForestModelTreesNumber   = 100
+	ForestModelSubsampleSize = 256
+	ForestModelOutlierRatio  = 0.01
 )
 
 type ForestModelFileData struct {
@@ -103,6 +101,13 @@ func (af *ForestModelApplicationFrame) end() common.Stamp {
 		return common.Stamp(0)
 	}
 	return af.frame.End()
+}
+
+func (af *ForestModelApplicationFrame) IsEmpty() bool {
+	if af.frame == nil || af.points == nil {
+		return true
+	}
+	return af.points.IsEmpty()
 }
 
 func (af *ForestModelApplicationFrame) Timestamp() time.Time {
@@ -461,8 +466,9 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 	}
 }
 
-func (fm *ForestModel) train(data common.DataSourceData) error {
+func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) {
 
+	hs := []common.Hash{}
 	measurements := data.Measurements()
 
 	hashes := fm.findHashes(data.Names(), fm.options.Filter)
@@ -473,7 +479,7 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 
 	length := len(appFrames) + len(hostFrames)
 	if length == 0 {
-		return nil
+		return hs, nil
 	}
 
 	gr := &errgroup.Group{}
@@ -485,6 +491,8 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 		First: data.First(),
 		Last:  data.Last(),
 	}
+
+	mm := sync.Map{}
 
 	// run apps engine
 	for hash, frames := range appFrames {
@@ -508,12 +516,13 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 				errs <- err
 				return nil
 			}
+			mm.Store(hash, engine)
 			return nil
 		})
 	}
 
 	// run hosts engine where apps are not found
-	for _, frames := range hostFrames {
+	for hash, frames := range hostFrames {
 
 		gr.Go(func() error {
 
@@ -522,6 +531,7 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 			if err != nil {
 				errs <- err
 			}
+			mm.Store(hash, engine)
 			return nil
 		})
 	}
@@ -533,13 +543,32 @@ func (fm *ForestModel) train(data common.DataSourceData) error {
 	for e := range errs {
 		all = append(all, e)
 	}
-	return errors.Join(all...)
+
+	mm.Range(func(key any, value any) bool {
+
+		h, ok := key.(common.Hash)
+		if !ok {
+			return true
+		}
+		e, ok := value.(*forest.ApplicationEngine)
+		if !ok {
+			return true
+		}
+		if e.Ready() {
+			hs = append(hs, h)
+		}
+		return true
+	})
+
+	return hs, errors.Join(all...)
 }
 
-func (fm *ForestModel) Train(data common.DataSourceData) error {
+func (fm *ForestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
+
+	hs := []common.Hash{}
 
 	if !fm.options.Enabled {
-		return nil
+		return hs, nil
 	}
 
 	when := time.Now()
@@ -547,13 +576,13 @@ func (fm *ForestModel) Train(data common.DataSourceData) error {
 
 	fm.logger.Info("%s: Training...", name)
 
-	err := fm.train(data)
+	hs, err := fm.train(data)
 	if err != nil {
 		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
-		return err
+		return hs, err
 	}
 	fm.logger.Info("%s: Training successful in %s", name, time.Since(when))
-	return nil
+	return hs, nil
 }
 
 func (fm *ForestModel) findDependecies(measurements *common.Measurements,
@@ -795,6 +824,9 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 
 			appFrame := engine.Consolidate(frames)
 			appPoints, appVerdict := engine.Diagnose(appFrame, fm.appCases)
+			if appPoints == nil {
+				return nil
+			}
 
 			verdictFrame := &ForestModelApplicationFrame{
 				frame:   appFrame,
@@ -877,6 +909,8 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 	name := fm.Name()
 
 	fm.logger.Info("%s: Detecting...", name)
+
+	//time.Sleep(time.Second * 10)
 
 	err := fm.detect(data, onFrame)
 	if err != nil {

@@ -54,11 +54,25 @@ func (pg *Pushgateway) labels(v *common.GeneratorValue) string {
 		return ""
 	}
 
-	if v.Labels == nil {
-		return ""
+	lbs := v.Labels
+	if lbs == nil {
+		lbs = make(common.Labels)
 	}
 
-	keys := slices.Collect(maps.Keys(v.Labels))
+	if v.Devation != nil {
+		lbs["generator_deviation"] = fmt.Sprintf("%g", *v.Devation)
+	}
+	if v.Value.Min != nil {
+		lbs["generator_min"] = fmt.Sprintf("%g", *v.Value.Min)
+	}
+	if v.Value.Max != nil {
+		lbs["generator_max"] = fmt.Sprintf("%g", *v.Value.Max)
+	}
+	if !utils.IsEmpty(v.Kind) {
+		lbs["generator_kind"] = v.Kind
+	}
+
+	keys := slices.Collect(maps.Keys(lbs))
 	slices.Sort(keys)
 
 	var sb strings.Builder
@@ -70,29 +84,52 @@ func (pg *Pushgateway) labels(v *common.GeneratorValue) string {
 		if idx > 0 {
 			format = fmt.Sprintf(",%s", format)
 		}
-		fmt.Fprintf(&sb, format, key, sign, v.Labels[key])
+		fmt.Fprintf(&sb, format, key, sign, lbs[key])
 	}
 	return sb.String()
 }
 
-func (pg *Pushgateway) value(v *common.GeneratorValue) float64 {
+func (pg *Pushgateway) value(v *common.GeneratorValue) *float64 {
 
 	if v == nil {
-		return 0
+		return nil
 	}
 
-	if v.Value.Default != nil {
-		return *v.Value.Default
+	var vl *float64
+
+	switch v.Kind {
+	case common.GeneratorValueKindMin:
+
+		if v.Value.Min != nil {
+			vl = v.Value.Min
+		}
+	case common.GeneratorValueKindMax:
+
+		if v.Value.Max != nil {
+			vl = v.Value.Max
+		}
+	case common.GeneratorValueKindAverage:
+
+		if v.Value.Min != nil &&
+			v.Value.Max != nil {
+
+			min := *v.Value.Min
+			max := *v.Value.Max
+			mm := (min + max) / 2
+			vl = &mm
+		}
+	default:
+		mm := 1.0
+		vl = &mm
 	}
 
-	if v.Value.Min != nil &&
-		v.Value.Max != nil {
-
-		min := *v.Value.Min
-		max := *v.Value.Max
-		return min + rand.Float64()*(max-min)
+	if vl != nil && v.Devation != nil {
+		mm := *vl
+		d := rand.Float64() * *v.Devation
+		mm = mm + d
+		vl = &mm
 	}
-	return 1
+	return vl
 }
 
 func (pg *Pushgateway) push(values common.GeneratorValues) error {
@@ -114,16 +151,28 @@ func (pg *Pushgateway) push(values common.GeneratorValues) error {
 			continue
 		}
 
+		value := pg.value(item)
+		if value == nil {
+			continue
+		}
+
+		if item.Only {
+			sb.Reset()
+		}
+
 		fmt.Fprintf(&sb, "# %s\n", n)
 
 		labels := pg.labels(item)
-		value := pg.value(item)
-		svalue := strconv.FormatFloat(value, 'f', -1, 64)
+		svalue := strconv.FormatFloat(*value, 'f', -1, 64)
 
 		s := fmt.Sprintf("%s{%s} %s", item.Metric, labels, svalue)
 		pg.logger.Debug("%s: %s", name, s)
 
 		fmt.Fprintln(&sb, s)
+
+		if item.Only {
+			break
+		}
 	}
 
 	s := sb.String()
@@ -232,14 +281,20 @@ func (pg *Pushgateway) SetData(data common.DataSourceData) error {
 
 		name := fmt.Sprintf("%d", hash)
 
+		min := schema.Min()
+		max := schema.Max()
+		dev := max - min
+
 		value := &common.GeneratorValue{
 			Metric:   metric,
 			Labels:   labels,
+			Kind:     common.GeneratorValueKindMin,
+			Devation: &dev,
 			Disabled: false,
+			Only:     false,
 		}
-		min := schema.Min()
+
 		value.Value.Min = &min
-		max := schema.Max()
 		value.Value.Max = &max
 		values[name] = value
 	}

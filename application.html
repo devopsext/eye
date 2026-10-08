@@ -134,10 +134,7 @@
 </head>
 <body>
     <div class="controls">
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application..." oninput="changeFilter()" onchange="changeFilter()" style="width:300px;">
-        <datalist id="applicationList"></datalist>
-
-        <input type="color" id="metricColorPicker" value="#38bdf8" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
+        <button onclick="resetLayoutPositions();resetZoomAll();clearVerdicts()">🔄 Reset</button>
 
         <label for="timeframeSelect"><strong>Frame:</strong></label>
         <select id="timeframeSelect" onchange="changeTimeframe()">
@@ -156,8 +153,11 @@
             <option value="solar" selected>Solar</option>
         </select>
 
-        <button onclick="resetLayoutPositions();resetZoomAll()">🔄 Reset</button>
-        <span id="modelStatus" style="margin-left:auto; margin-right: 15px; font-size:12px; font-weight:bold; color:#ef4444;">● Model: Training...</span>
+        <input type="color" id="metricColorPicker" value="#38bdf8" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
+
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:400px;">
+        <datalist id="applicationList"></datalist>
+        <span id="modelStatus" style="font-size:12px;">Unknown</span>
         <span id="wsStatus" style="font-size:12px; color:#10b981;">● Connected</span>
     </div>
 
@@ -734,30 +734,22 @@
         }
 
         async function fetchModelState() {
+            const ms = document.getElementById('modelStatus');
             try {
                 const res = await fetch('{{.ApiStatePath}}');
                 const data = await res.json();
-                const ms = document.getElementById('modelStatus');
-                if (data.state === 'ready') {
-                    ms.style.color = '#10b981';
-                    ms.innerText = '● ' + data.model + ': Ready';
-                } else if (data.state === 'training') {
-                    ms.style.color = '#f59e0b';
-                    ms.innerText = '● ' + data.model + ': Training...';
-                } else if (data.state === 'trainerror') {
-                    ms.style.color = '#ef4444';
-                    ms.innerText = '● ' + data.model + ': Train error';
-                } else if (data.state === 'detecting') {
-                    ms.style.color = 'rgb(49, 43, 226)';
-                    ms.innerText = '● ' + data.model + ': Detecting...';
-                } else if (data.state === 'detecterror') {
-                    ms.style.color = '#ef4444';
-                    ms.innerText = '● ' + data.model + ': Detect error';
+                if (data.state === 'Idle') {
+                    ms.innerText = 'Idle';
+                } else if (data.state === 'Training') {
+                    ms.innerText = 'Training...';
+                } else if (data.state === 'Detecting') {
+                    ms.innerText = 'Detecting...';
                 } else {
-                    ms.style.color = '#ef4444';
-                    ms.innerText = '● ' + data.model + ': Not Ready';
+                    ms.innerText = 'Unknown';
                 }
-            } catch(e) {}
+            } catch(e) {
+               ms.innerText = 'Unknown';
+            }
         }
         setInterval(fetchModelState, 1000);
         fetchModelState();
@@ -770,6 +762,11 @@
                 datalist.appendChild(opt);
                 applicationCache[app] = { rawSeries: {}, verdictsHtml: "" };
             }
+        }
+
+        function clearVerdicts() {
+            const tbody = document.getElementById('verdictTableBody');
+            tbody.innerHTML = "";
         }
 
         function connectWS() {

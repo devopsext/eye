@@ -40,6 +40,7 @@ type ModelFrame interface {
 	Ident() string
 	Timestamp() time.Time
 	Verdict() ModelVerdict
+	IsEmpty() bool
 }
 
 type ModelApplicationFrame interface {
@@ -68,11 +69,9 @@ type ModelState = int
 
 const (
 	ModelStateUnknown = iota
-	ModelStateReady
+	ModelStateIdle
 	ModelStateTraining
-	ModelStateTrainError
 	ModelStateDetecting
-	ModelStateDetectError
 )
 
 type ModelStateSubscriber interface {
@@ -88,7 +87,7 @@ type ModelSubscribers struct {
 type Model interface {
 	Name() string
 	Enabled() bool
-	Train(data DataSourceData) error
+	Train(data DataSourceData) ([]Hash, error)
 	Detect(data DataSourceData, onFrame ModelOnFrame, onAnomaly ModelOnAnomaly) error
 }
 
@@ -101,17 +100,13 @@ func ModelStateToString(state ModelState) string {
 
 	switch state {
 	case ModelStateUnknown:
-		return "unknown"
-	case ModelStateReady:
-		return "ready"
+		return "Unknown"
+	case ModelStateIdle:
+		return "Idle"
 	case ModelStateTraining:
-		return "training"
-	case ModelStateTrainError:
-		return "trainerror"
+		return "Training"
 	case ModelStateDetecting:
-		return "detecting"
-	case ModelStateDetectError:
-		return "detecterror"
+		return "Detecting"
 	default:
 		return "unknown"
 	}
@@ -140,39 +135,54 @@ func (ms *Models) Find(name string) Model {
 	return nil
 }
 
-func (ms *Models) state(model Model, state ModelState) {
+func (ms *Models) state(m Model, state ModelState) {
+
+	if !m.Enabled() {
+		return
+	}
 
 	for _, s := range ms.subscribers.States {
 		if utils.IsEmpty(s) {
 			continue
 		}
-		s.State(model, state)
+		s.State(m, state)
+	}
+}
+
+func (ms *Models) states(state ModelState) {
+
+	for _, m := range ms.list {
+		ms.state(m, state)
 	}
 }
 
 func (ms *Models) Train(data DataSourceData) error {
 
+	ms.states(ModelStateTraining)
+	defer ms.states(ModelStateIdle)
+
 	all := []error{}
+
 	for _, m := range ms.list {
 
 		if !m.Enabled() {
 			continue
 		}
-
-		ms.state(m, ModelStateTraining)
-		e := m.Train(data)
+		_, e := m.Train(data)
 		if e != nil {
 			all = append(all, e)
-			ms.state(m, ModelStateTrainError)
 			continue
 		}
-		ms.state(m, ModelStateReady)
 	}
+
 	return errors.Join(all...)
 }
 
 func (ms *Models) Detect(data DataSourceData) error {
 
+	ms.states(ModelStateDetecting)
+	defer ms.states(ModelStateIdle)
+
 	all := []error{}
 	for _, m := range ms.list {
 
@@ -180,29 +190,29 @@ func (ms *Models) Detect(data DataSourceData) error {
 			continue
 		}
 
-		ms.state(m, ModelStateDetecting)
-		e := m.Detect(data, ms.frame, ms.anomaly)
+		e := m.Detect(data, ms.detectOnFrame, ms.detectOnAnomaly)
 		if e != nil {
 			all = append(all, e)
-			ms.state(m, ModelStateDetectError)
 			continue
 		}
-		ms.state(m, ModelStateReady)
 	}
 	return errors.Join(all...)
 }
 
-func (ms *Models) frame(frame ModelFrame) {
+func (ms *Models) detectOnFrame(frame ModelFrame) {
 
 	for _, s := range ms.subscribers.Frames {
 		if utils.IsEmpty(s) {
+			continue
+		}
+		if frame.IsEmpty() {
 			continue
 		}
 		s.Frame(frame)
 	}
 }
 
-func (ms *Models) anomaly(anomaly ModelAnomaly) {
+func (ms *Models) detectOnAnomaly(anomaly ModelAnomaly) {
 
 	for _, s := range ms.subscribers.Anomalies {
 		if utils.IsEmpty(s) {

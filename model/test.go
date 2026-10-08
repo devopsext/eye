@@ -28,10 +28,11 @@ func (t *TestModel) Enabled() bool {
 	return t.options.Enabled
 }
 
-func (t *TestModel) Train(data common.DataSourceData) error {
+func (t *TestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
 
+	hs := []common.Hash{}
 	if !t.options.Enabled {
-		return nil
+		return hs, nil
 	}
 
 	name := t.Name()
@@ -42,7 +43,7 @@ func (t *TestModel) Train(data common.DataSourceData) error {
 	time.Sleep(d)
 
 	t.logger.Info("%s: Training finished in %s", name, time.Since(when))
-	return nil
+	return hs, nil
 }
 
 func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
