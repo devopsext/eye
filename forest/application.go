@@ -141,6 +141,7 @@ type ApplicationFeatureStats struct {
 // Quartile Profiler Conditioned on 168 Hourly Buckets (7 Days x 24 Hours)
 type ApplicationProfiler struct {
 	Buckets  [168][]ApplicationFeatureStats
+	Exists   [168]bool
 	K        float64
 	IsFitted bool
 }
@@ -1354,6 +1355,7 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 // ApplicationProfiler
 
 func TimeWindowKey(t time.Time) int {
+	t = t.UTC()
 	return int(t.Weekday())*24 + t.Hour()
 }
 
@@ -1412,6 +1414,7 @@ func (ap *ApplicationProfiler) Fit(timestamps []time.Time, matrix [][]float64) {
 				Q3:     q3,
 				IQR:    iqr,
 			}
+			ap.Exists[b] = true
 		}
 	}
 	ap.IsFitted = true
@@ -1518,22 +1521,32 @@ func (ae *ApplicationEngine) weeklyMinuteKey(t time.Time) int {
 	return (weekday * 24 * 60) + (hour * 60) + minute
 }
 
-func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame) (inVec, satVec, outVec []float64, inValid, satValid, outValid []bool, points *ApplicationFramePoints) {
+type Vectors struct {
+	inVec, satVec, outVec                                                           []float64
+	inValid, satValid, outValid                                                     []bool
+	points                                                                          *ApplicationFramePoints
+	inReqIdx, inThruIdx, inLatIdx, inErrIdx                                         int
+	appCPUIdx, appMemIdx, hostCPUIdx, hostMemIdx, cpuDiffIdx, memDiffIdx            int
+	outReqIdx, outThruIdx, outLatIdx, outErrIdx, flowReqIdx, flowThruIdx, latDivIdx int
+}
+
+func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame) (vectors Vectors) {
 
 	timeVec := ae.extractTimeVectors(t)
 
 	inSlotWidth := ae.inReqSlots.MaxSlots + 2
-	inReqIdx := inSlotWidth - 1
 
 	inReqMeds := ae.getMedians(ae.inProfiler, t, 0, inSlotWidth)
 	inThruMeds := ae.getMedians(ae.inProfiler, t, inSlotWidth, inSlotWidth)
 
 	inReqSlots, inReqVal := ae.inReqSlots.VectorizeTraffic(frame.inRequests, false, inReqMeds)
-	inThruSlots, inThruVal := ae.inThruSlots.VectorizeTraffic(frame.inThroughput, false, inThruMeds)
-	inThruIdx := inReqIdx + inSlotWidth
+	vectors.inErrIdx = len(inReqSlots) - 1
 
-	inLatIdx := len(inReqSlots) + len(inThruSlots)
-	inErrIdx := inLatIdx + 1
+	inThruSlots, inThruVal := ae.inThruSlots.VectorizeTraffic(frame.inThroughput, false, inThruMeds)
+	vectors.inThruIdx = len(inReqSlots) + len(inThruSlots) - 1
+
+	vectors.inLatIdx = vectors.inThruIdx + 1
+	vectors.inErrIdx = vectors.inLatIdx + 1
 
 	b := TimeWindowKey(t)
 
@@ -1542,8 +1555,8 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inLatValid {
 		inLat = *frame.inLatency
 	}
-	if !inLatValid && ae.inProfiler.IsFitted && len(ae.inProfiler.Buckets[b]) > inLatIdx {
-		inLat = ae.inProfiler.Buckets[b][inLatIdx].Median
+	if !inLatValid && ae.inProfiler.IsFitted && len(ae.inProfiler.Buckets[b]) > vectors.inLatIdx {
+		inLat = ae.inProfiler.Buckets[b][vectors.inLatIdx].Median
 	}
 
 	inErrValid := frame.inErrors != nil
@@ -1551,104 +1564,111 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inErrValid {
 		inErr = *frame.inErrors
 	}
-	if !inErrValid && ae.inProfiler.IsFitted && len(ae.inProfiler.Buckets[b]) > inErrIdx {
-		inErr = ae.inProfiler.Buckets[b][inErrIdx].Median
+	if !inErrValid && ae.inProfiler.IsFitted && len(ae.inProfiler.Buckets[b]) > vectors.inErrIdx {
+		inErr = ae.inProfiler.Buckets[b][vectors.inErrIdx].Median
 	}
 
-	inVec = append(inVec, inReqSlots...)
-	inVec = append(inVec, inThruSlots...)
-	inVec = append(inVec, inLat, inErr)
-	inVec = append(inVec, timeVec...)
+	vectors.inVec = append(vectors.inVec, inReqSlots...)
+	vectors.inVec = append(vectors.inVec, inThruSlots...)
+	vectors.inVec = append(vectors.inVec, inLat, inErr)
+	vectors.inVec = append(vectors.inVec, timeVec...)
 
-	inValid = append(inValid, inReqVal...)
-	inValid = append(inValid, inThruVal...)
-	inValid = append(inValid, inLatValid, inErrValid)
+	vectors.inValid = append(vectors.inValid, inReqVal...)
+	vectors.inValid = append(vectors.inValid, inThruVal...)
+	vectors.inValid = append(vectors.inValid, inLatValid, inErrValid)
 	for i := 0; i < len(timeVec); i++ {
-		inValid = append(inValid, true) // Time is always valid
+		vectors.inValid = append(vectors.inValid, true) // Time is always valid
 	}
 
+	vectors.appCPUIdx = 0
 	appCPUValid := frame.appCPU != nil
 	appCPU := 0.0
 	if appCPUValid {
 		appCPU = *frame.appCPU
 	}
-	if !appCPUValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > 0 {
-		appCPU = ae.satProfiler.Buckets[b][0].Median
+	if !appCPUValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.appCPUIdx {
+		appCPU = ae.satProfiler.Buckets[b][vectors.appCPUIdx].Median
 	}
 
+	vectors.appMemIdx = vectors.appCPUIdx + 1
 	appMemValid := frame.appMem != nil
 	appMem := 0.0
 	if appMemValid {
 		appMem = *frame.appMem
 	}
-	if !appMemValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > 1 {
-		appMem = ae.satProfiler.Buckets[b][1].Median
+	if !appMemValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.appMemIdx {
+		appMem = ae.satProfiler.Buckets[b][vectors.appMemIdx].Median
 	}
 
+	vectors.hostCPUIdx = vectors.appMemIdx + 1
 	hostCPUValid := frame.hostCPU != nil
 	hostCPU := 0.0
 	if hostCPUValid {
 		hostCPU = *frame.hostCPU
 	}
-	if !hostCPUValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > 2 {
-		hostCPU = ae.satProfiler.Buckets[b][2].Median
+	if !hostCPUValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.hostCPUIdx {
+		hostCPU = ae.satProfiler.Buckets[b][vectors.hostCPUIdx].Median
 	}
 
+	vectors.hostMemIdx = vectors.hostCPUIdx + 1
 	hostMemValid := frame.hostMem != nil
 	hostMem := 0.0
 	if hostMemValid {
 		hostMem = *frame.hostMem
 	}
-	if !hostMemValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > 3 {
-		hostMem = ae.satProfiler.Buckets[b][3].Median
+	if !hostMemValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.hostMemIdx {
+		hostMem = ae.satProfiler.Buckets[b][vectors.hostMemIdx].Median
 	}
 
+	vectors.cpuDiffIdx = vectors.hostMemIdx + 1
 	cpuDiffVal := false
 	cpuDiff := 0.0
 	if hostCPUValid && appCPUValid {
 		cpuDiffVal = true
 		cpuDiff = hostCPU - appCPU
-	} else if ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > 4 {
-		cpuDiff = ae.satProfiler.Buckets[b][4].Median
+	} else if ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.cpuDiffIdx {
+		cpuDiff = ae.satProfiler.Buckets[b][vectors.cpuDiffIdx].Median
 	}
 
+	vectors.memDiffIdx = vectors.cpuDiffIdx + 1
 	memDiffVal := false
 	memDiff := 0.0
 	if hostMemValid && appMemValid {
 		memDiffVal = true
 		memDiff = hostMem - appMem
-	} else if ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > 5 {
-		memDiff = ae.satProfiler.Buckets[b][5].Median
+	} else if ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.memDiffIdx {
+		memDiff = ae.satProfiler.Buckets[b][vectors.memDiffIdx].Median
 	}
 
-	satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
-	satVec = append(satVec, timeVec...)
+	vectors.satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
+	vectors.satVec = append(vectors.satVec, timeVec...)
 
-	satValid = []bool{appCPUValid, appMemValid, hostCPUValid, hostMemValid, cpuDiffVal, memDiffVal}
+	vectors.satValid = []bool{appCPUValid, appMemValid, hostCPUValid, hostMemValid, cpuDiffVal, memDiffVal}
 	for i := 0; i < len(timeVec); i++ {
-		satValid = append(satValid, true) // Time is always valid
+		vectors.satValid = append(vectors.satValid, true) // Time is always valid
 	}
 
 	outSlotWidth := ae.outReqSlots.MaxSlots + 2
-	outReqIdx := outSlotWidth - 1
 
 	outReqMeds := ae.getMedians(ae.outProfiler, t, 0, outSlotWidth)
 	outThruMeds := ae.getMedians(ae.outProfiler, t, outSlotWidth, outSlotWidth)
 
 	outReqSlots, outReqVal := ae.outReqSlots.VectorizeTraffic(frame.outRequests, false, outReqMeds)
-	outThruSlots, outThruVal := ae.outThruSlots.VectorizeTraffic(frame.outThroughput, false, outThruMeds)
-	outThruIdx := outReqIdx + outSlotWidth
+	vectors.outReqIdx = len(outReqSlots) - 1
 
-	outLatIdx := ae.outReqSlots.MaxSlots + 2 + ae.outReqSlots.MaxSlots + 2
-	outErrIdx := outLatIdx + 1
+	outThruSlots, outThruVal := ae.outThruSlots.VectorizeTraffic(frame.outThroughput, false, outThruMeds)
+	vectors.outThruIdx = len(outReqSlots) + len(outThruSlots) - 1
+
+	vectors.outLatIdx = vectors.outThruIdx + 1
+	vectors.outErrIdx = vectors.outLatIdx + 1
 
 	outLatValid := frame.outLatency != nil
 	outLat := 0.0
 	if outLatValid {
 		outLat = *frame.outLatency
 	}
-	if !outLatValid && ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > outLatIdx {
-		outLat = ae.outProfiler.Buckets[b][outLatIdx].Median
+	if !outLatValid && ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.outLatIdx {
+		outLat = ae.outProfiler.Buckets[b][vectors.outLatIdx].Median
 	}
 
 	outErrValid := frame.outErrors != nil
@@ -1656,57 +1676,60 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if outErrValid {
 		outErr = *frame.outErrors
 	}
-	if !outErrValid && ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > outErrIdx {
-		outErr = ae.outProfiler.Buckets[b][outErrIdx].Median
+	if !outErrValid && ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.outErrIdx {
+		outErr = ae.outProfiler.Buckets[b][vectors.outErrIdx].Median
 	}
 
 	inReqSum, inReqKnown := frame.inRequests.Sum()
 	outReqSum, outReqKnown := frame.outRequests.Sum()
+	vectors.flowReqIdx = vectors.outErrIdx + 1
 	flowReqValid := false
 	flowReqRatio := 0.0
 	if inReqKnown && outReqKnown && inReqSum > 0 {
 		flowReqValid = true
 		flowReqRatio = outReqSum / inReqSum
-	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > 4*outSlotWidth {
-		flowReqRatio = ae.outProfiler.Buckets[b][4*outSlotWidth].Median
+	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.flowReqIdx {
+		flowReqRatio = ae.outProfiler.Buckets[b][vectors.flowReqIdx].Median
 	}
 
 	inThruSum, inThruKnown := frame.inThroughput.Sum()
 	outThruSum, outThruKnown := frame.outThroughput.Sum()
+	vectors.flowThruIdx = vectors.flowReqIdx + 1
 	flowThruValid := false
 	flowThruRatio := 0.0
 	if inThruKnown && outThruKnown && inThruSum > 0 {
 		flowThruValid = true
 		flowThruRatio = outThruSum / inThruSum
-	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > 4*outSlotWidth+1 {
-		flowThruRatio = ae.outProfiler.Buckets[b][4*outSlotWidth+1].Median
+	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.flowThruIdx {
+		flowThruRatio = ae.outProfiler.Buckets[b][vectors.flowThruIdx].Median
 	}
 
+	vectors.latDivIdx = vectors.flowThruIdx + 1
 	latDivValid := false
 	latDiv := 0.0
 	if inLatValid && outLatValid {
 		latDivValid = true
 		latDiv = inLat - outLat
-	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > 4*outSlotWidth+2 {
-		latDiv = ae.outProfiler.Buckets[b][4*outSlotWidth+2].Median
+	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.latDivIdx {
+		latDiv = ae.outProfiler.Buckets[b][vectors.latDivIdx].Median
 	}
 
-	outVec = append(outVec, outReqSlots...)
-	outVec = append(outVec, outThruSlots...)
-	outVec = append(outVec, outLat, outErr)
-	outVec = append(outVec, flowReqRatio, flowThruRatio, latDiv)
-	outVec = append(outVec, timeVec...)
+	vectors.outVec = append(vectors.outVec, outReqSlots...)
+	vectors.outVec = append(vectors.outVec, outThruSlots...)
+	vectors.outVec = append(vectors.outVec, outLat, outErr)
+	vectors.outVec = append(vectors.outVec, flowReqRatio, flowThruRatio, latDiv)
+	vectors.outVec = append(vectors.outVec, timeVec...)
 
-	outValid = append(outValid, outReqVal...)
-	outValid = append(outValid, outThruVal...)
-	outValid = append(outValid, outLatValid, outErrValid)
-	outValid = append(outValid, flowReqValid, flowThruValid, latDivValid)
+	vectors.outValid = append(vectors.outValid, outReqVal...)
+	vectors.outValid = append(vectors.outValid, outThruVal...)
+	vectors.outValid = append(vectors.outValid, outLatValid, outErrValid)
+	vectors.outValid = append(vectors.outValid, flowReqValid, flowThruValid, latDivValid)
 	for i := 0; i < len(timeVec); i++ {
-		outValid = append(outValid, true) // Time is always valid
+		vectors.outValid = append(vectors.outValid, true) // Time is always valid
 	}
 
 	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
-		if profiler.IsFitted && len(profiler.Buckets[b]) > col {
+		if profiler.IsFitted && len(profiler.Buckets[b]) > col && profiler.Exists[b] {
 			st := profiler.Buckets[b][col]
 			upper := st.Q3 + (profiler.K * st.IQR)
 			lower := st.Q1 - (profiler.K * st.IQR)
@@ -1731,81 +1754,81 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 		return 1.0, 0.0
 	}
 
-	points = &ApplicationFramePoints{}
+	vectors.points = &ApplicationFramePoints{}
 
-	if len(inVec) > inReqIdx && inValid[inReqIdx] {
-		val := inVec[inReqIdx]
-		max, min := getLimits(ae.inProfiler, inReqIdx, val, false)
-		points.inRequests = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
+		val := vectors.inVec[vectors.inReqIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inReqIdx, val, false)
+		vectors.points.inRequests = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(inVec) > inThruIdx && inValid[inThruIdx] {
-		val := inVec[inThruIdx]
-		max, min := getLimits(ae.inProfiler, inThruIdx, val, false)
-		points.inThroughput = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
+		val := vectors.inVec[vectors.inThruIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inThruIdx, val, false)
+		vectors.points.inThroughput = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(inVec) > inLatIdx && inValid[inLatIdx] {
-		val := inVec[inLatIdx]
-		max, min := getLimits(ae.inProfiler, inLatIdx, val, false)
-		points.inLatency = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
+		val := vectors.inVec[vectors.inLatIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inLatIdx, val, false)
+		vectors.points.inLatency = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(inVec) > inErrIdx && inValid[inErrIdx] {
-		val := inVec[inErrIdx]
-		max, min := getLimits(ae.inProfiler, inErrIdx, val, false)
-		points.inErrors = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
+		val := vectors.inVec[vectors.inErrIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inErrIdx, val, false)
+		vectors.points.inErrors = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(outVec) > outReqIdx && outValid[outReqIdx] {
-		val := outVec[outReqIdx]
-		max, min := getLimits(ae.outProfiler, outReqIdx, val, false)
-		points.inRequests = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
+		val := vectors.outVec[vectors.outReqIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outReqIdx, val, false)
+		vectors.points.inRequests = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(outVec) > outThruIdx && outValid[outThruIdx] {
-		val := outVec[outThruIdx]
-		max, min := getLimits(ae.outProfiler, outThruIdx, val, false)
-		points.inThroughput = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
+		val := vectors.outVec[vectors.outThruIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outThruIdx, val, false)
+		vectors.points.inThroughput = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(outVec) > outLatIdx && outValid[outLatIdx] {
-		val := outVec[outLatIdx]
-		max, min := getLimits(ae.outProfiler, outLatIdx, val, false)
-		points.outLatency = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
+		val := vectors.outVec[vectors.outLatIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outLatIdx, val, false)
+		vectors.points.outLatency = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	if len(outVec) > outErrIdx && outValid[outErrIdx] {
-		val := outVec[outErrIdx]
-		max, min := getLimits(ae.outProfiler, outErrIdx, val, false)
-		points.inErrors = NewApplicationFramePoint(t, val, min, max)
+	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
+		val := vectors.outVec[vectors.outErrIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outErrIdx, val, false)
+		vectors.points.inErrors = NewApplicationFramePoint(t, val, min, max)
 	}
 
 	if appCPUValid {
-		val := satVec[0]
-		max, min := getLimits(ae.satProfiler, 0, val, true)
-		points.appCPU = NewApplicationFramePoint(t, val, min, max)
+		val := vectors.satVec[vectors.appCPUIdx]
+		max, min := getLimits(ae.satProfiler, vectors.appCPUIdx, val, true)
+		vectors.points.appCPU = NewApplicationFramePoint(t, val, min, max)
 	}
 
 	if appMemValid {
-		val := satVec[1]
-		max, min := getLimits(ae.satProfiler, 0, val, true)
-		points.appMem = NewApplicationFramePoint(t, val, min, max)
+		val := vectors.satVec[vectors.appMemIdx]
+		max, min := getLimits(ae.satProfiler, vectors.appMemIdx, val, true)
+		vectors.points.appMem = NewApplicationFramePoint(t, val, min, max)
 	}
 
 	if hostCPUValid {
-		val := satVec[2]
-		max, min := getLimits(ae.satProfiler, 0, val, true)
-		points.hostCPU = NewApplicationFramePoint(t, val, min, max)
+		val := vectors.satVec[vectors.hostCPUIdx]
+		max, min := getLimits(ae.satProfiler, vectors.hostCPUIdx, val, true)
+		vectors.points.hostCPU = NewApplicationFramePoint(t, val, min, max)
 	}
 
 	if hostMemValid {
-		val := satVec[3]
-		max, min := getLimits(ae.satProfiler, 0, val, true)
-		points.hostMem = NewApplicationFramePoint(t, val, min, max)
+		val := vectors.satVec[vectors.hostMemIdx]
+		max, min := getLimits(ae.satProfiler, vectors.hostMemIdx, val, true)
+		vectors.points.hostMem = NewApplicationFramePoint(t, val, min, max)
 	}
 
-	return inVec, satVec, outVec, inValid, satValid, outValid, points
+	return vectors
 }
 
 func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL, tR []common.Stamp, inL, satL, outL, inR, satR, outR [][]float64) {
@@ -1883,11 +1906,11 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 		t := common.StampToTime(f.stamp)
 		times = append(times, t)
 
-		iv, sv, ov, _, _, _, _ := ae.extractVectors(t, f)
+		vectors := ae.extractVectors(t, f)
 		stamps = append(stamps, f.stamp)
-		inData = append(inData, iv)
-		satData = append(satData, sv)
-		outData = append(outData, ov)
+		inData = append(inData, vectors.inVec)
+		satData = append(satData, vectors.satVec)
+		outData = append(outData, vectors.outVec)
 
 		key := ae.weeklyMinuteKey(t)
 		index := slices.Index(ae.minutes, key)
@@ -2083,43 +2106,35 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*Applicati
 
 	t := common.StampToTime(frame.stamp)
 
-	inVec, satVec, outVec, inVal, satVal, outVal, points := ae.extractVectors(t, frame)
+	vectors := ae.extractVectors(t, frame)
 
-	inLabels, _, _ := ae.inForest.Predict([][]float64{inVec})
-	satLabels, _, _ := ae.satForest.Predict([][]float64{satVec})
-	outLabels, _, _ := ae.outForest.Predict([][]float64{outVec})
+	inLabels, _, _ := ae.inForest.Predict([][]float64{vectors.inVec})
+	satLabels, _, _ := ae.satForest.Predict([][]float64{vectors.satVec})
+	outLabels, _, _ := ae.outForest.Predict([][]float64{vectors.outVec})
 
 	// no labels
 	if len(inLabels) == 0 || len(satLabels) == 0 || len(outLabels) == 0 {
-		return points, nil
+		return vectors.points, nil
 	}
 
 	inAnom := inLabels[0] == 1
 	satAnom := satLabels[0] == 1
 	outAnom := outLabels[0] == 1
 
-	slotWidth := ae.inReqSlots.MaxSlots + 2
-	inReqTotalIdx := slotWidth - 1
-	inThruTotalIdx := inReqTotalIdx + slotWidth
+	inReqLevel := ae.inProfiler.Classify(t, vectors.inReqIdx, vectors.inVec[vectors.inReqIdx], inAnom, vectors.inValid[vectors.inReqIdx])
+	inThruLevel := ae.inProfiler.Classify(t, vectors.inThruIdx, vectors.inVec[vectors.inThruIdx], inAnom, vectors.inValid[vectors.inThruIdx])
+	inLatLevel := ae.inProfiler.Classify(t, vectors.inLatIdx, vectors.inVec[vectors.inLatIdx], inAnom, vectors.inValid[vectors.inLatIdx])
+	inErrLevel := ae.inProfiler.Classify(t, vectors.inErrIdx, vectors.inVec[vectors.inErrIdx], inAnom, vectors.inValid[vectors.inErrIdx])
 
-	inReqLevel := ae.inProfiler.Classify(t, inReqTotalIdx, inVec[inReqTotalIdx], inAnom, inVal[inReqTotalIdx])
-	inThruLevel := ae.inProfiler.Classify(t, inThruTotalIdx, inVec[inThruTotalIdx], inAnom, inVal[inThruTotalIdx])
-	inLatLevel := ae.inProfiler.Classify(t, inThruTotalIdx+1, inVec[inThruTotalIdx+1], inAnom, inVal[inThruTotalIdx+1])
-	inErrLevel := ae.inProfiler.Classify(t, inThruTotalIdx+2, inVec[inThruTotalIdx+2], inAnom, inVal[inThruTotalIdx+2])
+	appCPULevel := ae.satProfiler.Classify(t, vectors.appCPUIdx, vectors.satVec[vectors.appCPUIdx], satAnom, vectors.satValid[vectors.appCPUIdx])
+	appMemLevel := ae.satProfiler.Classify(t, vectors.appMemIdx, vectors.satVec[vectors.appMemIdx], satAnom, vectors.satValid[vectors.appMemIdx])
+	hostCPULevel := ae.satProfiler.Classify(t, vectors.hostCPUIdx, vectors.satVec[vectors.hostCPUIdx], satAnom, vectors.satValid[vectors.hostCPUIdx])
+	hostMemLevel := ae.satProfiler.Classify(t, vectors.hostMemIdx, vectors.satVec[vectors.hostMemIdx], satAnom, vectors.satValid[vectors.hostMemIdx])
 
-	appCPULevel := ae.satProfiler.Classify(t, 0, satVec[0], satAnom, satVal[0])
-	appMemLevel := ae.satProfiler.Classify(t, 1, satVec[1], satAnom, satVal[1])
-	hostCPULevel := ae.satProfiler.Classify(t, 2, satVec[2], satAnom, satVal[2])
-	hostMemLevel := ae.satProfiler.Classify(t, 3, satVec[3], satAnom, satVal[3])
-
-	outSlotWidth := ae.outReqSlots.MaxSlots + 2
-	outReqTotalIdx := outSlotWidth - 1
-	outThruTotalIdx := outReqTotalIdx + outSlotWidth
-
-	outReqLevel := ae.outProfiler.Classify(t, outReqTotalIdx, outVec[outReqTotalIdx], outAnom, outVal[outReqTotalIdx])
-	outThruLevel := ae.outProfiler.Classify(t, outThruTotalIdx, outVec[outThruTotalIdx], outAnom, outVal[outThruTotalIdx])
-	outLatLevel := ae.inProfiler.Classify(t, outThruTotalIdx+1, outVec[inThruTotalIdx+1], outAnom, outVal[inThruTotalIdx+1])
-	outErrLevel := ae.inProfiler.Classify(t, outThruTotalIdx+2, outVec[inThruTotalIdx+2], outAnom, outVal[inThruTotalIdx+2])
+	outReqLevel := ae.outProfiler.Classify(t, vectors.outReqIdx, vectors.outVec[vectors.outReqIdx], outAnom, vectors.outValid[vectors.outReqIdx])
+	outThruLevel := ae.outProfiler.Classify(t, vectors.outThruIdx, vectors.outVec[vectors.outThruIdx], outAnom, vectors.outValid[vectors.outThruIdx])
+	outLatLevel := ae.inProfiler.Classify(t, vectors.outLatIdx, vectors.outVec[vectors.outLatIdx], outAnom, vectors.outValid[vectors.outLatIdx])
+	outErrLevel := ae.inProfiler.Classify(t, vectors.outErrIdx, vectors.outVec[vectors.outErrIdx], outAnom, vectors.outValid[vectors.outErrIdx])
 
 	pattern := &ApplicationCasePattern{
 		inRequests:    inReqLevel,
@@ -2135,7 +2150,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*Applicati
 		outLatency:    outLatLevel,
 		outErrors:     outErrLevel,
 	}
-	return points, pattern
+	return vectors.points, pattern
 }
 
 func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) ApplicationFrame {
