@@ -139,11 +139,24 @@ type ApplicationFeatureStats struct {
 // Raising K (e.g., 2.0 - 3.0): Broadens the envelope, reducing alert noise for services with naturally spiky or high-variance diurnal traffic patterns.
 
 // Quartile Profiler Conditioned on 168 Hourly Buckets (7 Days x 24 Hours)
+type ApplicationProfilerBucketsKind = int
+
+const (
+	ApplicationProfilerBucketsKindDay = iota
+	ApplicationProfilerBucketsKindHour
+	ApplicationProfilerBucketsKindHalfHour
+	ApplicationProfilerBucketsKind15Minutes
+	ApplicationProfilerBucketsKind10Minutes
+	ApplicationProfilerBucketsKind5Minutes
+	ApplicationProfilerBucketsKindMinute
+)
+
 type ApplicationProfiler struct {
-	Buckets  [168][]ApplicationFeatureStats
-	Exists   [168]bool
+	Buckets  [][]ApplicationFeatureStats
+	Exists   []bool
 	K        float64
 	IsFitted bool
+	Kind     ApplicationProfilerBucketsKind
 }
 
 type ApplicationEngineOptions struct {
@@ -156,6 +169,7 @@ type ApplicationEngineOptions struct {
 	OutRequestsMaxSlots   int
 	OutThroughputMaxSlots int
 	RangeMultiplier       float64
+	ProfileBucketsKind    int
 	MinScore              int
 	Categories            string
 	Impacts               string
@@ -1354,9 +1368,28 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 
 // ApplicationProfiler
 
-func TimeWindowKey(t time.Time) int {
+func TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) int {
+
 	t = t.UTC()
-	return int(t.Weekday())*24 + t.Hour()
+	tm := int(t.Weekday())*24 + t.Hour()*60 + t.Minute()
+	switch kind {
+	case ApplicationProfilerBucketsKindDay:
+		return int(t.Weekday())
+	case ApplicationProfilerBucketsKindHour:
+		return tm / 60
+	case ApplicationProfilerBucketsKindHalfHour:
+		return tm / 30
+	case ApplicationProfilerBucketsKind15Minutes:
+		tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
+		return tm / 15
+	case ApplicationProfilerBucketsKind10Minutes:
+		return tm / 10
+	case ApplicationProfilerBucketsKind5Minutes:
+		return tm / 5
+	case ApplicationProfilerBucketsKindMinute:
+		return tm
+	}
+	return 0
 }
 
 func Percentile(sorted []float64, p float64) float64 {
@@ -1367,27 +1400,34 @@ func Percentile(sorted []float64, p float64) float64 {
 	return sorted[l]*(1.0-w) + sorted[u]*w
 }
 
-func (ap *ApplicationProfiler) Fit(timestamps []time.Time, matrix [][]float64) {
+/*func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 
-	if len(matrix) == 0 || len(matrix) != len(timestamps) {
+	if len(matrix) == 0 || len(matrix) != len(stamps) {
 		return
 	}
 	numCols := len(matrix[0])
 
-	bucketData := make([][][]float64, 168)
+	bucketSize := len(ap.Exists)
+
+	bucketData := make([][][]float64, bucketSize)
 	for b := range bucketData {
 		bucketData[b] = make([][]float64, numCols)
 	}
 
 	for row := 0; row < len(matrix); row++ {
-		b := TimeWindowKey(timestamps[row])
+
+		t := common.StampToTime(stamps[row])
+		b := TimeWindowKey(t, ap.Kind)
 		for col := 0; col < numCols; col++ {
 			bucketData[b][col] = append(bucketData[b][col], matrix[row][col])
 		}
 	}
 
-	for b := 0; b < 168; b++ {
-		ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
+	for b := 0; b < bucketSize; b++ {
+
+		if !ap.Exists[b] {
+			ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
+		}
 		for col := 0; col < numCols; col++ {
 			vals := bucketData[b][col]
 			if len(vals) == 0 {
@@ -1418,15 +1458,107 @@ func (ap *ApplicationProfiler) Fit(timestamps []time.Time, matrix [][]float64) {
 		}
 	}
 	ap.IsFitted = true
+}*/
+
+func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
+	if len(matrix) == 0 || len(matrix) != len(stamps) {
+		return
+	}
+	numCols := len(matrix[0])
+	bucketSize := len(ap.Exists)
+
+	// Временное хранилище для сбора всех значений по бакетам из нового пакета данных
+	bucketData := make([][][]float64, bucketSize)
+	for b := range bucketData {
+		bucketData[b] = make([][]float64, numCols)
+	}
+
+	// 1. Распределяем новые точки по бакетам с проверкой границ
+	for row := 0; row < len(matrix); row++ {
+		t := common.StampToTime(stamps[row])
+		b := TimeWindowKey(t, ap.Kind)
+
+		// Защита от выхода за пределы массива бакетов
+		if b < 0 || b >= bucketSize {
+			continue
+		}
+
+		for col := 0; col < numCols; col++ {
+			bucketData[b][col] = append(bucketData[b][col], matrix[row][col])
+		}
+	}
+
+	// 2. Обновляем статистику для каждого бакета
+	for b := 0; b < bucketSize; b++ {
+		// Проверяем, есть ли вообще данные в этом бакете за этот проход
+		hasDataInBucket := false
+		for col := 0; col < numCols; col++ {
+			if len(bucketData[b][col]) > 0 {
+				hasDataInBucket = true
+				break
+			}
+		}
+
+		// Если в бакет не попало новых данных:
+		if !hasDataInBucket {
+			if !ap.Exists[b] {
+				// Если бакет пустой и никогда не заполнялся — инициализируем дефолтом
+				ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
+				for col := 0; col < numCols; col++ {
+					ap.Buckets[b][col] = ApplicationFeatureStats{Median: 0, Q1: 0, Q3: 0, IQR: 1.0}
+				}
+			}
+			continue
+		}
+
+		// Инициализируем слайс статистики для бакета, если он еще не существовал
+		if !ap.Exists[b] {
+			ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
+		}
+
+		// 3. Считаем квантили по каждой колонке
+		for col := 0; col < numCols; col++ {
+			vals := bucketData[b][col]
+			if len(vals) == 0 {
+				// Если для конкретной колонки нет новых данных, но бакет уже существовал —
+				// оставляем старые значения (ничего не перезаписываем)
+				continue
+			}
+
+			sort.Float64s(vals)
+
+			q1 := Percentile(vals, 0.25)
+			med := Percentile(vals, 0.50)
+			q3 := Percentile(vals, 0.75)
+			iqr := q3 - q1
+
+			if iqr == 0 {
+				iqr = med * 0.05
+				if iqr == 0 {
+					iqr = 1.0
+				}
+			}
+
+			ap.Buckets[b][col] = ApplicationFeatureStats{
+				Median: med,
+				Q1:     q1,
+				Q3:     q3,
+				IQR:    iqr,
+			}
+		}
+
+		// Помечаем бакет как существующий/активный
+		ap.Exists[b] = true
+	}
+	ap.IsFitted = true
 }
 
-func (ap *ApplicationProfiler) Classify(t time.Time, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
+func (ap *ApplicationProfiler) Classify(b int, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
 
 	if !isValid {
 		return common.CaseLevelUnknown
 	}
 
-	b := TimeWindowKey(t)
 	st := ap.Buckets[b][col]
 	highT := st.Q3 + (ap.K * st.IQR)
 	lowT := st.Q1 - (ap.K * st.IQR)
@@ -1446,8 +1578,31 @@ func (ap *ApplicationProfiler) Classify(t time.Time, col int, val float64, isAno
 	return common.CaseLevelNormal
 }
 
-func NewApplicationProfiler(k float64) *ApplicationProfiler {
-	return &ApplicationProfiler{K: k}
+func NewApplicationProfiler(k float64, kind ApplicationProfilerBucketsKind) *ApplicationProfiler {
+
+	size := 0
+	switch kind {
+	case ApplicationProfilerBucketsKindDay:
+		size = 7
+	case ApplicationProfilerBucketsKindHour:
+		size = 7 * 24
+	case ApplicationProfilerBucketsKindHalfHour:
+		size = 7 * 24 * 2
+	case ApplicationProfilerBucketsKind15Minutes:
+		size = 7 * 24 * 4
+	case ApplicationProfilerBucketsKind10Minutes:
+		size = 7 * 24 * 6
+	case ApplicationProfilerBucketsKind5Minutes:
+		size = 7 * 24 * 12
+	case ApplicationProfilerBucketsKindMinute:
+		size = 7 * 24 * 60
+	}
+	return &ApplicationProfiler{
+		Buckets: make([][]ApplicationFeatureStats, size),
+		Exists:  make([]bool, size),
+		K:       k,
+		Kind:    kind,
+	}
 }
 
 // ApplicationEngine
@@ -1462,7 +1617,7 @@ func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Ti
 	if !profiler.IsFitted {
 		return meds
 	}
-	b := TimeWindowKey(t)
+	b := TimeWindowKey(t, profiler.Kind)
 	if len(profiler.Buckets[b]) < startIdx+count {
 		return meds
 	}
@@ -1521,17 +1676,20 @@ func (ae *ApplicationEngine) weeklyMinuteKey(t time.Time) int {
 	return (weekday * 24 * 60) + (hour * 60) + minute
 }
 
-type Vectors struct {
+type ApplicationEngineVectors struct {
+	time                                                                            time.Time
+	bucket                                                                          int
 	inVec, satVec, outVec                                                           []float64
 	inValid, satValid, outValid                                                     []bool
-	points                                                                          *ApplicationFramePoints
 	inReqIdx, inThruIdx, inLatIdx, inErrIdx                                         int
 	appCPUIdx, appMemIdx, hostCPUIdx, hostMemIdx, cpuDiffIdx, memDiffIdx            int
 	outReqIdx, outThruIdx, outLatIdx, outErrIdx, flowReqIdx, flowThruIdx, latDivIdx int
 }
 
-func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame) (vectors Vectors) {
+func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame) (vectors ApplicationEngineVectors) {
 
+	t = t.UTC()
+	vectors.time = t
 	timeVec := ae.extractTimeVectors(t)
 
 	inSlotWidth := ae.inReqSlots.MaxSlots + 2
@@ -1548,7 +1706,8 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	vectors.inLatIdx = vectors.inThruIdx + 1
 	vectors.inErrIdx = vectors.inLatIdx + 1
 
-	b := TimeWindowKey(t)
+	b := TimeWindowKey(t, ae.inProfiler.Kind)
+	vectors.bucket = b
 
 	inLatValid := frame.inLatency != nil
 	inLat := 0.0
@@ -1728,106 +1887,6 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 		vectors.outValid = append(vectors.outValid, true) // Time is always valid
 	}
 
-	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
-		if profiler.IsFitted && len(profiler.Buckets[b]) > col && profiler.Exists[b] {
-			st := profiler.Buckets[b][col]
-			upper := st.Q3 + (profiler.K * st.IQR)
-			lower := st.Q1 - (profiler.K * st.IQR)
-			if lower < 0 {
-				lower = 0
-			}
-			return upper, lower
-		}
-
-		// Default for bounded saturation metrics (AppCPU, HostCPU)
-		if isPercentage {
-			return 100.0, 0.0
-		}
-
-		// Dynamic default derived directly from the incoming frame value:
-		// Sets a dynamic corridor (e.g., ±50% of the observed baseline)
-		if val > 0 {
-			return val * profiler.K, math.Max(0, val*profiler.K)
-		}
-
-		// Fallback if metric arrives as 0 before fitting
-		return 1.0, 0.0
-	}
-
-	vectors.points = &ApplicationFramePoints{}
-
-	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
-		val := vectors.inVec[vectors.inReqIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inReqIdx, val, false)
-		vectors.points.inRequests = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
-		val := vectors.inVec[vectors.inThruIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inThruIdx, val, false)
-		vectors.points.inThroughput = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
-		val := vectors.inVec[vectors.inLatIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inLatIdx, val, false)
-		vectors.points.inLatency = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
-		val := vectors.inVec[vectors.inErrIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inErrIdx, val, false)
-		vectors.points.inErrors = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
-		val := vectors.outVec[vectors.outReqIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outReqIdx, val, false)
-		vectors.points.inRequests = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
-		val := vectors.outVec[vectors.outThruIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outThruIdx, val, false)
-		vectors.points.inThroughput = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
-		val := vectors.outVec[vectors.outLatIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outLatIdx, val, false)
-		vectors.points.outLatency = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
-		val := vectors.outVec[vectors.outErrIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outErrIdx, val, false)
-		vectors.points.inErrors = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if appCPUValid {
-		val := vectors.satVec[vectors.appCPUIdx]
-		max, min := getLimits(ae.satProfiler, vectors.appCPUIdx, val, true)
-		vectors.points.appCPU = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if appMemValid {
-		val := vectors.satVec[vectors.appMemIdx]
-		max, min := getLimits(ae.satProfiler, vectors.appMemIdx, val, true)
-		vectors.points.appMem = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if hostCPUValid {
-		val := vectors.satVec[vectors.hostCPUIdx]
-		max, min := getLimits(ae.satProfiler, vectors.hostCPUIdx, val, true)
-		vectors.points.hostCPU = NewApplicationFramePoint(t, val, min, max)
-	}
-
-	if hostMemValid {
-		val := vectors.satVec[vectors.hostMemIdx]
-		max, min := getLimits(ae.satProfiler, vectors.hostMemIdx, val, true)
-		vectors.points.hostMem = NewApplicationFramePoint(t, val, min, max)
-	}
-
 	return vectors
 }
 
@@ -1867,7 +1926,6 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 
 	var inReq, inThru []ApplicationTrafficValues
 	var outReq, outThru []ApplicationTrafficValues
-	var times []time.Time
 
 	// sort frames by time stamp
 	slices.SortFunc(frames, func(a *ApplicationFrame, b *ApplicationFrame) int {
@@ -1879,7 +1937,7 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	for _, f := range frames {
 
 		index := slices.Index(ae.stamps, f.stamp)
-		if index >= 0 {
+		if index > -1 {
 			continue
 		}
 		temp = append(temp, f)
@@ -1888,7 +1946,7 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 		outReq = append(outReq, f.outRequests)
 		outThru = append(outThru, f.outThroughput)
 	}
-
+	// need to rethink
 	ae.inReqSlots.Fit(inReq)
 	ae.inThruSlots.Fit(inThru)
 	ae.outReqSlots.Fit(outReq)
@@ -1904,7 +1962,6 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	for _, f := range temp {
 
 		t := common.StampToTime(f.stamp)
-		times = append(times, t)
 
 		vectors := ae.extractVectors(t, f)
 		stamps = append(stamps, f.stamp)
@@ -1936,21 +1993,21 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	if err != nil {
 		return err
 	}
-	ae.inProfiler.Fit(times, ae.inData)
+	ae.inProfiler.Fit(ae.stamps, ae.inData)
 
 	ae.satForest.Train(ae.satData)
 	err = ae.satForest.Test(ae.satData)
 	if err != nil {
 		return err
 	}
-	ae.satProfiler.Fit(times, ae.satData)
+	ae.satProfiler.Fit(ae.stamps, ae.satData)
 
 	ae.outForest.Train(ae.outData)
 	err = ae.outForest.Test(ae.outData)
 	if err != nil {
 		return err
 	}
-	ae.outProfiler.Fit(times, ae.outData)
+	ae.outProfiler.Fit(ae.stamps, ae.outData)
 
 	return nil
 }
@@ -2102,11 +2159,118 @@ func (ae *ApplicationEngine) Clone() *ApplicationEngine {
 	}
 }
 
+func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) ApplicationFramePoints {
+
+	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
+		b := vectors.bucket
+		if profiler.IsFitted && len(profiler.Buckets[b]) > col && profiler.Exists[b] {
+			st := profiler.Buckets[b][col]
+			upper := st.Q3 + (profiler.K * st.IQR)
+			lower := st.Q1 - (profiler.K * st.IQR)
+			if lower < 0 {
+				lower = 0
+			}
+			return upper, lower
+		}
+		// Default for bounded saturation metrics (AppCPU, HostCPU)
+		if isPercentage {
+			return 100.0, 0.0
+		}
+		// Dynamic default derived directly from the incoming frame value:
+		// Sets a dynamic corridor (e.g., ±50% of the observed baseline)
+		if val > 0 {
+			abs := math.Abs(val*profiler.K - val)
+			return val + abs, val - abs
+		}
+		// Fallback if metric arrives as 0 before fitting
+		return 1.0, 0.0
+	}
+
+	points := ApplicationFramePoints{}
+
+	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
+		val := vectors.inVec[vectors.inReqIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inReqIdx, val, false)
+		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
+		val := vectors.inVec[vectors.inThruIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inThruIdx, val, false)
+		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
+		val := vectors.inVec[vectors.inLatIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inLatIdx, val, false)
+		points.inLatency = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
+		val := vectors.inVec[vectors.inErrIdx]
+		max, min := getLimits(ae.inProfiler, vectors.inErrIdx, val, false)
+		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
+		val := vectors.outVec[vectors.outReqIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outReqIdx, val, false)
+		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
+		val := vectors.outVec[vectors.outThruIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outThruIdx, val, false)
+		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
+		val := vectors.outVec[vectors.outLatIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outLatIdx, val, false)
+		points.outLatency = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
+		val := vectors.outVec[vectors.outErrIdx]
+		max, min := getLimits(ae.outProfiler, vectors.outErrIdx, val, false)
+		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.satVec) > vectors.appCPUIdx && vectors.satValid[vectors.appCPUIdx] {
+		val := vectors.satVec[vectors.appCPUIdx]
+		max, min := getLimits(ae.satProfiler, vectors.appCPUIdx, val, true)
+		points.appCPU = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.satVec) > vectors.appMemIdx && vectors.satValid[vectors.appMemIdx] {
+		val := vectors.satVec[vectors.appMemIdx]
+		max, min := getLimits(ae.satProfiler, vectors.appMemIdx, val, true)
+		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.satVec) > vectors.hostCPUIdx && vectors.satValid[vectors.hostCPUIdx] {
+		val := vectors.satVec[vectors.hostCPUIdx]
+		max, min := getLimits(ae.satProfiler, vectors.hostCPUIdx, val, true)
+		points.hostCPU = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+
+	if len(vectors.satVec) > vectors.hostMemIdx && vectors.satValid[vectors.hostMemIdx] {
+		val := vectors.satVec[vectors.hostMemIdx]
+		max, min := getLimits(ae.satProfiler, vectors.hostMemIdx, val, true)
+		points.hostMem = NewApplicationFramePoint(vectors.time, val, min, max)
+	}
+	return points
+}
+
 func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*ApplicationFramePoints, *ApplicationCasePattern) {
 
 	t := common.StampToTime(frame.stamp)
 
 	vectors := ae.extractVectors(t, frame)
+	points := ae.extractPoints(vectors)
+	if !points.IsEmpty() {
+		return nil, nil
+	}
 
 	inLabels, _, _ := ae.inForest.Predict([][]float64{vectors.inVec})
 	satLabels, _, _ := ae.satForest.Predict([][]float64{vectors.satVec})
@@ -2114,27 +2278,31 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*Applicati
 
 	// no labels
 	if len(inLabels) == 0 || len(satLabels) == 0 || len(outLabels) == 0 {
-		return vectors.points, nil
+		return &points, nil
 	}
 
 	inAnom := inLabels[0] == 1
 	satAnom := satLabels[0] == 1
 	outAnom := outLabels[0] == 1
 
-	inReqLevel := ae.inProfiler.Classify(t, vectors.inReqIdx, vectors.inVec[vectors.inReqIdx], inAnom, vectors.inValid[vectors.inReqIdx])
-	inThruLevel := ae.inProfiler.Classify(t, vectors.inThruIdx, vectors.inVec[vectors.inThruIdx], inAnom, vectors.inValid[vectors.inThruIdx])
-	inLatLevel := ae.inProfiler.Classify(t, vectors.inLatIdx, vectors.inVec[vectors.inLatIdx], inAnom, vectors.inValid[vectors.inLatIdx])
-	inErrLevel := ae.inProfiler.Classify(t, vectors.inErrIdx, vectors.inVec[vectors.inErrIdx], inAnom, vectors.inValid[vectors.inErrIdx])
+	classify := func(profiler *ApplicationProfiler, idx int, vec []float64, valid []bool, anom bool) common.CaseLevel {
+		return profiler.Classify(vectors.bucket, idx, vec[idx], anom, valid[idx])
+	}
 
-	appCPULevel := ae.satProfiler.Classify(t, vectors.appCPUIdx, vectors.satVec[vectors.appCPUIdx], satAnom, vectors.satValid[vectors.appCPUIdx])
-	appMemLevel := ae.satProfiler.Classify(t, vectors.appMemIdx, vectors.satVec[vectors.appMemIdx], satAnom, vectors.satValid[vectors.appMemIdx])
-	hostCPULevel := ae.satProfiler.Classify(t, vectors.hostCPUIdx, vectors.satVec[vectors.hostCPUIdx], satAnom, vectors.satValid[vectors.hostCPUIdx])
-	hostMemLevel := ae.satProfiler.Classify(t, vectors.hostMemIdx, vectors.satVec[vectors.hostMemIdx], satAnom, vectors.satValid[vectors.hostMemIdx])
+	inReqLevel := classify(ae.inProfiler, vectors.inReqIdx, vectors.inVec, vectors.inValid, inAnom)
+	inThruLevel := classify(ae.inProfiler, vectors.inThruIdx, vectors.inVec, vectors.inValid, inAnom)
+	inLatLevel := classify(ae.inProfiler, vectors.inLatIdx, vectors.inVec, vectors.inValid, inAnom)
+	inErrLevel := classify(ae.inProfiler, vectors.inErrIdx, vectors.inVec, vectors.inValid, inAnom)
 
-	outReqLevel := ae.outProfiler.Classify(t, vectors.outReqIdx, vectors.outVec[vectors.outReqIdx], outAnom, vectors.outValid[vectors.outReqIdx])
-	outThruLevel := ae.outProfiler.Classify(t, vectors.outThruIdx, vectors.outVec[vectors.outThruIdx], outAnom, vectors.outValid[vectors.outThruIdx])
-	outLatLevel := ae.inProfiler.Classify(t, vectors.outLatIdx, vectors.outVec[vectors.outLatIdx], outAnom, vectors.outValid[vectors.outLatIdx])
-	outErrLevel := ae.inProfiler.Classify(t, vectors.outErrIdx, vectors.outVec[vectors.outErrIdx], outAnom, vectors.outValid[vectors.outErrIdx])
+	appCPULevel := classify(ae.satProfiler, vectors.appCPUIdx, vectors.satVec, vectors.satValid, satAnom)
+	appMemLevel := classify(ae.satProfiler, vectors.appMemIdx, vectors.satVec, vectors.satValid, satAnom)
+	hostCPULevel := classify(ae.satProfiler, vectors.hostCPUIdx, vectors.satVec, vectors.satValid, satAnom)
+	hostMemLevel := classify(ae.satProfiler, vectors.hostMemIdx, vectors.satVec, vectors.satValid, satAnom)
+
+	outReqLevel := classify(ae.outProfiler, vectors.outReqIdx, vectors.outVec, vectors.outValid, outAnom)
+	outThruLevel := classify(ae.outProfiler, vectors.outThruIdx, vectors.outVec, vectors.outValid, outAnom)
+	outLatLevel := classify(ae.outProfiler, vectors.outLatIdx, vectors.outVec, vectors.outValid, outAnom)
+	outErrLevel := classify(ae.outProfiler, vectors.outErrIdx, vectors.outVec, vectors.outValid, outAnom)
 
 	pattern := &ApplicationCasePattern{
 		inRequests:    inReqLevel,
@@ -2150,7 +2318,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*Applicati
 		outLatency:    outLatLevel,
 		outErrors:     outErrLevel,
 	}
-	return vectors.points, pattern
+	return &points, pattern
 }
 
 func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) ApplicationFrame {
@@ -2327,7 +2495,8 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
-	stamp := common.TimeToStamp(time.Now())
+	t := time.Now().UTC()
+	stamp := common.TimeToStamp(t)
 	frame := ae.aggregateFrames(frames)
 
 	frame.application = frames[0].Application()
@@ -2343,14 +2512,6 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *ApplicationCases) (*ApplicationFramePoints, *ApplicationCaseVerdict) {
 
 	if frame == nil {
-		return nil, nil
-	}
-
-	if !ae.Ready() {
-		return nil, nil
-	}
-
-	if !ae.Exists(frame.stamp) {
 		return nil, nil
 	}
 
@@ -2399,9 +2560,9 @@ func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *Ap
 		satForest: iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
 		outForest: iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
 
-		inProfiler:  NewApplicationProfiler(options.RangeMultiplier),
-		satProfiler: NewApplicationProfiler(options.RangeMultiplier),
-		outProfiler: NewApplicationProfiler(options.RangeMultiplier),
+		inProfiler:  NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
+		satProfiler: NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
+		outProfiler: NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
 
 		categories: categories,
 		impacts:    impacts,

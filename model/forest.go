@@ -565,8 +565,10 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 
 func (fm *ForestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
 
-	hs := []common.Hash{}
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
 
+	hs := []common.Hash{}
 	if !fm.options.Enabled {
 		return hs, nil
 	}
@@ -823,6 +825,23 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			appFrame := engine.Consolidate(frames)
+			if appFrame == nil {
+				return nil
+			}
+
+			if !engine.Ready() {
+				name := data.Names().FindByHash(hash)
+				fm.logger.Debug("%s: %s for %s is not ready", fm.Name(), engine.Name(), name)
+				return nil
+			}
+
+			stamp := appFrame.Stamp()
+			if !engine.Exists(stamp) {
+				name := data.Names().FindByHash(hash)
+				fm.logger.Debug("%s: %s for %s is not exists on %v", fm.Name(), engine.Name(), name, common.StampToTime(stamp))
+				return nil
+			}
+
 			appPoints, appVerdict := engine.Diagnose(appFrame, fm.appCases)
 			if appPoints == nil {
 				return nil
@@ -900,6 +919,9 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 }
 
 func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
+
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
 
 	if !fm.options.Enabled {
 		return nil

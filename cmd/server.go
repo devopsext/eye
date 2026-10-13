@@ -124,6 +124,7 @@ var forestModelOptions = model.ForestModelOptions{
 		OutRequestsMaxSlots:   envGet("FOREST_MODEL_APPLICATION_OUT_REQUESTS_MAX_SLOTS", 2).(int),
 		OutThroughputMaxSlots: envGet("FOREST_MODEL_APPLICATION_OUT_THROUGHPUT_MAX_SLOTS", 1).(int),
 		RangeMultiplier:       envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", 1.5).(float64),
+		ProfileBucketsKind:    envGet("FOREST_MODEL_APPLICATION_PROFILE_BUCKETS_KIND", forest.ApplicationProfilerBucketsKindHour).(int),
 		MinScore:              envGet("FOREST_MODEL_APPLICATION_MIN_SCORE", 6).(int),
 		Categories:            envGet("FOREST_MODEL_APPLICATION_CATEGORIES", "").(string),
 		Impacts:               envGet("FOREST_MODEL_APPLICATION_IMPACTS", "").(string),
