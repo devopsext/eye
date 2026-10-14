@@ -548,8 +548,9 @@
                     type: 'line',
                     data: { labels: [], datasets: [
                         { label: cfg.label, data: [], borderColor: sharedMetricColor, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
-                        { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [4, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                        { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [2, 2], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
+                        { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                        { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                        { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                     ]},
                     options: { 
                         responsive: true,
@@ -702,6 +703,7 @@
             c.data.datasets[0].data = trimmed.map(pt => pt.val);
             c.data.datasets[1].data = trimmed.map(pt => pt.up);
             c.data.datasets[2].data = trimmed.map(pt => pt.lo);
+            c.data.datasets[3].data = trimmed.map(pt => pt.me);
 
             c.data.datasets[0]._violationTypes = trimmed.map(pt => {
                 if (pt.val > pt.up) return 'high';
@@ -802,7 +804,8 @@
                             time: timeLabel,
                             val: point.value,
                             up: point.max,
-                            lo: point.min
+                            lo: point.min,
+                            me: point.median,
                         });
                         if (applicationCache[app].rawSeries[point.metric].length > 200) {
                             applicationCache[app].rawSeries[point.metric].shift();

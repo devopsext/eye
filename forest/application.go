@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/devopsext/eye/common"
+	sreCommon "github.com/devopsext/sre/common"
 	"github.com/devopsext/utils"
 	"github.com/e-XpertSolutions/go-iforest/v2/iforest"
 )
@@ -65,6 +66,7 @@ type ApplicationFramePoint struct {
 	value     float64
 	max       float64
 	min       float64
+	med       float64
 }
 
 type ApplicationFramePoints struct {
@@ -152,11 +154,9 @@ const (
 )
 
 type ApplicationProfiler struct {
-	Buckets  [][]ApplicationFeatureStats
-	Exists   []bool
-	K        float64
-	IsFitted bool
-	Kind     ApplicationProfilerBucketsKind
+	Buckets [][]*ApplicationFeatureStats
+	K       float64
+	Kind    ApplicationProfilerBucketsKind
 }
 
 type ApplicationEngineOptions struct {
@@ -225,6 +225,7 @@ type ApplicationEngine struct {
 
 	categories []common.CaseCategory
 	impacts    []common.CaseImpact
+	logger     sreCommon.Logger
 }
 
 const (
@@ -1122,13 +1123,18 @@ func (fp *ApplicationFramePoint) Min() float64 {
 	return fp.min
 }
 
-func NewApplicationFramePoint(timestamp time.Time, value, min, max float64) *ApplicationFramePoint {
+func (fp *ApplicationFramePoint) Median() float64 {
+	return fp.med
+}
+
+func NewApplicationFramePoint(timestamp time.Time, value, min, max, med float64) *ApplicationFramePoint {
 
 	return &ApplicationFramePoint{
 		timestamp: timestamp,
 		value:     value,
 		max:       max,
 		min:       min,
+		med:       med,
 	}
 }
 
@@ -1275,31 +1281,60 @@ func (ss *ApplicationTrafficSlots) Fit(samples []ApplicationTrafficValues) {
 		}
 	}
 
+	// Initialize KeyToSlot and SlotToKey if they haven't been fitted yet
+	if ss.KeyToSlot == nil {
+		ss.KeyToSlot = make(map[common.TrafficKind]int)
+	}
+	if ss.SlotToKey == nil {
+		ss.SlotToKey = make([]common.TrafficKind, ss.MaxSlots)
+	}
+
+	// Identify already existing keys to preserve their slots
+	existingKeys := make(map[common.TrafficKind]bool)
+	for _, k := range ss.SlotToKey {
+		var zeroKey common.TrafficKind
+		if k != zeroKey {
+			existingKeys[k] = true
+		}
+	}
+
+	// Convert volMap to a slice of key-value pairs for sorting new keys
 	type kv struct {
 		k common.TrafficKind
-		v common.Traffic
+		v float64
 	}
-	var pairs []kv
+	var newPairs []kv
 	for k, v := range volMap {
-		pairs = append(pairs, kv{k, v})
+		if !existingKeys[k] {
+			newPairs = append(newPairs, kv{k, v})
+		}
 	}
 
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].v > pairs[j].v
+	// Sort new unmapped keys by volume in descending order
+	sort.Slice(newPairs, func(i, j int) bool {
+		return newPairs[i].v > newPairs[j].v
 	})
 
-	ss.KeyToSlot = make(map[common.TrafficKind]int)
-	ss.SlotToKey = make([]common.TrafficKind, ss.MaxSlots)
+	// Assign new keys to remaining free slots up to MaxSlots
+	var zeroKey common.TrafficKind
+	for _, p := range newPairs {
+		slotIdx := -1
+		for i := 0; i < ss.MaxSlots; i++ {
+			if ss.SlotToKey[i] == zeroKey { // Empty slot found
+				slotIdx = i
+				break
+			}
+		}
 
-	limit := len(pairs)
-	if limit > ss.MaxSlots {
-		limit = ss.MaxSlots
+		// If no free slots left, stop mapping new keys
+		if slotIdx == -1 {
+			break
+		}
+
+		ss.SlotToKey[slotIdx] = p.k
+		ss.KeyToSlot[p.k] = slotIdx
 	}
 
-	for i := 0; i < limit; i++ {
-		ss.SlotToKey[i] = pairs[i].k
-		ss.KeyToSlot[pairs[i].k] = i
-	}
 	ss.IsFitted = true
 }
 
@@ -1371,7 +1406,7 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 func TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) int {
 
 	t = t.UTC()
-	tm := int(t.Weekday())*24 + t.Hour()*60 + t.Minute()
+	tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
 	switch kind {
 	case ApplicationProfilerBucketsKindDay:
 		return int(t.Weekday())
@@ -1400,85 +1435,34 @@ func Percentile(sorted []float64, p float64) float64 {
 	return sorted[l]*(1.0-w) + sorted[u]*w
 }
 
-/*func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
+func (ap *ApplicationProfiler) FilledCount() int {
 
-	if len(matrix) == 0 || len(matrix) != len(stamps) {
-		return
-	}
-	numCols := len(matrix[0])
-
-	bucketSize := len(ap.Exists)
-
-	bucketData := make([][][]float64, bucketSize)
-	for b := range bucketData {
-		bucketData[b] = make([][]float64, numCols)
-	}
-
-	for row := 0; row < len(matrix); row++ {
-
-		t := common.StampToTime(stamps[row])
-		b := TimeWindowKey(t, ap.Kind)
-		for col := 0; col < numCols; col++ {
-			bucketData[b][col] = append(bucketData[b][col], matrix[row][col])
+	cnt := 0
+	for idx := range ap.Buckets {
+		if len(ap.Buckets[idx]) > 0 {
+			cnt = cnt + 1
 		}
 	}
-
-	for b := 0; b < bucketSize; b++ {
-
-		if !ap.Exists[b] {
-			ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
-		}
-		for col := 0; col < numCols; col++ {
-			vals := bucketData[b][col]
-			if len(vals) == 0 {
-				ap.Buckets[b][col] = ApplicationFeatureStats{Median: 0, Q1: 0, Q3: 0, IQR: 1.0}
-				continue
-			}
-			sort.Float64s(vals)
-
-			q1 := Percentile(vals, 0.25)
-			med := Percentile(vals, 0.50)
-			q3 := Percentile(vals, 0.75)
-			iqr := q3 - q1
-
-			if iqr == 0 {
-				iqr = med * 0.05
-				if iqr == 0 {
-					iqr = 1.0
-				}
-			}
-
-			ap.Buckets[b][col] = ApplicationFeatureStats{
-				Median: med,
-				Q1:     q1,
-				Q3:     q3,
-				IQR:    iqr,
-			}
-			ap.Exists[b] = true
-		}
-	}
-	ap.IsFitted = true
-}*/
+	return cnt
+}
 
 func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
+
 	if len(matrix) == 0 || len(matrix) != len(stamps) {
 		return
 	}
 	numCols := len(matrix[0])
-	bucketSize := len(ap.Exists)
+	bucketSize := len(ap.Buckets)
 
-	// Временное хранилище для сбора всех значений по бакетам из нового пакета данных
 	bucketData := make([][][]float64, bucketSize)
 	for b := range bucketData {
 		bucketData[b] = make([][]float64, numCols)
 	}
 
-	// 1. Распределяем новые точки по бакетам с проверкой границ
 	for row := 0; row < len(matrix); row++ {
 		t := common.StampToTime(stamps[row])
 		b := TimeWindowKey(t, ap.Kind)
 
-		// Защита от выхода за пределы массива бакетов
 		if b < 0 || b >= bucketSize {
 			continue
 		}
@@ -1488,41 +1472,22 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 		}
 	}
 
-	// 2. Обновляем статистику для каждого бакета
 	for b := 0; b < bucketSize; b++ {
-		// Проверяем, есть ли вообще данные в этом бакете за этот проход
-		hasDataInBucket := false
-		for col := 0; col < numCols; col++ {
-			if len(bucketData[b][col]) > 0 {
-				hasDataInBucket = true
-				break
-			}
-		}
 
-		// Если в бакет не попало новых данных:
-		if !hasDataInBucket {
-			if !ap.Exists[b] {
-				// Если бакет пустой и никогда не заполнялся — инициализируем дефолтом
-				ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
-				for col := 0; col < numCols; col++ {
-					ap.Buckets[b][col] = ApplicationFeatureStats{Median: 0, Q1: 0, Q3: 0, IQR: 1.0}
-				}
-			}
+		newVals := bucketData[b][0]
+		if len(newVals) == 0 {
 			continue
 		}
 
-		// Инициализируем слайс статистики для бакета, если он еще не существовал
-		if !ap.Exists[b] {
-			ap.Buckets[b] = make([]ApplicationFeatureStats, numCols)
-		}
-
-		// 3. Считаем квантили по каждой колонке
 		for col := 0; col < numCols; col++ {
+
 			vals := bucketData[b][col]
 			if len(vals) == 0 {
-				// Если для конкретной колонки нет новых данных, но бакет уже существовал —
-				// оставляем старые значения (ничего не перезаписываем)
 				continue
+			}
+
+			if len(ap.Buckets[b]) == 0 {
+				ap.Buckets[b] = make([]*ApplicationFeatureStats, numCols)
 			}
 
 			sort.Float64s(vals)
@@ -1539,18 +1504,14 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 				}
 			}
 
-			ap.Buckets[b][col] = ApplicationFeatureStats{
+			ap.Buckets[b][col] = &ApplicationFeatureStats{
 				Median: med,
 				Q1:     q1,
 				Q3:     q3,
 				IQR:    iqr,
 			}
 		}
-
-		// Помечаем бакет как существующий/активный
-		ap.Exists[b] = true
 	}
-	ap.IsFitted = true
 }
 
 func (ap *ApplicationProfiler) Classify(b int, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
@@ -1598,8 +1559,7 @@ func NewApplicationProfiler(k float64, kind ApplicationProfilerBucketsKind) *App
 		size = 7 * 24 * 60
 	}
 	return &ApplicationProfiler{
-		Buckets: make([][]ApplicationFeatureStats, size),
-		Exists:  make([]bool, size),
+		Buckets: make([][]*ApplicationFeatureStats, size),
 		K:       k,
 		Kind:    kind,
 	}
@@ -1614,9 +1574,6 @@ func (ae *ApplicationEngine) Name() string {
 func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Time, startIdx, count int) []float64 {
 
 	meds := make([]float64, count)
-	if !profiler.IsFitted {
-		return meds
-	}
 	b := TimeWindowKey(t, profiler.Kind)
 	if len(profiler.Buckets[b]) < startIdx+count {
 		return meds
@@ -1626,25 +1583,6 @@ func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Ti
 	}
 	return meds
 }
-
-/*
-func (ae *ApplicationEngine) extractTimeVectors(t time.Time) []float64 {
-
-	m := float64(t.Minute()) + float64(t.Second())/60.0
-	h := float64(t.Hour()) + m/60.0
-	wd := float64(t.Weekday()) + h/24.0
-	md := float64(t.Day()-1) + h/24.0
-
-	twoPi := 2.0 * math.Pi
-
-	return []float64{
-		math.Sin(twoPi * m / 60.0), math.Cos(twoPi * m / 60.0), // Minute (fractional)
-		math.Sin(twoPi * h / 24.0), math.Cos(twoPi * h / 24.0), // Hour (fractional)
-		math.Sin(twoPi * wd / 7.0), math.Cos(twoPi * wd / 7.0), // Day of Week
-		math.Sin(twoPi * md / 31.0), math.Cos(twoPi * md / 31.0), // Day of Month
-	}
-}
-*/
 
 func (ae *ApplicationEngine) extractTimeVectors(t time.Time) []float64 {
 
@@ -1714,7 +1652,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inLatValid {
 		inLat = *frame.inLatency
 	}
-	if !inLatValid && ae.inProfiler.IsFitted && len(ae.inProfiler.Buckets[b]) > vectors.inLatIdx {
+	if !inLatValid && len(ae.inProfiler.Buckets[b]) > vectors.inLatIdx {
 		inLat = ae.inProfiler.Buckets[b][vectors.inLatIdx].Median
 	}
 
@@ -1723,7 +1661,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inErrValid {
 		inErr = *frame.inErrors
 	}
-	if !inErrValid && ae.inProfiler.IsFitted && len(ae.inProfiler.Buckets[b]) > vectors.inErrIdx {
+	if !inErrValid && len(ae.inProfiler.Buckets[b]) > vectors.inErrIdx {
 		inErr = ae.inProfiler.Buckets[b][vectors.inErrIdx].Median
 	}
 
@@ -1745,7 +1683,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if appCPUValid {
 		appCPU = *frame.appCPU
 	}
-	if !appCPUValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.appCPUIdx {
+	if !appCPUValid && len(ae.satProfiler.Buckets[b]) > vectors.appCPUIdx {
 		appCPU = ae.satProfiler.Buckets[b][vectors.appCPUIdx].Median
 	}
 
@@ -1755,7 +1693,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if appMemValid {
 		appMem = *frame.appMem
 	}
-	if !appMemValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.appMemIdx {
+	if !appMemValid && len(ae.satProfiler.Buckets[b]) > vectors.appMemIdx {
 		appMem = ae.satProfiler.Buckets[b][vectors.appMemIdx].Median
 	}
 
@@ -1765,7 +1703,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if hostCPUValid {
 		hostCPU = *frame.hostCPU
 	}
-	if !hostCPUValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.hostCPUIdx {
+	if !hostCPUValid && len(ae.satProfiler.Buckets[b]) > vectors.hostCPUIdx {
 		hostCPU = ae.satProfiler.Buckets[b][vectors.hostCPUIdx].Median
 	}
 
@@ -1775,7 +1713,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if hostMemValid {
 		hostMem = *frame.hostMem
 	}
-	if !hostMemValid && ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.hostMemIdx {
+	if !hostMemValid && len(ae.satProfiler.Buckets[b]) > vectors.hostMemIdx {
 		hostMem = ae.satProfiler.Buckets[b][vectors.hostMemIdx].Median
 	}
 
@@ -1785,7 +1723,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if hostCPUValid && appCPUValid {
 		cpuDiffVal = true
 		cpuDiff = hostCPU - appCPU
-	} else if ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.cpuDiffIdx {
+	} else if len(ae.satProfiler.Buckets[b]) > vectors.cpuDiffIdx {
 		cpuDiff = ae.satProfiler.Buckets[b][vectors.cpuDiffIdx].Median
 	}
 
@@ -1795,7 +1733,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if hostMemValid && appMemValid {
 		memDiffVal = true
 		memDiff = hostMem - appMem
-	} else if ae.satProfiler.IsFitted && len(ae.satProfiler.Buckets[b]) > vectors.memDiffIdx {
+	} else if len(ae.satProfiler.Buckets[b]) > vectors.memDiffIdx {
 		memDiff = ae.satProfiler.Buckets[b][vectors.memDiffIdx].Median
 	}
 
@@ -1826,7 +1764,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if outLatValid {
 		outLat = *frame.outLatency
 	}
-	if !outLatValid && ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.outLatIdx {
+	if !outLatValid && len(ae.outProfiler.Buckets[b]) > vectors.outLatIdx {
 		outLat = ae.outProfiler.Buckets[b][vectors.outLatIdx].Median
 	}
 
@@ -1835,7 +1773,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if outErrValid {
 		outErr = *frame.outErrors
 	}
-	if !outErrValid && ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.outErrIdx {
+	if !outErrValid && len(ae.outProfiler.Buckets[b]) > vectors.outErrIdx {
 		outErr = ae.outProfiler.Buckets[b][vectors.outErrIdx].Median
 	}
 
@@ -1847,7 +1785,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inReqKnown && outReqKnown && inReqSum > 0 {
 		flowReqValid = true
 		flowReqRatio = outReqSum / inReqSum
-	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.flowReqIdx {
+	} else if len(ae.outProfiler.Buckets[b]) > vectors.flowReqIdx {
 		flowReqRatio = ae.outProfiler.Buckets[b][vectors.flowReqIdx].Median
 	}
 
@@ -1859,7 +1797,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inThruKnown && outThruKnown && inThruSum > 0 {
 		flowThruValid = true
 		flowThruRatio = outThruSum / inThruSum
-	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.flowThruIdx {
+	} else if len(ae.outProfiler.Buckets[b]) > vectors.flowThruIdx {
 		flowThruRatio = ae.outProfiler.Buckets[b][vectors.flowThruIdx].Median
 	}
 
@@ -1869,7 +1807,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	if inLatValid && outLatValid {
 		latDivValid = true
 		latDiv = inLat - outLat
-	} else if ae.outProfiler.IsFitted && len(ae.outProfiler.Buckets[b]) > vectors.latDivIdx {
+	} else if len(ae.outProfiler.Buckets[b]) > vectors.latDivIdx {
 		latDiv = ae.outProfiler.Buckets[b][vectors.latDivIdx].Median
 	}
 
@@ -1924,6 +1862,10 @@ func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL,
 
 func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationFrameLimits) error {
 
+	if len(frames) == 0 {
+		return nil
+	}
+
 	var inReq, inThru []ApplicationTrafficValues
 	var outReq, outThru []ApplicationTrafficValues
 
@@ -1932,34 +1874,38 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
-	temp := []*ApplicationFrame{}
-
+	// find frames which are new
+	newFrames := []*ApplicationFrame{}
 	for _, f := range frames {
 
 		index := slices.Index(ae.stamps, f.stamp)
 		if index > -1 {
 			continue
 		}
-		temp = append(temp, f)
+		newFrames = append(newFrames, f)
 		inReq = append(inReq, f.inRequests)
 		inThru = append(inThru, f.inThroughput)
 		outReq = append(outReq, f.outRequests)
 		outThru = append(outThru, f.outThroughput)
 	}
-	// need to rethink
+
 	ae.inReqSlots.Fit(inReq)
 	ae.inThruSlots.Fit(inThru)
 	ae.outReqSlots.Fit(outReq)
 	ae.outThruSlots.Fit(outThru)
 
-	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitTimesData(limits.From, limits.First, limits.Last)
+	// split data if new frames are inside it, clean up old data
+	first := frames[0].stamp
+	last := frames[len(frames)-1].stamp
+	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitTimesData(limits.From, first, last)
 
+	// find out vectors from new frames
 	stamps := []common.Stamp{}
 	inData := [][]float64{}
 	satData := [][]float64{}
 	outData := [][]float64{}
 
-	for _, f := range temp {
+	for _, f := range newFrames {
 
 		t := common.StampToTime(f.stamp)
 
@@ -1976,6 +1922,7 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 		}
 	}
 
+	// assign old-splitted and new data
 	ae.stamps = append(tL, stamps...)
 	ae.stamps = append(ae.stamps, tR...)
 
@@ -1988,12 +1935,17 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	ae.outData = append(outL, outData...)
 	ae.outData = append(ae.outData, outR...)
 
+	// train on final data (old + new)
 	ae.inForest.Train(ae.inData)
 	err := ae.inForest.Test(ae.inData)
 	if err != nil {
 		return err
 	}
 	ae.inProfiler.Fit(ae.stamps, ae.inData)
+
+	t1 := common.StampToTime(ae.stamps[0])
+	t2 := common.StampToTime(ae.stamps[len(ae.stamps)-1])
+	ae.logger.Debug("%s: In Profile buckets filled %d / %d (%s / %s)", ae.Name(), ae.inProfiler.FilledCount(), len(ae.inProfiler.Buckets), t1, t2)
 
 	ae.satForest.Train(ae.satData)
 	err = ae.satForest.Test(ae.satData)
@@ -2161,9 +2113,9 @@ func (ae *ApplicationEngine) Clone() *ApplicationEngine {
 
 func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) ApplicationFramePoints {
 
-	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
+	/*getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
 		b := vectors.bucket
-		if profiler.IsFitted && len(profiler.Buckets[b]) > col && profiler.Exists[b] {
+		if len(profiler.Buckets[b]) > col {
 			st := profiler.Buckets[b][col]
 			upper := st.Q3 + (profiler.K * st.IQR)
 			lower := st.Q1 - (profiler.K * st.IQR)
@@ -2184,80 +2136,124 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 		}
 		// Fallback if metric arrives as 0 before fitting
 		return 1.0, 0.0
+	}*/
+
+	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64, float64) {
+		b := vectors.bucket
+		bucketSize := len(profiler.Buckets) // e.g., 2016 for 5-minute buckets
+
+		if bucketSize > 0 && len(profiler.Buckets[b]) > col {
+			// Smooth by averaging or interpolating with adjacent buckets (e.g., b-1, b, b+1)
+			prevBucket := (b - 1 + bucketSize) % bucketSize
+			nextBucket := (b + 1) % bucketSize
+
+			// Ensure adjacent buckets exist and are fitted/populated
+			curr := profiler.Buckets[b][col]
+			prev := profiler.Buckets[prevBucket][col]
+			next := profiler.Buckets[nextBucket][col]
+
+			// Weighted smoothing: 50% current bucket, 25% previous, 25% next
+			med := (prev.Median * 0.25) + (curr.Median * 0.50) + (next.Median * 0.25)
+			q1 := (prev.Q1 * 0.25) + (curr.Q1 * 0.50) + (next.Q1 * 0.25)
+			q3 := (prev.Q3 * 0.25) + (curr.Q3 * 0.50) + (next.Q3 * 0.25)
+			iqr := (prev.IQR * 0.25) + (curr.IQR * 0.50) + (next.IQR * 0.25)
+
+			upper := q3 + (profiler.K * iqr)
+			lower := q1 - (profiler.K * iqr)
+
+			if lower < 0 {
+				lower = 0
+			}
+			return upper, lower, med
+		}
+
+		// Default for bounded saturation metrics (AppCPU, HostCPU)
+		if isPercentage {
+			return 100.0, 0.0, 50.0
+		}
+
+		// Dynamic default derived directly from the incoming frame value:
+		if val > 0 {
+			absVal := math.Abs(val * profiler.K) // Fixed typo from original snippet
+			return val + absVal, val - absVal, val
+		}
+
+		// Fallback if metric arrives as 0 before fitting
+		return 1.0, 0.0, 0.5
 	}
 
 	points := ApplicationFramePoints{}
 
 	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
 		val := vectors.inVec[vectors.inReqIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inReqIdx, val, false)
-		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.inProfiler, vectors.inReqIdx, val, false)
+		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
 		val := vectors.inVec[vectors.inThruIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inThruIdx, val, false)
-		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.inProfiler, vectors.inThruIdx, val, false)
+		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
 		val := vectors.inVec[vectors.inLatIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inLatIdx, val, false)
-		points.inLatency = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.inProfiler, vectors.inLatIdx, val, false)
+		points.inLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
 		val := vectors.inVec[vectors.inErrIdx]
-		max, min := getLimits(ae.inProfiler, vectors.inErrIdx, val, false)
-		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.inProfiler, vectors.inErrIdx, val, false)
+		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
 		val := vectors.outVec[vectors.outReqIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outReqIdx, val, false)
-		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.outProfiler, vectors.outReqIdx, val, false)
+		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
 		val := vectors.outVec[vectors.outThruIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outThruIdx, val, false)
-		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.outProfiler, vectors.outThruIdx, val, false)
+		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
 		val := vectors.outVec[vectors.outLatIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outLatIdx, val, false)
-		points.outLatency = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.outProfiler, vectors.outLatIdx, val, false)
+		points.outLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
 		val := vectors.outVec[vectors.outErrIdx]
-		max, min := getLimits(ae.outProfiler, vectors.outErrIdx, val, false)
-		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.outProfiler, vectors.outErrIdx, val, false)
+		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appCPUIdx && vectors.satValid[vectors.appCPUIdx] {
 		val := vectors.satVec[vectors.appCPUIdx]
-		max, min := getLimits(ae.satProfiler, vectors.appCPUIdx, val, true)
-		points.appCPU = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.satProfiler, vectors.appCPUIdx, val, true)
+		points.appCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appMemIdx && vectors.satValid[vectors.appMemIdx] {
 		val := vectors.satVec[vectors.appMemIdx]
-		max, min := getLimits(ae.satProfiler, vectors.appMemIdx, val, true)
-		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.satProfiler, vectors.appMemIdx, val, true)
+		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.hostCPUIdx && vectors.satValid[vectors.hostCPUIdx] {
 		val := vectors.satVec[vectors.hostCPUIdx]
-		max, min := getLimits(ae.satProfiler, vectors.hostCPUIdx, val, true)
-		points.hostCPU = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.satProfiler, vectors.hostCPUIdx, val, true)
+		points.hostCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.hostMemIdx && vectors.satValid[vectors.hostMemIdx] {
 		val := vectors.satVec[vectors.hostMemIdx]
-		max, min := getLimits(ae.satProfiler, vectors.hostMemIdx, val, true)
-		points.hostMem = NewApplicationFramePoint(vectors.time, val, min, max)
+		max, min, med := getLimits(ae.satProfiler, vectors.hostMemIdx, val, true)
+		points.hostMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 	return points
 }
@@ -2268,7 +2264,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*Applicati
 
 	vectors := ae.extractVectors(t, frame)
 	points := ae.extractPoints(vectors)
-	if !points.IsEmpty() {
+	if points.IsEmpty() {
 		return nil, nil
 	}
 
@@ -2495,16 +2491,19 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
-	t := time.Now().UTC()
-	stamp := common.TimeToStamp(t)
+	begin := frames[0].Stamp()
+	end := frames[len(frames)-1].Stamp()
+
+	stamp := end + (end-begin)/2
+
 	frame := ae.aggregateFrames(frames)
 
 	frame.application = frames[0].Application()
 	frame.host = frames[0].Host()
 
 	frame.stamp = stamp
-	frame.begin = frames[0].Stamp()
-	frame.end = frames[len(frames)-1].Stamp()
+	frame.begin = begin
+	frame.end = end
 
 	return &frame
 }
@@ -2533,7 +2532,7 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 	return points, verdict
 }
 
-func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *ApplicationEngine {
+func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
 
 	categories := common.StringToCaseCategories(options.Categories)
 	if len(categories) == 0 {
@@ -2547,6 +2546,7 @@ func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions) *Ap
 
 	return &ApplicationEngine{
 
+		logger:  observability.Logs(),
 		id:      id,
 		options: options,
 

@@ -28,6 +28,7 @@ type HttpApplicationHandlerDataPoint struct {
 	Value     float64   `json:"value"`
 	Max       float64   `json:"max"`
 	Min       float64   `json:"min"`
+	Median    float64   `json:"median"`
 }
 
 type HttpApplicationHandlerDataVerdict struct {
@@ -68,13 +69,14 @@ const (
 
 // HttpApplicationHandlerDataPoint
 
-func NewHttpApplicationHandlerDataPoint(timestamp time.Time, metric string, value, min, max float64) HttpApplicationHandlerDataPoint {
+func NewHttpApplicationHandlerDataPoint(timestamp time.Time, metric string, value, min, max, med float64) HttpApplicationHandlerDataPoint {
 	return HttpApplicationHandlerDataPoint{
 		Timestamp: timestamp,
 		Metric:    metric,
 		Value:     value,
 		Min:       min,
 		Max:       max,
+		Median:    med,
 	}
 }
 
@@ -127,53 +129,53 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 
 	inReq := af.InRequests()
 	if !utils.IsEmpty(inReq) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InRequests", inReq.Value(), inReq.Min(), inReq.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InRequests", inReq.Value(), inReq.Min(), inReq.Max(), inReq.Median()))
 	}
 	inThru := af.InThroughput()
 	if !utils.IsEmpty(inThru) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InThroughput", inThru.Value(), inThru.Min(), inThru.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InThroughput", inThru.Value(), inThru.Min(), inThru.Max(), inThru.Median()))
 	}
 	inLat := af.InLatency()
 	if !utils.IsEmpty(inLat) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InLatency", inLat.Value(), inLat.Min(), inLat.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InLatency", inLat.Value(), inLat.Min(), inLat.Max(), inLat.Median()))
 	}
 	inErr := af.InErrors()
 	if !utils.IsEmpty(inErr) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InErrors", inErr.Value(), inErr.Min(), inErr.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InErrors", inErr.Value(), inErr.Min(), inErr.Max(), inErr.Median()))
 	}
 	//
 	outReq := af.OutRequests()
 	if !utils.IsEmpty(outReq) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutRequests", outReq.Value(), outReq.Min(), outReq.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutRequests", outReq.Value(), outReq.Min(), outReq.Max(), outReq.Median()))
 	}
 	outThru := af.OutThroughput()
 	if !utils.IsEmpty(outThru) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutThroughput", outThru.Value(), outThru.Min(), outThru.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutThroughput", outThru.Value(), outThru.Min(), outThru.Max(), outThru.Median()))
 	}
 	outLat := af.OutLatency()
 	if !utils.IsEmpty(outLat) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutLatency", outLat.Value(), outLat.Min(), outLat.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutLatency", outLat.Value(), outLat.Min(), outLat.Max(), outLat.Median()))
 	}
 	outErr := af.OutErrors()
 	if !utils.IsEmpty(outErr) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutErrors", outErr.Value(), outErr.Min(), outErr.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutErrors", outErr.Value(), outErr.Min(), outErr.Max(), outErr.Median()))
 	}
 	//
 	appCPU := af.CPU()
 	if !utils.IsEmpty(appCPU) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationCPU", appCPU.Value(), appCPU.Min(), appCPU.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationCPU", appCPU.Value(), appCPU.Min(), appCPU.Max(), appCPU.Median()))
 	}
 	appMem := af.Memory()
 	if !utils.IsEmpty(appMem) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationMemory", appMem.Value(), appMem.Min(), appMem.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationMemory", appMem.Value(), appMem.Min(), appMem.Max(), appMem.Median()))
 	}
 	hostCPU := af.HostCPU()
 	if !utils.IsEmpty(hostCPU) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostCPU", hostCPU.Value(), hostCPU.Min(), hostCPU.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostCPU", hostCPU.Value(), hostCPU.Min(), hostCPU.Max(), hostCPU.Median()))
 	}
 	hostMem := af.HostMemory()
 	if !utils.IsEmpty(hostMem) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max()))
+		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max(), hostMem.Median()))
 	}
 
 	if len(points) == 0 {

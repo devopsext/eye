@@ -34,6 +34,7 @@ type ModelDataPoint interface {
 	Value() float64
 	Max() float64
 	Min() float64
+	Median() float64
 }
 
 type ModelFrame interface {

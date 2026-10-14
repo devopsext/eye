@@ -230,11 +230,11 @@ func unpackFrom64(packed uint64) (uint32, uint32) {
 }
 
 func StampToTime(stamp Stamp) time.Time {
-	return time.UnixMilli(int64(stamp))
+	return time.UnixMilli(int64(stamp)).UTC()
 }
 
 func TimeToStamp(time time.Time) Stamp {
-	return Stamp(time.UnixMilli())
+	return Stamp(time.UTC().UnixMilli())
 }
 
 func DurationToString(duration time.Duration) string {

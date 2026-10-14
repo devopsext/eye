@@ -499,7 +499,7 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 
 		gr.Go(func() error {
 
-			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions)
+			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
 
 			err := engine.LoadData()
 			if err != nil {
@@ -813,7 +813,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			if engine == nil {
-				engine = forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions)
+				engine = forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
 				err := engine.LoadForest()
 				if err != nil {
 					errs <- err
@@ -831,14 +831,14 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 
 			if !engine.Ready() {
 				name := data.Names().FindByHash(hash)
-				fm.logger.Debug("%s: %s for %s is not ready", fm.Name(), engine.Name(), name)
+				fm.logger.Debug("%s: Not ready for %s (%d)", engine.Name(), name, hash)
 				return nil
 			}
 
 			stamp := appFrame.Stamp()
 			if !engine.Exists(stamp) {
 				name := data.Names().FindByHash(hash)
-				fm.logger.Debug("%s: %s for %s is not exists on %v", fm.Name(), engine.Name(), name, common.StampToTime(stamp))
+				fm.logger.Debug("%s: Doesn't exists for %s (%d) on %v", engine.Name(), name, hash, common.StampToTime(stamp))
 				return nil
 			}
 
