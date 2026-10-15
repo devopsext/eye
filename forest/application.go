@@ -1403,28 +1403,29 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 
 // ApplicationProfiler
 
-func TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) int {
+func TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) (int, float64) {
 
 	t = t.UTC()
 	tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
+	tms := float64(t.Weekday())*24*60 + float64(t.Hour())*60 + float64(t.Minute()) + float64(t.Second())/60.0
 	switch kind {
 	case ApplicationProfilerBucketsKindDay:
-		return int(t.Weekday())
+		return int(t.Weekday()), float64(int(t.Weekday()) / 1.0)
 	case ApplicationProfilerBucketsKindHour:
-		return tm / 60
+		return tm / 60, tms / 60.0
 	case ApplicationProfilerBucketsKindHalfHour:
-		return tm / 30
+		return tm / 30, tms / 30.0
 	case ApplicationProfilerBucketsKind15Minutes:
-		tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
-		return tm / 15
+		tm = int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
+		return tm / 15, tms / 15.0
 	case ApplicationProfilerBucketsKind10Minutes:
-		return tm / 10
+		return tm / 10, tms / 10.0
 	case ApplicationProfilerBucketsKind5Minutes:
-		return tm / 5
+		return tm / 5, tms / 5.0
 	case ApplicationProfilerBucketsKindMinute:
-		return tm
+		return tm, tms
 	}
-	return 0
+	return tm, tms
 }
 
 func Percentile(sorted []float64, p float64) float64 {
@@ -1461,7 +1462,7 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 
 	for row := 0; row < len(matrix); row++ {
 		t := common.StampToTime(stamps[row])
-		b := TimeWindowKey(t, ap.Kind)
+		b, _ := TimeWindowKey(t, ap.Kind)
 
 		if b < 0 || b >= bucketSize {
 			continue
@@ -1514,30 +1515,102 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 	}
 }
 
-func (ap *ApplicationProfiler) Classify(b int, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
+func (ap *ApplicationProfiler) getLimits(ms float64, col int, val float64) (float64, float64, float64) {
+
+	bucketSize := len(ap.Buckets)
+	if bucketSize > 0 {
+		floatIdx := ms
+
+		idx1 := int(math.Floor(floatIdx)) % bucketSize
+		idx2 := (idx1 + 1) % bucketSize // next bucket
+
+		frac := floatIdx - math.Floor(floatIdx)
+
+		if len(ap.Buckets[idx1]) > col && len(ap.Buckets[idx2]) > col {
+			st1 := ap.Buckets[idx1][col]
+			st2 := ap.Buckets[idx2][col]
+
+			med := st1.Median*(1-frac) + st2.Median*frac
+			q1 := st1.Q1*(1-frac) + st2.Q1*frac
+			q3 := st1.Q3*(1-frac) + st2.Q3*frac
+			iqr := st1.IQR*(1-frac) + st2.IQR*frac
+
+			upper := q3 + (ap.K * iqr)
+			lower := q1 - (ap.K * iqr)
+
+			if lower < 0 {
+				lower = 0
+			}
+			return upper, lower, med
+		}
+	}
+
+	if val != 0 {
+		absVal := math.Abs(val * ap.K)
+		return val + absVal, val - absVal, val
+	}
+	return 1.0, 0.0, 0.5
+}
+
+func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
 
 	if !isValid {
 		return common.CaseLevelUnknown
 	}
 
-	st := ap.Buckets[b][col]
-	highT := st.Q3 + (ap.K * st.IQR)
-	lowT := st.Q1 - (ap.K * st.IQR)
+	bucketSize := len(ap.Buckets)
+	if bucketSize == 0 {
+		return common.CaseLevelUnknown
+	}
 
-	if val >= highT {
+	max, min, med := ap.getLimits(ms, col, val)
+
+	if val >= max {
 		return common.CaseLevelHigh
 	}
-	if val <= lowT {
+	if val <= min {
 		return common.CaseLevelLow
 	}
 	if isAnomaly {
-		if val > st.Median {
+		if val > med {
 			return common.CaseLevelHigh
 		}
 		return common.CaseLevelLow
 	}
 	return common.CaseLevelNormal
 }
+
+/*
+getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64, float64) {
+
+	bucketSize := len(profiler.Buckets)
+	if bucketSize > 0 {
+		floatIdx := vectors.minutes
+
+		idx1 := int(math.Floor(floatIdx)) % bucketSize
+		idx2 := (idx1 + 1) % bucketSize // next bucket
+
+		frac := floatIdx - math.Floor(floatIdx)
+
+		if len(profiler.Buckets[idx1]) > col && len(profiler.Buckets[idx2]) > col {
+			st1 := profiler.Buckets[idx1][col]
+			st2 := profiler.Buckets[idx2][col]
+
+			med := st1.Median*(1-frac) + st2.Median*frac
+			q1 := st1.Q1*(1-frac) + st2.Q1*frac
+			q3 := st1.Q3*(1-frac) + st2.Q3*frac
+			iqr := st1.IQR*(1-frac) + st2.IQR*frac
+
+			upper := q3 + (profiler.K * iqr)
+			lower := q1 - (profiler.K * iqr)
+
+			if lower < 0 {
+				lower = 0
+			}
+			return upper, lower, med
+		}
+	}
+*/
 
 func NewApplicationProfiler(k float64, kind ApplicationProfilerBucketsKind) *ApplicationProfiler {
 
@@ -1574,7 +1647,7 @@ func (ae *ApplicationEngine) Name() string {
 func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Time, startIdx, count int) []float64 {
 
 	meds := make([]float64, count)
-	b := TimeWindowKey(t, profiler.Kind)
+	b, _ := TimeWindowKey(t, profiler.Kind)
 	if len(profiler.Buckets[b]) < startIdx+count {
 		return meds
 	}
@@ -1617,6 +1690,7 @@ func (ae *ApplicationEngine) weeklyMinuteKey(t time.Time) int {
 type ApplicationEngineVectors struct {
 	time                                                                            time.Time
 	bucket                                                                          int
+	minutes                                                                         float64
 	inVec, satVec, outVec                                                           []float64
 	inValid, satValid, outValid                                                     []bool
 	inReqIdx, inThruIdx, inLatIdx, inErrIdx                                         int
@@ -1644,8 +1718,9 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	vectors.inLatIdx = vectors.inThruIdx + 1
 	vectors.inErrIdx = vectors.inLatIdx + 1
 
-	b := TimeWindowKey(t, ae.inProfiler.Kind)
+	b, m := TimeWindowKey(t, ae.inProfiler.Kind)
 	vectors.bucket = b
+	vectors.minutes = m
 
 	inLatValid := frame.inLatency != nil
 	inLat := 0.0
@@ -2113,146 +2188,79 @@ func (ae *ApplicationEngine) Clone() *ApplicationEngine {
 
 func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) ApplicationFramePoints {
 
-	/*getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64) {
-		b := vectors.bucket
-		if len(profiler.Buckets[b]) > col {
-			st := profiler.Buckets[b][col]
-			upper := st.Q3 + (profiler.K * st.IQR)
-			lower := st.Q1 - (profiler.K * st.IQR)
-			if lower < 0 {
-				lower = 0
-			}
-			return upper, lower
-		}
-		// Default for bounded saturation metrics (AppCPU, HostCPU)
-		if isPercentage {
-			return 100.0, 0.0
-		}
-		// Dynamic default derived directly from the incoming frame value:
-		// Sets a dynamic corridor (e.g., ±50% of the observed baseline)
-		if val > 0 {
-			abs := math.Abs(val*profiler.K - val)
-			return val + abs, val - abs
-		}
-		// Fallback if metric arrives as 0 before fitting
-		return 1.0, 0.0
-	}*/
-
-	getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64, float64) {
-		b := vectors.bucket
-		bucketSize := len(profiler.Buckets) // e.g., 2016 for 5-minute buckets
-
-		if bucketSize > 0 && len(profiler.Buckets[b]) > col {
-			// Smooth by averaging or interpolating with adjacent buckets (e.g., b-1, b, b+1)
-			prevBucket := (b - 1 + bucketSize) % bucketSize
-			nextBucket := (b + 1) % bucketSize
-
-			// Ensure adjacent buckets exist and are fitted/populated
-			curr := profiler.Buckets[b][col]
-			prev := profiler.Buckets[prevBucket][col]
-			next := profiler.Buckets[nextBucket][col]
-
-			// Weighted smoothing: 50% current bucket, 25% previous, 25% next
-			med := (prev.Median * 0.25) + (curr.Median * 0.50) + (next.Median * 0.25)
-			q1 := (prev.Q1 * 0.25) + (curr.Q1 * 0.50) + (next.Q1 * 0.25)
-			q3 := (prev.Q3 * 0.25) + (curr.Q3 * 0.50) + (next.Q3 * 0.25)
-			iqr := (prev.IQR * 0.25) + (curr.IQR * 0.50) + (next.IQR * 0.25)
-
-			upper := q3 + (profiler.K * iqr)
-			lower := q1 - (profiler.K * iqr)
-
-			if lower < 0 {
-				lower = 0
-			}
-			return upper, lower, med
-		}
-
-		// Default for bounded saturation metrics (AppCPU, HostCPU)
-		if isPercentage {
-			return 100.0, 0.0, 50.0
-		}
-
-		// Dynamic default derived directly from the incoming frame value:
-		if val > 0 {
-			absVal := math.Abs(val * profiler.K) // Fixed typo from original snippet
-			return val + absVal, val - absVal, val
-		}
-
-		// Fallback if metric arrives as 0 before fitting
-		return 1.0, 0.0, 0.5
-	}
-
 	points := ApplicationFramePoints{}
+	//b := vectors.bucket
+	ms := vectors.minutes
 
 	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
 		val := vectors.inVec[vectors.inReqIdx]
-		max, min, med := getLimits(ae.inProfiler, vectors.inReqIdx, val, false)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inReqIdx, val)
 		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
 		val := vectors.inVec[vectors.inThruIdx]
-		max, min, med := getLimits(ae.inProfiler, vectors.inThruIdx, val, false)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inThruIdx, val)
 		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
 		val := vectors.inVec[vectors.inLatIdx]
-		max, min, med := getLimits(ae.inProfiler, vectors.inLatIdx, val, false)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inLatIdx, val)
 		points.inLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
 		val := vectors.inVec[vectors.inErrIdx]
-		max, min, med := getLimits(ae.inProfiler, vectors.inErrIdx, val, false)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inErrIdx, val)
 		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
 		val := vectors.outVec[vectors.outReqIdx]
-		max, min, med := getLimits(ae.outProfiler, vectors.outReqIdx, val, false)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outReqIdx, val)
 		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
 		val := vectors.outVec[vectors.outThruIdx]
-		max, min, med := getLimits(ae.outProfiler, vectors.outThruIdx, val, false)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outThruIdx, val)
 		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
 		val := vectors.outVec[vectors.outLatIdx]
-		max, min, med := getLimits(ae.outProfiler, vectors.outLatIdx, val, false)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outLatIdx, val)
 		points.outLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
 		val := vectors.outVec[vectors.outErrIdx]
-		max, min, med := getLimits(ae.outProfiler, vectors.outErrIdx, val, false)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outErrIdx, val)
 		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appCPUIdx && vectors.satValid[vectors.appCPUIdx] {
 		val := vectors.satVec[vectors.appCPUIdx]
-		max, min, med := getLimits(ae.satProfiler, vectors.appCPUIdx, val, true)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.appCPUIdx, val)
 		points.appCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appMemIdx && vectors.satValid[vectors.appMemIdx] {
 		val := vectors.satVec[vectors.appMemIdx]
-		max, min, med := getLimits(ae.satProfiler, vectors.appMemIdx, val, true)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.appMemIdx, val)
 		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.hostCPUIdx && vectors.satValid[vectors.hostCPUIdx] {
 		val := vectors.satVec[vectors.hostCPUIdx]
-		max, min, med := getLimits(ae.satProfiler, vectors.hostCPUIdx, val, true)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostCPUIdx, val)
 		points.hostCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.hostMemIdx && vectors.satValid[vectors.hostMemIdx] {
 		val := vectors.satVec[vectors.hostMemIdx]
-		max, min, med := getLimits(ae.satProfiler, vectors.hostMemIdx, val, true)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostMemIdx, val)
 		points.hostMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 	return points
@@ -2282,7 +2290,7 @@ func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*Applicati
 	outAnom := outLabels[0] == 1
 
 	classify := func(profiler *ApplicationProfiler, idx int, vec []float64, valid []bool, anom bool) common.CaseLevel {
-		return profiler.Classify(vectors.bucket, idx, vec[idx], anom, valid[idx])
+		return profiler.Classify(vectors.minutes, idx, vec[idx], anom, valid[idx])
 	}
 
 	inReqLevel := classify(ae.inProfiler, vectors.inReqIdx, vectors.inVec, vectors.inValid, inAnom)

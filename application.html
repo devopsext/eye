@@ -153,7 +153,7 @@
             <option value="solar" selected>Solar</option>
         </select>
 
-        <input type="color" id="metricColorPicker" value="#38bdf8" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
+        <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
         <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:400px;">
         <datalist id="applicationList"></datalist>
@@ -365,7 +365,7 @@
                         const top = chart.chartArea.top;
                         const bottom = chart.chartArea.bottom;
 
-                        ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+                        ctx.strokeStyle = 'rgba(150, 150, 150, 0.8)';
                         ctx.lineWidth = 1.5;
                         ctx.setLineDash([3, 3]);
                         ctx.beginPath();
@@ -577,11 +577,10 @@
                             legend: { display: false },
                             tooltip: {
                                 callbacks: {
-                                    title: function(context) { return 'Time: ' + context[0].label; },
+                                    title: function(context) { return context[0].label; },
                                     label: function(context) {
                                         if (context.datasetIndex > 0) return null;
-                                        let label = context.dataset.label || '';
-                                        if (label) label += ': ';
+                                        let label = ' ';
                                         if (context.parsed.y !== null) label += context.parsed.y.toFixed(2);
                                         return label;
                                     },
@@ -589,9 +588,13 @@
                                         const idx = context[0].dataIndex;
                                         const activeSeries = applicationCache[currentFilter] ? applicationCache[currentFilter].rawSeries[key] : null;
                                         const pt = activeSeries ? activeSeries[idx] : null;
-                                        if (pt && pt.val > pt.up) return '\n⚠️ VIOLATION: Exceeds Upper Limit (' + pt.up.toFixed(2) + ')!';
-                                        if (pt && pt.val < pt.lo) return '\n⚠️ VIOLATION: Below Lower Limit (' + pt.lo.toFixed(2) + ')!';
-                                        return '\nStatus: Normal';
+                                        let text = '';
+                                        if (pt) {
+                                          text = 'Up ' + pt.up.toFixed(2);
+                                          text += '\nMed ' + pt.me.toFixed(2);
+                                          text += '\nLow ' + pt.lo.toFixed(2);
+                                        }
+                                        return text;
                                     }
                                 }
                             },
