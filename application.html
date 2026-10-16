@@ -225,6 +225,36 @@
             "HostMemory": { label: "Host Memory" }
         };
 
+        async function fetchApplications() {
+            try {
+                const res = await fetch('{{.ListPath}}');
+                const data = await res.json();
+                if (data) {
+                    availableApplications = Object.keys(data.applications);
+                    const datalist = document.getElementById('applicationList');
+                    datalist.innerHTML = '';
+                    availableApplications.forEach(key => {
+                        if (!applicationCache[key]) {
+                            applicationCache[key] = { rawSeries: {}, verdictsHtml: "" };
+                        }
+                        const opt = document.createElement('option');
+                        opt.value = key;
+                        datalist.appendChild(opt);
+                    });
+                }
+
+                // Sync with backend active application API on initial load
+                const activeRes = await fetch('{{.ActivePath}}');
+                const activeData = await activeRes.json();
+                if (activeData && activeData.application) {
+                    currentFilter = activeData.application;
+                    document.getElementById('applicationSearch').value = currentFilter;
+                }
+            } catch(err) {
+                console.error("Failed to load applications from API", err);
+            }
+        }
+
         function updateMetricColor(newColor) {
             sharedMetricColor = newColor;
             localStorage.setItem('sharedMetricColor', newColor);
@@ -270,6 +300,8 @@
             if (savedMax) {
                 maximizedChartKey = savedMax;
             }
+            setInterval(fetchApplications, 5000);
+            await fetchApplications();
             initCharts();
             connectWS();
         });
@@ -741,7 +773,7 @@
         async function fetchModelState() {
             const ms = document.getElementById('modelStatus');
             try {
-                const res = await fetch('{{.ApiStatePath}}');
+                const res = await fetch('{{.StatePath}}');
                 const data = await res.json();
                 if (data.state === 'Idle') {
                     ms.innerText = 'Idle';
@@ -843,12 +875,12 @@
                                           '• Score: ' + vv.score + '\n' +
                                           '• Category: ' + vv.category + '\n' +
                                           '• Event Name: ' + vv.name + '\n' +
-                                          '• Root Cause:  ' + vv.root_cause + '\n';
+                                          '• Description:  ' + vv.description + '\n';
                         row.title = largeHint;
 
                         row.innerHTML = '<td>' + timeLabel + '</td>' +
                             '<td><strong>' + v.ident + '</strong></td>' +
-                            '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span><span class="score-num">(score: ' + vv.score + ')</span></td>';
+                            '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
                         
                         row.onclick = function() { selectVerdict(timeLabel, row); };
 

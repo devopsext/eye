@@ -32,11 +32,11 @@ type HttpApplicationHandlerDataPoint struct {
 }
 
 type HttpApplicationHandlerDataVerdict struct {
-	Name      string `json:"name"`
-	Impact    string `json:"impact"`
-	Score     int    `json:"score"`
-	Category  string `json:"category"`
-	RootCause string `json:"root_cause"`
+	Name        string `json:"name"`
+	Impact      string `json:"impact"`
+	Score       int    `json:"score"`
+	Category    string `json:"category"`
+	Description string `json:"description"`
 }
 
 type HttpApplicationHandlerData struct {
@@ -44,6 +44,11 @@ type HttpApplicationHandlerData struct {
 	Timestamp time.Time                          `json:"timestamp"`
 	Points    []HttpApplicationHandlerDataPoint  `json:"points"`
 	Verdict   *HttpApplicationHandlerDataVerdict `json:"verdict"`
+}
+
+type HttpApplicationInfo struct {
+	Application string `json:"application"`
+	Host        string `json:"host"`
 }
 
 type HttpApplicationHandler struct {
@@ -58,13 +63,18 @@ type HttpApplicationHandler struct {
 	wsUpgrader  websocket.Upgrader
 	datachannel chan HttpApplicationHandlerData
 	//
-	stMutex sync.Mutex
-	stMap   map[string]string
+	stateMutex sync.Mutex
+	stateMap   map[string]string
+	//
+	appMutex sync.Mutex
+	appMap   map[string]*HttpApplicationInfo
 }
 
 const (
 	HttpApplicationHandlerWebsocketPath = "/ws"
-	HttpApplicationHandlerApiStatePath  = "/api/state"
+	HttpApplicationHandlerStatePath     = "/state"
+	HttpApplicationHandlerListPath      = "/list"
+	HttpApplicationHandlerActivePath    = "/active"
 )
 
 // HttpApplicationHandlerDataPoint
@@ -191,11 +201,11 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		if !utils.IsEmpty(impact) {
 
 			verdict = &HttpApplicationHandlerDataVerdict{
-				Name:      v.Name(),
-				Impact:    impact,
-				Score:     v.Score(),
-				Category:  common.CaseCategoryToString(v.Category()),
-				RootCause: v.RootCause(),
+				Name:        v.Name(),
+				Impact:      impact,
+				Score:       v.Score(),
+				Category:    common.CaseCategoryToString(v.Category()),
+				Description: v.Description(),
 			}
 		}
 	}
@@ -206,6 +216,17 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		Points:    points,
 		Verdict:   verdict,
 	}
+
+	h.appMutex.Lock()
+	defer h.appMutex.Unlock()
+
+	info := h.appMap[ident]
+	if info == nil {
+		info = &HttpApplicationInfo{}
+	}
+	info.Application = af.Application()
+	info.Host = af.Host()
+	h.appMap[ident] = info
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {
@@ -214,10 +235,10 @@ func (h *HttpApplicationHandler) State(model common.Model, state common.ModelSta
 		return
 	}
 
-	h.stMutex.Lock()
-	defer h.stMutex.Unlock()
+	h.stateMutex.Lock()
+	defer h.stateMutex.Unlock()
 
-	h.stMap[model.Name()] = common.ModelStateToString(state)
+	h.stateMap[model.Name()] = common.ModelStateToString(state)
 }
 
 func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) error {
@@ -234,17 +255,23 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 
 	type tpl struct {
 		WebsocketPath     string
-		ApiStatePath      string
+		StatePath         string
+		ActivePath        string
+		ListPath          string
 		CaseImpactSevere  string
 		CaseImpactAverage string
 	}
 
 	websocketPath, _ := url.JoinPath(path, HttpApplicationHandlerWebsocketPath)
-	apiStatePath, _ := url.JoinPath(path, HttpApplicationHandlerApiStatePath)
+	statePath, _ := url.JoinPath(path, HttpApplicationHandlerStatePath)
+	activePath, _ := url.JoinPath(path, HttpApplicationHandlerActivePath)
+	listPath, _ := url.JoinPath(path, HttpApplicationHandlerListPath)
 
 	return pageTemplate.Execute(w, &tpl{
 		WebsocketPath:     websocketPath,
-		ApiStatePath:      apiStatePath,
+		StatePath:         statePath,
+		ActivePath:        activePath,
+		ListPath:          listPath,
 		CaseImpactSevere:  common.CaseImpactToString(common.CaseImpactSevere),
 		CaseImpactAverage: common.CaseImpactToString(common.CaseImpactAverage),
 	})
@@ -289,10 +316,10 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 	return nil
 }
 
-func (h *HttpApplicationHandler) handleApiState(w http.ResponseWriter) error {
+func (h *HttpApplicationHandler) handleState(w http.ResponseWriter) error {
 
-	h.stMutex.Lock()
-	defer h.stMutex.Unlock()
+	h.stateMutex.Lock()
+	defer h.stateMutex.Unlock()
 
 	model := "Unknown"
 	state := "unknown"
@@ -304,15 +331,57 @@ func (h *HttpApplicationHandler) handleApiState(w http.ResponseWriter) error {
 		State string `json:"state"`
 	}
 
-	keys := slices.Collect(maps.Keys(h.stMap))
+	keys := slices.Collect(maps.Keys(h.stateMap))
 	if len(keys) > 0 {
 		model = keys[0]
-		state = h.stMap[model]
+		state = h.stateMap[model]
 	}
 
 	data, err := json.Marshal(&response{
 		Model: model,
 		State: state,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
+}
+
+func (h *HttpApplicationHandler) handleList(w http.ResponseWriter) error {
+
+	h.appMutex.Lock()
+	defer h.appMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	type response struct {
+		Applications map[string]*HttpApplicationInfo `json:"applications"`
+	}
+
+	data, err := json.Marshal(&response{
+		Applications: h.appMap,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
+}
+
+func (h *HttpApplicationHandler) handleActive(w http.ResponseWriter) error {
+
+	h.appMutex.Lock()
+	defer h.appMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	type response struct {
+		Active string `json:"active"`
+	}
+
+	data, err := json.Marshal(&response{
+		Active: "",
 	})
 	if err != nil {
 		return err
@@ -339,8 +408,12 @@ func (h *HttpApplicationHandler) HandleHttpRequest(path string, w http.ResponseW
 	switch rest {
 	case HttpApplicationHandlerWebsocketPath:
 		return h.handleWebsocket(w, r)
-	case HttpApplicationHandlerApiStatePath:
-		return h.handleApiState(w)
+	case HttpApplicationHandlerStatePath:
+		return h.handleState(w)
+	case HttpApplicationHandlerListPath:
+		return h.handleList(w)
+	case HttpApplicationHandlerActivePath:
+		return h.handleActive(w)
 	default:
 		return h.handlePage(path, w)
 	}
@@ -374,7 +447,8 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		//
-		stMap:       make(map[string]string),
+		stateMap:    make(map[string]string),
+		appMap:      make(map[string]*HttpApplicationInfo),
 		datachannel: make(chan HttpApplicationHandlerData),
 	}
 }

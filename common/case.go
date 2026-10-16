@@ -13,8 +13,8 @@ type CaseLevel = int
 const (
 	CaseLevelUnknown = iota
 	CaseLevelNormal
-	CaseLevelHigh
 	CaseLevelLow
+	CaseLevelHigh
 )
 
 type CaseImpact = int

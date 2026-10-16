@@ -23,7 +23,6 @@ type ModelOnAnomaly = func(anomaly ModelAnomaly)
 type ModelVerdict interface {
 	Name() string
 	Description() string
-	RootCause() string
 	Category() CaseCategory
 	Impact() CaseImpact
 	Score() int
@@ -46,6 +45,8 @@ type ModelFrame interface {
 
 type ModelApplicationFrame interface {
 	ModelFrame
+	Application() string
+	Host() string
 	InRequests() ModelDataPoint
 	InThroughput() ModelDataPoint
 	InLatency() ModelDataPoint

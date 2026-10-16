@@ -117,13 +117,9 @@ func (af *ForestModelApplicationFrame) Timestamp() time.Time {
 	return common.StampToTime(af.frame.Stamp())
 }
 
-func (af *ForestModelApplicationFrame) Ident() string {
+func (af *ForestModelApplicationFrame) application() string {
 
-	if af.frame == nil {
-		return ""
-	}
-
-	if utils.IsEmpty(af.data) {
+	if af.frame == nil || utils.IsEmpty(af.data) {
 		return ""
 	}
 
@@ -136,7 +132,39 @@ func (af *ForestModelApplicationFrame) Ident() string {
 	if utils.IsEmpty(app) {
 		return ""
 	}
+	return app
+}
+
+func (af *ForestModelApplicationFrame) Application() string {
+	return af.application()
+}
+
+func (af *ForestModelApplicationFrame) host() string {
+
+	if af.frame == nil || utils.IsEmpty(af.data) {
+		return ""
+	}
+
+	names := af.data.Names()
+	if names == nil {
+		return ""
+	}
+
 	host := names.FindByHash(af.frame.Host())
+	if utils.IsEmpty(host) {
+		return ""
+	}
+	return host
+}
+
+func (af *ForestModelApplicationFrame) Host() string {
+	return af.host()
+}
+
+func (af *ForestModelApplicationFrame) Ident() string {
+
+	app := af.application()
+	host := af.host()
 
 	if utils.IsEmpty(host) {
 		return app

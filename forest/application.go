@@ -43,7 +43,6 @@ type ApplicationCaseVerdict struct {
 type ApplicationCase struct {
 	name        string
 	description string
-	rootCause   string
 	impact      common.CaseImpact
 	category    common.CaseCategory
 	pattern     ApplicationCasePattern
@@ -250,12 +249,11 @@ func (c *ApplicationCase) SamePattern(pattern ApplicationCasePattern) bool {
 		c.pattern.hostMem == pattern.hostMem
 }
 
-func NewApplicationCase(impact common.CaseImpact, category common.CaseCategory, name, description, rootCause string, pattern ApplicationCasePattern) *ApplicationCase {
+func NewApplicationCase(impact common.CaseImpact, category common.CaseCategory, name, description string, pattern ApplicationCasePattern) *ApplicationCase {
 
 	return &ApplicationCase{
 		name:        name,
 		description: description,
-		rootCause:   rootCause,
 		impact:      impact,
 		category:    category,
 		pattern:     pattern,
@@ -280,13 +278,13 @@ func (ac *ApplicationCases) FindBypattern(pattern ApplicationCasePattern) *Appli
 	return r
 }
 
-func (ac *ApplicationCases) Add(impact common.CaseImpact, category common.CaseCategory, name, description, rootCause string, pattern ApplicationCasePattern) *ApplicationCase {
+func (ac *ApplicationCases) Add(impact common.CaseImpact, category common.CaseCategory, name, description string, pattern ApplicationCasePattern) *ApplicationCase {
 
 	c := ac.FindBypattern(pattern)
 	if !utils.IsEmpty(c) {
 		return c
 	}
-	c = NewApplicationCase(impact, category, name, description, rootCause, pattern)
+	c = NewApplicationCase(impact, category, name, description, pattern)
 	ac.list = append(ac.list, c)
 	return c
 }
@@ -343,7 +341,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
 		"Healthy Steady State",
 		"All metrics inside baseline quantiles",
-		"Nominal operating conditions",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -362,7 +359,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
 		"Healthy Load Scaling",
 		"Proportional out/in scaling without latency or error growth",
-		"Organic client traffic surge absorbed cleanly",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelHigh,
@@ -381,7 +377,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
 		"Healthy Off-Peak Drop",
 		"Proportional traffic decline with stable latencies",
-		"Diurnal or scheduled off-peak traffic drop",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelLow,
 			inThroughput:  common.CaseLevelLow,
@@ -400,7 +395,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
 		"Cache Hit Absorption",
 		"High ingress with low egress and nominal latencies/errors",
-		"In-memory cache absorbing reads cleanly (e.g. Redis / CDN)",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelHigh,
@@ -419,7 +413,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryHealthy,
 		"Ultra-Low Footprint Zero Idle",
 		"Metrics fully functional with saturation floor near 0% under lightweight async load",
-		"Efficient non-blocking event loop or runtime idling at true zero consumption",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -438,7 +431,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
 		"Client Inactivity (Full Idle)",
 		"All metrics idle down to baseline floor without errors",
-		"Clean cessation of incoming requests",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelLow,
 			inThroughput:  common.CaseLevelLow,
@@ -457,7 +449,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
 		"Async Queue / Worker Drain",
 		"Zero ingress traffic with high CPU and high outbound traffic",
-		"Background job processing Kafka consumer drain batch sync",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelLow,
 			inThroughput:  common.CaseLevelLow,
@@ -476,7 +467,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactZero, common.CaseCategoryOperational,
 		"Target Drainage / Rolling Deploy",
 		"Clean linear decline of traffic without error spike during deployment cycle",
-		"Target group registration draining or pod termination grace period",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelLow,
 			inThroughput:  common.CaseLevelLow,
@@ -495,7 +485,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"App CPU Limit / Cgroup Throttle",
 		"App CPU saturated while host CPU and memory remain normal",
-		"Container cgroup CPU quota reached or thread-pool exhaustion",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelHigh,
@@ -514,7 +503,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Noisy Neighbor CPU Steal",
 		"Host CPU high but App CPU normal/low; outbound drops",
-		"External rogue process or container on host stealing CPU cores",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -533,7 +521,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Edge Rejection / Fast Fail",
 		"Inbound errors high while inbound latency drops to minimum",
-		"Credential stuffing WAF blocking scraper flood 401/403/429",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelNormal,
@@ -552,7 +539,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Heavy Payload / Slowloris",
 		"Inbound througput high with low requests and high memory saturation",
-		"Multipart file upload storm payload uncompressed JSON Slowloris attack",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelLow,
 			inThroughput:  common.CaseLevelHigh,
@@ -570,8 +556,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Fast Bypass / Regression Bug",
-		"Inbound latency drops to zero with 200 OK and zero outbound calls",
-		"Auth middleware bypass regression empty body return cached mock leak",
+		"Inbound latency drops to zero and zero outbound calls",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -590,7 +575,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Egress Bandwidth Flooding",
 		"Outbound throughput spikes while Outbound requests and saturation remain normal",
-		"Unbounded query results large file downloads data exfiltration",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -609,7 +593,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"GC Stop-The-World Freeze",
 		"App memory pinned at high watermark with CPU spikes from GC threads",
-		"Full GC pause memory compaction freeze runtime heap lockup",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -627,8 +610,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Client Disconnect / Timeout",
-		"Inbound errors up (499/408) with near-zero downstream impact",
-		"Client drops connection prematurely slow mobile networks",
+		"Inbound errors up with near-zero downstream impact",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelLow,
@@ -647,7 +629,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"App Memory Leak / OOM Thrash",
 		"App memory hits cgroup limit causing kernel page reclamation thrashing",
-		"Application heap/buffer leak approaching container limit / OOM-kill",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -666,7 +647,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Noisy Neighbor Memory Hog",
 		"Host memory high while App memory is normal; app starved of cache/buffers",
-		"Co-located container eating host RAM triggering kernel page scanning",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -685,7 +665,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Hyper-Aggressive GC / Memory Starvation",
 		"App memory pinned near 0% while App CPU is pinned at 100%",
-		"GOMEMLIMIT/heap target set too low; runtime in continuous GC thrash",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -702,9 +681,8 @@ func NewApplicationCases() *ApplicationCases {
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
-		"Client 499 Abort / Orphaned Compute",
-		"High inbound 499s while outbound traffic continues running normally",
-		"Missing context cancellation; backend work proceeds for cancelled client requests",
+		"Client Abort / Orphaned Compute",
+		"High inbound errors while outbound traffic continues running normally",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -722,8 +700,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
 		"Poison Pill / DLQ Redrive Loop",
-		"Zero inbound traffic with high CPU and surging outbound broker retry errors",
-		"Unparseable queue message repeatedly nack-ed and redriven by workers",
+		"Zero inbound traffic with high CPU and surging outbound retry errors",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelLow,
 			inThroughput:  common.CaseLevelLow,
@@ -739,10 +716,9 @@ func NewApplicationCases() *ApplicationCases {
 			outErrors:     common.CaseLevelHigh,
 		})
 
-	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
 		"App Metric Collector Outage",
-		"Traffic flows normally but container cgroup exporter drops out",
-		"cgroup fs mount error kubelet stats provider stall or scraper timeout",
+		"Traffic flows normally but has no app saturation",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -758,10 +734,9 @@ func NewApplicationCases() *ApplicationCases {
 			outErrors:     common.CaseLevelNormal,
 		})
 
-	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
+	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
 		"Host Agent Transport Failure",
-		"Traffic and App metrics healthy but node-level hardware metrics missing",
-		"host exporter daemon down crash or host firewall drop",
+		"Traffic and App metrics healthy but no host saturation",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -779,8 +754,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
 		"Circuit Breaker Fallback",
-		"Outbound completely stopped but inbound returns fast healthy 200s",
-		"Circuit breaker tripped serving degraded local cache or empty response",
+		"Outbound completely stopped but inbound returns fast response",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelNormal,
@@ -799,7 +773,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Host CPU Exhaustion by App",
 		"Both App and Host CPU pinned near 100% while memory is stable",
-		"Inbound compute volume exceeded physical host CPU cores",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelHigh,
@@ -818,7 +791,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Downstream / Backend Stall",
 		"Outbound latency/errors surge and backpressure into ingress",
-		"Downstream API DB lock contention or remote timeout",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelHigh,
@@ -836,8 +808,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Thread Deadlock / Pool Hang",
-		"Extreme inbound latency with zero CPU and no 5xx errors",
-		"Deadlock mutex starvation connection pool leak uncompleted requests",
+		"Extreme inbound latency with zero CPU and no errors",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelNormal,
@@ -856,7 +827,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Retry Amplification Storm",
 		"Out requests to In requests ratio spikes far above historical norm",
-		"Cascading client retries or unbounded fan-out loops",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -875,7 +845,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Network Partition / TCP Blackhole",
 		"Outbound attempts stay up while outbound timeouts explode",
-		"Switch/router failure egress security group drop routing loop",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -894,7 +863,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Host Memory Exhaustion / Swap Thrashing",
 		"Host memory exhausted causing OS page swing; CPU drops due to I/O wait",
-		"Host swing pages to disk; disk I/O blocks runloops across containers / processes",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -913,7 +881,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"App OOM-Kill CrashLoop",
 		"App memory drops to near 0% after 100% breach; crash loop restarts",
-		"Kernel OOM-killer terminated container (SIGKILL); pod restarting",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -931,8 +898,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Host Kernel OOM Lockup",
-		"Host memory pinned at 100%; kswapd pegs Host CPU at 100%; total freeze",
-		"Host physical RAM exhausted; kswapd thrashing kernel page alloc locks",
+		"Host memory pinned at 100%; total freeze",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -950,8 +916,7 @@ func NewApplicationCases() *ApplicationCases {
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Zombie Worker / Cold Init Deadlock",
-		"App memory flat near 0% with 0% CPU; incoming requests fail instantly (502)",
-		"Process deadlocked in pre-main init phase; runtime heap unallocated",
+		"App memory flat near 0% with 0% CPU; incoming requests fail instantly",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -970,7 +935,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Host OOM-Killer Cascading Storm",
 		"Host memory at 100% with random service restarts and network drops",
-		"OOM-killer killing random background processes and sidecars",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -989,7 +953,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"FD / Ephemeral Port Exhaustion",
 		"Fast failure on inbound/outbound connection creation with normal CPU/memory",
-		"EMFILE or EADDRNOTAVAIL socket leak connection pool exhausting ulimit",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -1008,7 +971,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"DNS Resolution Outage",
 		"Outbound traffic drops with fast DNS resolution failures; ingress times out",
-		"CoreDNS outage VPC resolver throttle corrupted resolv.conf",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -1027,7 +989,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Cloud Hypervisor Steal / Throttling",
 		"Latency surges despite zero App/Host CPU usage; hypervisor steal time pinned",
-		"AWS burst credit balance exhaustion or noisy hypervisor neighbor",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelNormal,
 			inThroughput:  common.CaseLevelNormal,
@@ -1046,7 +1007,6 @@ func NewApplicationCases() *ApplicationCases {
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
 		"Unobservable Bottleneck (Telemetry Dropout)",
 		"Severe inbound queueing and outbound collapse while saturation is entirely unknown",
-		"exporter or cgroup telemetry crash during critical CPU/memory exhaustion",
 		ApplicationCasePattern{
 			inRequests:    common.CaseLevelHigh,
 			inThroughput:  common.CaseLevelHigh,
@@ -1073,10 +1033,6 @@ func (acv *ApplicationCaseVerdict) Name() string {
 
 func (acv *ApplicationCaseVerdict) Description() string {
 	return acv.acase.description
-}
-
-func (acv *ApplicationCaseVerdict) RootCause() string {
-	return acv.acase.rootCause
 }
 
 func (acv *ApplicationCaseVerdict) Category() common.CaseCategory {
@@ -1565,10 +1521,10 @@ func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnom
 
 	max, min, med := ap.getLimits(ms, col, val)
 
-	if val >= max {
+	if val > max {
 		return common.CaseLevelHigh
 	}
-	if val <= min {
+	if val < min {
 		return common.CaseLevelLow
 	}
 	if isAnomaly {
@@ -2219,13 +2175,13 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
 		val := vectors.outVec[vectors.outReqIdx]
 		max, min, med := ae.outProfiler.getLimits(ms, vectors.outReqIdx, val)
-		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
+		points.outRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
 		val := vectors.outVec[vectors.outThruIdx]
 		max, min, med := ae.outProfiler.getLimits(ms, vectors.outThruIdx, val)
-		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
+		points.outThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
@@ -2237,7 +2193,7 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
 		val := vectors.outVec[vectors.outErrIdx]
 		max, min, med := ae.outProfiler.getLimits(ms, vectors.outErrIdx, val)
-		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
+		points.outErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appCPUIdx && vectors.satValid[vectors.appCPUIdx] {
@@ -2266,7 +2222,7 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 	return points
 }
 
-func (ae *ApplicationEngine) predictPattern(frame *ApplicationFrame) (*ApplicationFramePoints, *ApplicationCasePattern) {
+func (ae *ApplicationEngine) predict(frame *ApplicationFrame) (*ApplicationFramePoints, *ApplicationCasePattern) {
 
 	t := common.StampToTime(frame.stamp)
 
@@ -2522,7 +2478,7 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 		return nil, nil
 	}
 
-	points, pattern := ae.predictPattern(frame)
+	points, pattern := ae.predict(frame)
 	cs, score := cases.Match(pattern)
 	if cs == nil || score <= ae.options.MinScore {
 		return points, nil
