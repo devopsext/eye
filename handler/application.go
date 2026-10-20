@@ -66,8 +66,11 @@ type HttpApplicationHandler struct {
 	stateMutex sync.Mutex
 	stateMap   map[string]string
 	//
-	appMutex sync.Mutex
-	appMap   map[string]*HttpApplicationInfo
+	identMutex sync.Mutex
+	identMap   map[string]*HttpApplicationInfo
+	//
+	activeMutex sync.Mutex
+	activeIdent string
 }
 
 const (
@@ -130,6 +133,26 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 
 	ident := af.Ident()
 	if utils.IsEmpty(ident) {
+		return
+	}
+
+	// fulfill applications
+
+	h.identMutex.Lock()
+	defer h.identMutex.Unlock()
+
+	info := h.identMap[ident]
+	if info == nil {
+		info = &HttpApplicationInfo{}
+	}
+	info.Application = af.Application()
+	info.Host = af.Host()
+	h.identMap[ident] = info
+
+	// check active
+	h.activeMutex.Lock()
+	defer h.activeMutex.Unlock()
+	if h.activeIdent != ident {
 		return
 	}
 
@@ -216,17 +239,6 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		Points:    points,
 		Verdict:   verdict,
 	}
-
-	h.appMutex.Lock()
-	defer h.appMutex.Unlock()
-
-	info := h.appMap[ident]
-	if info == nil {
-		info = &HttpApplicationInfo{}
-	}
-	info.Application = af.Application()
-	info.Host = af.Host()
-	h.appMap[ident] = info
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {
@@ -309,8 +321,10 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 			h.logger.Error("%s: Cannot unmarshal message: %s, error: %s", name, msg, err)
 			break
 		}
-		if payload.Type == "filter" && payload.Application != "" {
-			//setActiveService(payload.Service)
+		if payload.Type == "filter" {
+			h.activeMutex.Lock()
+			h.activeIdent = payload.Application
+			h.activeMutex.Unlock()
 		}
 	}
 	return nil
@@ -350,8 +364,8 @@ func (h *HttpApplicationHandler) handleState(w http.ResponseWriter) error {
 
 func (h *HttpApplicationHandler) handleList(w http.ResponseWriter) error {
 
-	h.appMutex.Lock()
-	defer h.appMutex.Unlock()
+	h.identMutex.Lock()
+	defer h.identMutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -360,7 +374,7 @@ func (h *HttpApplicationHandler) handleList(w http.ResponseWriter) error {
 	}
 
 	data, err := json.Marshal(&response{
-		Applications: h.appMap,
+		Applications: h.identMap,
 	})
 	if err != nil {
 		return err
@@ -371,8 +385,8 @@ func (h *HttpApplicationHandler) handleList(w http.ResponseWriter) error {
 
 func (h *HttpApplicationHandler) handleActive(w http.ResponseWriter) error {
 
-	h.appMutex.Lock()
-	defer h.appMutex.Unlock()
+	h.identMutex.Lock()
+	defer h.identMutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -448,7 +462,7 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 		},
 		//
 		stateMap:    make(map[string]string),
-		appMap:      make(map[string]*HttpApplicationInfo),
+		identMap:    make(map[string]*HttpApplicationInfo),
 		datachannel: make(chan HttpApplicationHandlerData),
 	}
 }

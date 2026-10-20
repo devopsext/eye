@@ -175,7 +175,7 @@
                         <tr>
                             <th>Time</th>
                             <th>Application</th>
-                            <th>Impact & Score</th>
+                            <th>Impact</th>
                         </tr>
                     </thead>
                     <tbody id="verdictTableBody">
@@ -679,7 +679,7 @@
 
         function changeFilter() {
             const inputVal = document.getElementById('applicationSearch').value.trim();
-            if (!inputVal) return;
+            //if (!inputVal) return;
 
             saveCurrentStateToCache();
             currentFilter = inputVal;
@@ -748,11 +748,10 @@
             c.data.datasets[0]._violationPoints = trimmed.map(pt => pt.val > pt.up || pt.val < pt.lo);
 
             c.data.datasets[0].pointRadius = trimmed.map((pt, idx) => {
-                if (pt.time === selectedTimeLabel) return 8;
-                if (hoveredIndex === idx) return 6;
+                if (pt.time === selectedTimeLabel) return 6;
                 return 0;
             });
-            c.data.datasets[0].pointBackgroundColor = trimmed.map(pt => (pt.time === selectedTimeLabel) ? '#eab308' : sharedMetricColor);
+            c.data.datasets[0].pointBackgroundColor = trimmed.map(pt => (pt.time === selectedTimeLabel) ? sharedMetricColor : sharedMetricColor);
             c.data.datasets[0].pointBorderColor = trimmed.map(pt => (pt.time === selectedTimeLabel) ? '#ffffff' : sharedMetricColor);
 
             c.update('none');
@@ -835,15 +834,26 @@
                         if (!applicationCache[app].rawSeries[point.metric]) {
                             applicationCache[app].rawSeries[point.metric] = [];
                         }
-                        applicationCache[app].rawSeries[point.metric].push({
+                        
+                        const series = applicationCache[app].rawSeries[point.metric];
+                        
+                        // Prevent duplicate appending of the exact same timeLabel for this metric
+                        const existingIndex = series.findIndex(pt => pt.time === timeLabel);
+                        const pointData = {
                             time: timeLabel,
                             val: point.value,
                             up: point.max,
                             lo: point.min,
                             me: point.median,
-                        });
-                        if (applicationCache[app].rawSeries[point.metric].length > 200) {
-                            applicationCache[app].rawSeries[point.metric].shift();
+                        };
+
+                        if (existingIndex > -1) {
+                            series[existingIndex] = pointData; // Update in place if timestamp already exists
+                        } else {
+                            series.push(pointData);
+                            if (series.length > 200) {
+                                series.shift();
+                            }
                         }
                     });
                 }
@@ -860,32 +870,49 @@
 
                     if (v.verdict) {
 
-                        const vv = v.verdict
-                        const tbody = document.getElementById('verdictTableBody');
+                       const tbody = document.getElementById('verdictTableBody');
+                        
+                        let existingRow = null;
+                        tbody.querySelectorAll('tr').forEach(tr => {
+                            if (tr.getAttribute('data-time') === timeLabel) {
+                                existingRow = tr;
+                            }
+                        });
+
+                        const vv = v.verdict;
                         let badgeClass = 'badge-zero';
                         if (vv.impact === '{{.CaseImpactSevere}}') badgeClass = 'badge-most';
                         else if (vv.impact === '{{.CaseImpactAverage}}') badgeClass = 'badge-avg';
 
-                        const row = document.createElement('tr');
-                        row.setAttribute('data-time', timeLabel);
-                        if (timeLabel === selectedTimeLabel) row.className = 'selected';
-                        
                         const largeHint = '• Application: ' + v.ident + '\n' +
                                           '• Impact: ' + vv.impact + '\n' +
                                           '• Score: ' + vv.score + '\n' +
                                           '• Category: ' + vv.category + '\n' +
                                           '• Event Name: ' + vv.name + '\n' +
                                           '• Description:  ' + vv.description + '\n';
-                        row.title = largeHint;
 
-                        row.innerHTML = '<td>' + timeLabel + '</td>' +
-                            '<td><strong>' + v.ident + '</strong></td>' +
-                            '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
-                        
-                        row.onclick = function() { selectVerdict(timeLabel, row); };
+                        if (existingRow) {
+                            existingRow.title = largeHint;
+                            existingRow.innerHTML = '<td>' + timeLabel + '</td>' +
+                                '<td><strong>' + v.ident + '</strong></td>' +
+                                '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
+                            
+                            existingRow.onclick = function() { selectVerdict(timeLabel, existingRow); };
+                        } else {
+                            const row = document.createElement('tr');
+                            row.setAttribute('data-time', timeLabel);
+                            if (timeLabel === selectedTimeLabel) row.className = 'selected';
+                            
+                            row.title = largeHint;
+                            row.innerHTML = '<td>' + timeLabel + '</td>' +
+                                '<td><strong>' + v.ident + '</strong></td>' +
+                                '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
+                            
+                            row.onclick = function() { selectVerdict(timeLabel, row); };
 
-                        tbody.insertBefore(row, tbody.firstChild);
-                        if (tbody.rows.length > 30) tbody.deleteRow(tbody.rows.length - 1);
+                            tbody.insertBefore(row, tbody.firstChild);
+                            if (tbody.rows.length > 30) tbody.deleteRow(tbody.rows.length - 1);
+                        }
 
                         applicationCache[currentFilter].verdictsHtml = tbody.innerHTML;
                     }

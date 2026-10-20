@@ -169,9 +169,6 @@ type ApplicationEngineOptions struct {
 	OutThroughputMaxSlots int
 	RangeMultiplier       float64
 	ProfileBucketsKind    int
-	MinScore              int
-	Categories            string
-	Impacts               string
 }
 
 type ApplicationEngineFileIncoming struct {
@@ -222,9 +219,7 @@ type ApplicationEngine struct {
 	satProfiler *ApplicationProfiler
 	outProfiler *ApplicationProfiler
 
-	categories []common.CaseCategory
-	impacts    []common.CaseImpact
-	logger     sreCommon.Logger
+	logger sreCommon.Logger
 }
 
 const (
@@ -2458,7 +2453,8 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 	begin := frames[0].Stamp()
 	end := frames[len(frames)-1].Stamp()
 
-	stamp := end + (end-begin)/2
+	//stamp := begin + (end-begin)/2
+	stamp := begin
 
 	frame := ae.aggregateFrames(frames)
 
@@ -2480,12 +2476,7 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 
 	points, pattern := ae.predict(frame)
 	cs, score := cases.Match(pattern)
-	if cs == nil || score <= ae.options.MinScore {
-		return points, nil
-	}
-
-	if !(utils.Contains(ae.categories, cs.category) &&
-		utils.Contains(ae.impacts, cs.impact)) {
+	if cs == nil {
 		return points, nil
 	}
 
@@ -2497,16 +2488,6 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 }
 
 func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
-
-	categories := common.StringToCaseCategories(options.Categories)
-	if len(categories) == 0 {
-		categories = common.AllCaseCategories()
-	}
-
-	impacts := common.StringToCaseImpacts(options.Impacts)
-	if len(impacts) == 0 {
-		impacts = common.AllCaseImpacts()
-	}
 
 	return &ApplicationEngine{
 
@@ -2527,8 +2508,5 @@ func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions, obs
 		inProfiler:  NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
 		satProfiler: NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
 		outProfiler: NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
-
-		categories: categories,
-		impacts:    impacts,
 	}
 }

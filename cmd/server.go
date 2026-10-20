@@ -108,12 +108,14 @@ var testModelOptions = model.TestModelOptions{
 }
 
 var forestModelOptions = model.ForestModelOptions{
-	Enabled:       envGet("FOREST_MODEL_ENABLED", false).(bool),
-	Concurrency:   envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
-	Filter:        strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
-	EngineTTL:     envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
-	DetectionTTL:  envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
-	DetectionMass: envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
+	Enabled:             envGet("FOREST_MODEL_ENABLED", false).(bool),
+	Concurrency:         envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
+	Filter:              strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
+	EngineTTL:           envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
+	DetectionTTL:        envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
+	DetectionMass:       envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
+	DetectionCategories: envGet("FOREST_MODEL_DETECTION_CATEGORIES", "").(string),
+	DetectionImpacts:    envGet("FOREST_MODEL_DETECTION_IMPACTS", "").(string),
 	ApplicationOptions: forest.ApplicationEngineOptions{
 		Path:                  envGet("FOREST_MODEL_APPLICATION_PATH", "").(string),
 		TreesNumber:           envGet("FOREST_MODEL_APPLICATION_TREES_NUMBER", model.ForestModelTreesNumber).(int),
@@ -125,9 +127,6 @@ var forestModelOptions = model.ForestModelOptions{
 		OutThroughputMaxSlots: envGet("FOREST_MODEL_APPLICATION_OUT_THROUGHPUT_MAX_SLOTS", 1).(int),
 		RangeMultiplier:       envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", 1.5).(float64),
 		ProfileBucketsKind:    envGet("FOREST_MODEL_APPLICATION_PROFILE_BUCKETS_KIND", forest.ApplicationProfilerBucketsKindHour).(int),
-		MinScore:              envGet("FOREST_MODEL_APPLICATION_MIN_SCORE", 6).(int),
-		Categories:            envGet("FOREST_MODEL_APPLICATION_CATEGORIES", "").(string),
-		Impacts:               envGet("FOREST_MODEL_APPLICATION_IMPACTS", "").(string),
 	},
 }
 

@@ -1,9 +1,11 @@
 package model
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,8 +26,10 @@ type ForestModelOptions struct {
 
 	EngineTTL string
 
-	DetectionTTL  string
-	DetectionMass float64
+	DetectionTTL        string
+	DetectionMass       float64
+	DetectionCategories string
+	DetectionImpacts    string
 
 	ApplicationOptions forest.ApplicationEngineOptions
 }
@@ -41,6 +45,7 @@ type ForestModelData struct {
 }
 
 type ForestModelApplicationFrame struct {
+	hash    common.Hash
 	frame   *forest.ApplicationFrame
 	points  *forest.ApplicationFramePoints
 	verdict *forest.ApplicationCaseVerdict
@@ -74,6 +79,8 @@ type ForestModel struct {
 
 	engines    *ttlcache.Cache[common.Hash, ForestModelEngine]
 	detections *ForestModelDetections
+	categories []common.CaseCategory
+	impacts    []common.CaseImpact
 }
 
 const (
@@ -275,6 +282,13 @@ func (fd *ForestModelDetection) End() common.Stamp {
 	return fd.begin
 }
 
+func (fd *ForestModelDetection) score() int {
+	if fd.verdict == nil {
+		return -1
+	}
+	return fd.verdict.Score()
+}
+
 func NewForestModelDetection(hash common.Hash, min, max common.Stamp, deps *common.Dependencies) *ForestModelDetection {
 	return &ForestModelDetection{
 		hash:  hash,
@@ -286,21 +300,30 @@ func NewForestModelDetection(hash common.Hash, min, max common.Stamp, deps *comm
 
 // ForestModelDetections
 
-func (fd *ForestModelDetections) Anomalies() []common.ModelAnomaly {
+func (fd *ForestModelDetections) anomalies() []common.ModelAnomaly {
 
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 
 	r := []common.ModelAnomaly{}
-	fd.items.Range(func(item *ttlcache.Item[common.Hash, *ForestModelDetection]) bool {
+	/*fd.items.Range(func(item *ttlcache.Item[common.Hash, *ForestModelDetection]) bool {
 
 		d := item.Value()
 		if d == nil {
 			return true
 		}
+		if d.verdict == nil {
+			return true
+		}
+
+		if !(utils.Contains(categories, d.verdict.Category()) &&
+			utils.Contains(impacts, d.verdict.Impact())) {
+			return true
+		}
+
 		r = append(r, d)
 		return true
-	})
+	})*/
 	return r
 }
 
@@ -737,6 +760,16 @@ func (fm *ForestModel) findSimilars(measurements *common.Measurements, found []*
 	return r
 }
 
+func (fm *ForestModel) eligibleDetection(d *ForestModelDetection) bool {
+
+	if d == nil || d.verdict == nil {
+		return false
+	}
+	category := d.verdict.Category()
+	impact := d.verdict.Impact()
+	return utils.Contains(fm.categories, category) && utils.Contains(fm.impacts, impact)
+}
+
 func (fm *ForestModel) setOneDetections(d *ForestModelDetection) {
 
 	n, exists := fm.detections.AddOrUpdate(d.hash, d.begin, d.end, nil)
@@ -745,47 +778,55 @@ func (fm *ForestModel) setOneDetections(d *ForestModelDetection) {
 	}
 }
 
-func (fm *ForestModel) setMassDetections(found []*ForestModelDetection) {
+func (fm *ForestModel) setMassDetections(eligible, found []*ForestModelDetection) {
 
 	hash := common.Hash(0)
-	min := common.Stamp(math.MaxUint64)
-	max := common.Stamp(0)
+	minStamp := common.Stamp(math.MaxUint64)
+	maxStamp := common.Stamp(0)
 	deps := common.NewDependencies()
 
 	var first *ForestModelDetection
 
-	for _, d := range found {
+	for _, d := range eligible {
 
 		h := d.hash
 		mi := d.Begin()
 		ma := d.End()
 
-		if mi < min {
+		if mi < minStamp {
 			first = d
 			hash = h
-			min = mi
+			minStamp = mi
 		}
-		if ma > max {
-			max = ma
+		if ma > maxStamp {
+			maxStamp = ma
 		}
-		deps.AddOrUpdate(h, nil)
 	}
 
-	if hash == 0 {
+	if hash == 0 || first == nil {
 		return
 	}
-	d, exists := fm.detections.AddOrUpdate(hash, min, max, deps)
+
+	for _, d := range found {
+
+		if d.hash == first.hash {
+			continue
+		}
+		deps.AddOrUpdate(d.hash, nil)
+	}
+
+	d, exists := fm.detections.AddOrUpdate(hash, minStamp, maxStamp, deps)
 	if !exists && d != nil && first != nil {
 		d.verdict = first.verdict
 	}
 }
 
-func (fm *ForestModel) setManyDetections(found []*ForestModelDetection, data common.DataSourceData) {
+func (fm *ForestModel) setManyDetections(eligible, found []*ForestModelDetection, data common.DataSourceData) {
 
 	measurements := data.Measurements()
 	temp := make(map[common.Hash]*common.Dependencies)
 
-	for _, d := range found {
+	for _, d := range eligible {
 
 		hash := d.hash
 		min := d.begin
@@ -876,6 +917,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			verdictFrame := &ForestModelApplicationFrame{
+				hash:    hash,
 				frame:   appFrame,
 				verdict: appVerdict,
 				points:  appPoints,
@@ -903,6 +945,8 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 	err := errors.Join(all...)
 
 	found := []*ForestModelDetection{}
+	eligible := []*ForestModelDetection{}
+
 	verdictFrames.Range(func(key, value any) bool {
 
 		var detection *ForestModelDetection
@@ -912,37 +956,43 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 		if ok {
 			detection = NewForestModelDetection(hash, appFrame.begin(), appFrame.end(), nil)
 			detection.verdict = appFrame.verdict
-		}
-		if detection != nil {
 			found = append(found, detection)
+			if fm.eligibleDetection(detection) {
+				eligible = append(eligible, detection)
+			}
 		}
 		return true
 	})
 
-	l1 := len(found)
-	l2 := length
+	l1 := len(eligible)
+	l2 := len(found)
 
-	// if not found => exit
+	// if not eligible => exit
 	if l1 == 0 {
 		return err
 	}
 
 	// if just one
 	if l1 == 1 {
-		fm.setOneDetections(found[0])
+		fm.setOneDetections(eligible[0])
 		return err
 	}
+
+	// sort by score
+	slices.SortFunc(eligible, func(a *ForestModelDetection, b *ForestModelDetection) int {
+		return cmp.Compare(b.score(), a.score())
+	})
 
 	p := float64((l1 * 100) / l2)
 
 	// if mass triggered => only mass detection
 	if p >= fm.options.DetectionMass {
-		fm.setMassDetections(found)
+		fm.setMassDetections(eligible, found)
 		return err
 	}
 
 	// if not mass triggered => per hash detection
-	fm.setManyDetections(found, data)
+	fm.setManyDetections(eligible, found, data)
 	return err
 }
 
@@ -990,7 +1040,7 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 			fm.logger.Debug("%s: Found detection %s%s: %s (%s / %s)", name, n, deps, verdict, category, impact)
 		}
 
-		anomalies := fm.detections.Anomalies()
+		anomalies := fm.detections.anomalies()
 		if onAnomaly != nil && len(anomalies) > 0 {
 			go func() {
 				for _, a := range anomalies {
@@ -1006,6 +1056,16 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
 
+	categories := common.StringToCaseCategories(options.DetectionCategories)
+	if len(categories) == 0 {
+		categories = common.AllCaseCategories()
+	}
+
+	impacts := common.StringToCaseImpacts(options.DetectionImpacts)
+	if len(impacts) == 0 {
+		impacts = common.AllCaseImpacts()
+	}
+
 	return &ForestModel{
 		options:       options,
 		observability: observability,
@@ -1015,5 +1075,7 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 			ttlcache.WithTTL[common.Hash, ForestModelEngine](common.DefaultTTL(options.EngineTTL, 1*time.Hour)),
 		),
 		detections: NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
+		categories: categories,
+		impacts:    impacts,
 	}
 }
