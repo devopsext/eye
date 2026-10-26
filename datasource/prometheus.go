@@ -1509,39 +1509,32 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		}
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
 
-		if len(p.onData) > 0 {
+		gr := &errgroup.Group{}
+		for _, on := range p.onData {
 
-			go func() {
+			if on == nil {
+				continue
+			}
 
-				gr := &errgroup.Group{}
-				for _, on := range p.onData {
+			gr.Go(func() error {
+				on(data)
+				return nil
+			})
+		}
 
-					if on == nil {
-						continue
-					}
+		gr.Wait()
 
-					gr.Go(func() error {
-						on(data)
-						return nil
-					})
-				}
+		state.AddOrUpdateTimes(t1, t2)
 
-				gr.Wait()
-
-				state.AddOrUpdateTimes(t1, t2)
-
-				if !utils.IsEmpty(yaml) {
-					p.info("Saving state to %s...", yaml)
-					err := state.Save(yaml)
-					if err != nil {
-						p.error("Saving state to %s failed with error: %s", yaml, err)
-					} else {
-						t1, t2 := state.MinMaxTimes()
-						p.info("Saving state to %s was successful items=%d (%s / %s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
-					}
-				}
-
-			}()
+		if !utils.IsEmpty(yaml) {
+			p.info("Saving state to %s...", yaml)
+			err := state.Save(yaml)
+			if err != nil {
+				p.error("Saving state to %s failed with error: %s", yaml, err)
+			} else {
+				t1, t2 := state.MinMaxTimes()
+				p.info("Saving state to %s was successful items=%d (%s / %s) duration=%s", yaml, len(state.Items), t1, t2, t2.Sub(t1))
+			}
 		}
 	}
 }

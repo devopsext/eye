@@ -70,7 +70,6 @@ type ForestModelEngine interface {
 }
 
 type ForestModel struct {
-	mu            sync.Mutex
 	options       ForestModelOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
@@ -81,6 +80,7 @@ type ForestModel struct {
 	detections *ForestModelDetections
 	categories []common.CaseCategory
 	impacts    []common.CaseImpact
+	trains     sync.Map
 }
 
 const (
@@ -550,6 +550,12 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 
 		gr.Go(func() error {
 
+			// check existence
+			_, exists := fm.trains.LoadOrStore(hash, true)
+			if exists {
+				return nil
+			}
+
 			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
 
 			err := engine.LoadData()
@@ -567,6 +573,7 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 				errs <- err
 				return nil
 			}
+			fm.trains.Delete(hash)
 			mm.Store(hash, engine)
 			return nil
 		})
@@ -577,11 +584,18 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 
 		gr.Go(func() error {
 
+			// check existence
+			_, exists := fm.trains.LoadOrStore(hash, true)
+			if exists {
+				return nil
+			}
+
 			engine := forest.NewHostEngine()
 			err := engine.Train(frames)
 			if err != nil {
 				errs <- err
 			}
+			fm.trains.Delete(hash)
 			mm.Store(hash, engine)
 			return nil
 		})
@@ -616,25 +630,30 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 
 func (fm *ForestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
 
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
 	hs := []common.Hash{}
 	if !fm.options.Enabled {
+		return hs, nil
+	}
+
+	if utils.IsEmpty(data) {
 		return hs, nil
 	}
 
 	when := time.Now()
 	name := fm.Name()
 
-	fm.logger.Info("%s: Training...", name)
+	gid := utils.GoRoutineID()
+	t1 := common.StampToTime(data.First())
+	t2 := common.StampToTime(data.Last())
+
+	fm.logger.Info("%s: %d Training from %v to %s ...", name, gid, t1, t2)
 
 	hs, err := fm.train(data)
 	if err != nil {
-		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
+		fm.logger.Error("%s: %d Training failed in %s error %s", name, gid, time.Since(when), err)
 		return hs, err
 	}
-	fm.logger.Info("%s: Training successful in %s", name, time.Since(when))
+	fm.logger.Info("%s: %d Training successful in %s", name, gid, time.Since(when))
 	return hs, nil
 }
 
@@ -867,6 +886,11 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 
 		gr.Go(func() error {
 
+			// check existence
+			if _, ok := fm.trains.Load(hash); ok {
+				return nil
+			}
+
 			var engine *forest.ApplicationEngine
 
 			item := fm.engines.Get(hash)
@@ -907,7 +931,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			stamp := appFrame.Stamp()
 			if !engine.Exists(stamp) {
 				name := data.Names().FindByHash(hash)
-				fm.logger.Debug("%s: Doesn't exists for %s (%d) on %v", engine.Name(), name, hash, common.StampToTime(stamp))
+				fm.logger.Debug("%s: Doesn't exist for %s (%d) on %v", engine.Name(), name, hash, common.StampToTime(stamp))
 				return nil
 			}
 
@@ -996,26 +1020,30 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 	return err
 }
 
-func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
+func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame) ([]common.ModelAnomaly, error) {
 
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
+	als := []common.ModelAnomaly{}
 	if !fm.options.Enabled {
-		return nil
+		return als, nil
+	}
+
+	if utils.IsEmpty(data) {
+		return als, nil
 	}
 
 	when := time.Now()
 	name := fm.Name()
 
-	fm.logger.Info("%s: Detecting...", name)
+	gid := utils.GoRoutineID()
+	t1 := common.StampToTime(data.First())
+	t2 := common.StampToTime(data.Last())
 
-	//time.Sleep(time.Second * 10)
+	fm.logger.Info("%s: %d Detecting from %v to %s ...", name, gid, t1, t2)
 
 	err := fm.detect(data, onFrame)
 	if err != nil {
 		fm.logger.Error("%s: Detecting failed in %s error %s", name, time.Since(when), err)
-		return err
+		return als, err
 	}
 
 	items := fm.detections.Items()
@@ -1039,19 +1067,10 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 			fm.logger.Debug("%s: Found detection %s%s: %s (%s / %s)", name, n, deps, verdict, category, impact)
 		}
-
-		anomalies := fm.detections.anomalies()
-		if onAnomaly != nil && len(anomalies) > 0 {
-			go func() {
-				for _, a := range anomalies {
-					onAnomaly(a)
-				}
-			}()
-		}
 	}
 
 	fm.logger.Info("%s: Detecting finished found=%d in %s", name, fm.detections.Size(), time.Since(when))
-	return nil
+	return fm.detections.anomalies(), nil
 }
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {

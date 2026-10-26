@@ -1969,9 +1969,9 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	}
 	ae.inProfiler.Fit(ae.stamps, ae.inData)
 
-	t1 := common.StampToTime(ae.stamps[0])
+	/*t1 := common.StampToTime(ae.stamps[0])
 	t2 := common.StampToTime(ae.stamps[len(ae.stamps)-1])
-	ae.logger.Debug("%s: In Profile buckets filled %d / %d (%s / %s)", ae.Name(), ae.inProfiler.FilledCount(), len(ae.inProfiler.Buckets), t1, t2)
+	ae.logger.Debug("%s: In Profile buckets filled %d / %d (%s / %s)", ae.Name(), ae.inProfiler.FilledCount(), len(ae.inProfiler.Buckets), t1, t2)*/
 
 	ae.satForest.Train(ae.satData)
 	err = ae.satForest.Test(ae.satData)

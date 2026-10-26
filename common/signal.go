@@ -193,6 +193,7 @@ type ApplicationSignal struct {
 }
 
 type Dependencies struct {
+	mu    sync.Mutex
 	items map[Hash]*Dependencies
 }
 
@@ -1352,10 +1353,16 @@ func NewApplicationSignal(hash Hash, app Hash, host Hash) *ApplicationSignal {
 // Dependencies
 
 func (ds *Dependencies) Items() map[Hash]*Dependencies {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
 	return ds.items
 }
 
 func (ds *Dependencies) Contains(hash Hash) bool {
+
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
 
 	_, ok := ds.items[hash]
 	if ok {
@@ -1365,6 +1372,9 @@ func (ds *Dependencies) Contains(hash Hash) bool {
 }
 
 func (ds *Dependencies) AddOrUpdate(hash Hash, children *Dependencies) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
 	ds.items[hash] = children
 }
 

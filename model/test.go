@@ -46,10 +46,11 @@ func (t *TestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
 	return hs, nil
 }
 
-func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame, onAnomaly common.ModelOnAnomaly) error {
+func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFrame) ([]common.ModelAnomaly, error) {
 
+	als := []common.ModelAnomaly{}
 	if !t.options.Enabled {
-		return nil
+		return als, nil
 	}
 
 	name := t.Name()
@@ -60,7 +61,7 @@ func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFra
 	time.Sleep(d)
 
 	t.logger.Info("%s: Detecting finished in %s", name, time.Since(when))
-	return nil
+	return als, nil
 }
 
 func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {

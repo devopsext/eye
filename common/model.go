@@ -90,7 +90,7 @@ type Model interface {
 	Name() string
 	Enabled() bool
 	Train(data DataSourceData) ([]Hash, error)
-	Detect(data DataSourceData, onFrame ModelOnFrame, onAnomaly ModelOnAnomaly) error
+	Detect(data DataSourceData, onFrame ModelOnFrame) ([]ModelAnomaly, error)
 }
 
 type Models struct {
@@ -185,6 +185,7 @@ func (ms *Models) Detect(data DataSourceData) error {
 	ms.states(ModelStateDetecting)
 	defer ms.states(ModelStateIdle)
 
+	anomalies := []ModelAnomaly{}
 	all := []error{}
 	for _, m := range ms.list {
 
@@ -192,11 +193,19 @@ func (ms *Models) Detect(data DataSourceData) error {
 			continue
 		}
 
-		e := m.Detect(data, ms.detectOnFrame, ms.detectOnAnomaly)
+		als, e := m.Detect(data, ms.detectOnFrame)
 		if e != nil {
 			all = append(all, e)
 			continue
 		}
+		anomalies = append(anomalies, als...)
+	}
+	//
+	for _, al := range anomalies {
+		if utils.IsEmpty(al) {
+			continue
+		}
+		ms.detectOnAnomaly(al)
 	}
 	return errors.Join(all...)
 }

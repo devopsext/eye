@@ -146,8 +146,9 @@ var httpHealthHandlerOptions = handler.HttpHealthHandlerOptions{
 }
 
 var httpApplicationHandlerOptions = handler.HttpApplicationHandlerOptions{
-	Path: envGet("HTTP_APPLICATION_PATH", "/app,/app/").(string),
-	Page: envStringExpand("HTTP_APPLICATION_PAGE", ""),
+	Path:   envGet("HTTP_APPLICATION_PATH", "/app,/app/").(string),
+	Page:   envStringExpand("HTTP_APPLICATION_PAGE", ""),
+	Idents: envStringExpand("HTTP_APPLICATION_IDENTS", ""),
 }
 
 var httpInspectHandlerOptions = handler.HttpInspectHandlerOptions{

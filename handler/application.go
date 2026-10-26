@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -18,8 +19,9 @@ import (
 )
 
 type HttpApplicationHandlerOptions struct {
-	Path string
-	Page string
+	Path   string
+	Page   string
+	Idents string
 }
 
 type HttpApplicationHandlerDataPoint struct {
@@ -71,6 +73,8 @@ type HttpApplicationHandler struct {
 	//
 	activeMutex sync.Mutex
 	activeIdent string
+	//
+	reIdents *regexp.Regexp
 }
 
 const (
@@ -153,7 +157,12 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	h.activeMutex.Lock()
 	defer h.activeMutex.Unlock()
 	if h.activeIdent != ident {
-		return
+		if h.reIdents == nil {
+			return
+		}
+		if !h.reIdents.MatchString(ident) {
+			return
+		}
 	}
 
 	ts := af.Timestamp()
@@ -449,6 +458,15 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 		return nil
 	}
 
+	var reIdents *regexp.Regexp
+	if !utils.IsEmpty(options.Idents) {
+		re, err := regexp.Compile(options.Idents)
+		if err != nil {
+			logger.Error("%s: Regxp is wrong, error: %s", name, err)
+		}
+		reIdents = re
+	}
+
 	return &HttpApplicationHandler{
 		options:       options,
 		observability: observability,
@@ -464,5 +482,6 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 		stateMap:    make(map[string]string),
 		identMap:    make(map[string]*HttpApplicationInfo),
 		datachannel: make(chan HttpApplicationHandlerData),
+		reIdents:    reIdents,
 	}
 }
