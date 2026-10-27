@@ -21,7 +21,7 @@ type TestModel struct {
 }
 
 func (t *TestModel) Name() string {
-	return "Test"
+	return "TestModel"
 }
 
 func (t *TestModel) Enabled() bool {

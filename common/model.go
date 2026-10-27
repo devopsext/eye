@@ -110,7 +110,7 @@ func ModelStateToString(state ModelState) string {
 	case ModelStateDetecting:
 		return "Detecting"
 	default:
-		return "unknown"
+		return "Unknown"
 	}
 }
 
@@ -161,7 +161,10 @@ func (ms *Models) states(state ModelState) {
 func (ms *Models) Train(data DataSourceData) error {
 
 	ms.states(ModelStateTraining)
-	defer ms.states(ModelStateIdle)
+	defer func() {
+		time.Sleep(time.Second)
+		ms.states(ModelStateIdle)
+	}()
 
 	all := []error{}
 
@@ -183,7 +186,10 @@ func (ms *Models) Train(data DataSourceData) error {
 func (ms *Models) Detect(data DataSourceData) error {
 
 	ms.states(ModelStateDetecting)
-	defer ms.states(ModelStateIdle)
+	defer func() {
+		time.Sleep(time.Second)
+		ms.states(ModelStateIdle)
+	}()
 
 	anomalies := []ModelAnomaly{}
 	all := []error{}

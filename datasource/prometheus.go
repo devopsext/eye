@@ -382,21 +382,18 @@ func (p *Prometheus) setTimeFormat(args ...any) []any {
 }
 
 func (p *Prometheus) info(msg any, args ...any) {
-	gid := utils.GoRoutineID()
 	args = p.setTimeFormat(args...)
-	p.logger.Info(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
+	p.logger.Info(fmt.Sprintf("%v: %v", p.Name(), msg), args...)
 }
 
 func (p *Prometheus) error(msg any, args ...any) {
-	gid := utils.GoRoutineID()
 	args = p.setTimeFormat(args...)
-	p.logger.Error(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
+	p.logger.Error(fmt.Sprintf("%v: %v", p.Name(), msg), args...)
 }
 
 func (p *Prometheus) debug(msg any, args ...any) {
-	gid := utils.GoRoutineID()
 	args = p.setTimeFormat(args...)
-	p.logger.Debug(fmt.Sprintf("%v: [%d] %v", p.Name(), gid, msg), args...)
+	p.logger.Debug(fmt.Sprintf("%v: %v", p.Name(), msg), args...)
 }
 
 func (p *Prometheus) addUniqueKeys(keys []string, ma []map[string]string) []string {

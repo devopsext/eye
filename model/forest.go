@@ -431,7 +431,7 @@ func NewForestModelDetections(ttl time.Duration) *ForestModelDetections {
 // ForestModel
 
 func (fm *ForestModel) Name() string {
-	return "Forest"
+	return "ForestModel"
 }
 
 func (fm *ForestModel) Enabled() bool {
@@ -642,18 +642,17 @@ func (fm *ForestModel) Train(data common.DataSourceData) ([]common.Hash, error) 
 	when := time.Now()
 	name := fm.Name()
 
-	gid := utils.GoRoutineID()
 	t1 := common.StampToTime(data.First())
 	t2 := common.StampToTime(data.Last())
 
-	fm.logger.Info("%s: %d Training from %v to %s ...", name, gid, t1, t2)
+	fm.logger.Info("%s: Training from %v to %s ...", name, t1, t2)
 
 	hs, err := fm.train(data)
 	if err != nil {
-		fm.logger.Error("%s: %d Training failed in %s error %s", name, gid, time.Since(when), err)
+		fm.logger.Error("%s: Training failed in %s error %s", name, time.Since(when), err)
 		return hs, err
 	}
-	fm.logger.Info("%s: %d Training successful in %s", name, gid, time.Since(when))
+	fm.logger.Info("%s: Training successful in %s", name, time.Since(when))
 	return hs, nil
 }
 
@@ -1034,11 +1033,10 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 	when := time.Now()
 	name := fm.Name()
 
-	gid := utils.GoRoutineID()
 	t1 := common.StampToTime(data.First())
 	t2 := common.StampToTime(data.Last())
 
-	fm.logger.Info("%s: %d Detecting from %v to %s ...", name, gid, t1, t2)
+	fm.logger.Info("%s: Detecting from %v to %s ...", name, t1, t2)
 
 	err := fm.detect(data, onFrame)
 	if err != nil {
@@ -1065,7 +1063,8 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 			if v.deps != nil {
 				deps = fmt.Sprintf(" (deps %d)", len(v.deps.Items()))
 			}
-			fm.logger.Debug("%s: Found detection %s%s: %s (%s / %s)", name, n, deps, verdict, category, impact)
+			begin := common.StampToTime(v.begin)
+			fm.logger.Info("%s: Found detection on %s %s%s: %s (%s / %s)", name, begin, n, deps, verdict, category, impact)
 		}
 	}
 

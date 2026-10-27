@@ -122,8 +122,8 @@
         tr.selected { background: #0284c7 !important; color: #fff; }
         
         th:nth-child(1), td:nth-child(1) { width: 75px; }
-        th:nth-child(2), td:nth-child(2) { width: 45%; }
-        th:nth-child(3), td:nth-child(3) { width: 55%; }
+        th:nth-child(2), td:nth-child(2) { width: auto; }
+        th:nth-child(3), td:nth-child(3) { width: 100px; }
 
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; display: inline-block; }
         .badge-most { background: #ef4444; color: #fff; }
@@ -155,7 +155,7 @@
 
         <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:400px;">
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:400px;">
         <datalist id="applicationList"></datalist>
         <span id="modelStatus" style="font-size:12px;">Unknown</span>
         <span id="wsStatus" style="font-size:12px; color:#10b981;">● Connected</span>
@@ -197,6 +197,7 @@
         let availableApplications = [];
         let selectedTimeLabel = null;
         let hoveredIndex = null;
+        const appColorMap = {};
 
         const defaultOrderedMetrics = [
             "InRequests", "OutRequests", 
@@ -225,17 +226,44 @@
             "HostMemory": { label: "Host Memory" }
         };
 
+        function matchesFilter(appName, filterVal) {
+            if (!filterVal) return true;
+            try {
+                const regex = new RegExp(filterVal, 'i');
+                return regex.test(appName);
+            } catch (e) {
+                return appName.toLowerCase().includes(filterVal.toLowerCase());
+            }
+        }
+
+        function getMatchingApps() {
+            const appsSet = new Set(Object.keys(applicationCache));
+            availableApplications.forEach(a => appsSet.add(a));
+            return Array.from(appsSet).filter(app => matchesFilter(app, currentFilter));
+        }
+
+        function getRandomColor(app) {
+            if (appColorMap[app]) return appColorMap[app];
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            appColorMap[app] = color;
+            return color;
+        }
+
         async function fetchApplications() {
             try {
                 const res = await fetch('{{.ListPath}}');
                 const data = await res.json();
-                if (data) {
+                if (data && data.applications) {
                     availableApplications = Object.keys(data.applications);
                     const datalist = document.getElementById('applicationList');
                     datalist.innerHTML = '';
                     availableApplications.forEach(key => {
                         if (!applicationCache[key]) {
-                            applicationCache[key] = { rawSeries: {}, verdictsHtml: "" };
+                            applicationCache[key] = { rawSeries: {}, verdicts: [] };
                         }
                         const opt = document.createElement('option');
                         opt.value = key;
@@ -243,7 +271,6 @@
                     });
                 }
 
-                // Sync with backend active application API on initial load
                 const activeRes = await fetch('{{.ActivePath}}');
                 const activeData = await activeRes.json();
                 if (activeData && activeData.application) {
@@ -260,8 +287,11 @@
             localStorage.setItem('sharedMetricColor', newColor);
             for (const key in charts) {
                 const c = charts[key];
-                c.data.datasets[0].borderColor = sharedMetricColor;
-                c.update('none');
+                const matchingApps = getMatchingApps();
+                if (matchingApps.length <= 1 && c.data.datasets[0]) {
+                    c.data.datasets[0].borderColor = sharedMetricColor;
+                    c.update('none');
+                }
             }
         }
 
@@ -353,7 +383,35 @@
 
                 ctx.save();
                 
-                if (dataset._violationTypes) {
+                const matchingApps = getMatchingApps();
+                const multiMode = matchingApps.length > 1;
+
+                // Check violations across all datasets (whether single app or multi-series against average limits)
+                let violationTypes = [];
+                const numApps = multiMode ? matchingApps.length : 1;
+                const upDataset = multiMode ? chart.data.datasets[numApps] : chart.data.datasets[1];
+                const loDataset = multiMode ? chart.data.datasets[numApps + 1] : chart.data.datasets[2];
+
+                if (upDataset && loDataset && chart.data.labels.length > 0) {
+                    for (let i = 0; i < chart.data.labels.length; i++) {
+                        let hasHigh = false;
+                        let hasLow = false;
+                        for (let d = 0; d < numApps; d++) {
+                            const val = chart.data.datasets[d].data[i];
+                            const up = upDataset.data[i];
+                            const lo = loDataset.data[i];
+                            if (val !== null && val !== undefined) {
+                                if (up !== null && val > up) hasHigh = true;
+                                if (lo !== null && val < lo) hasLow = true;
+                            }
+                        }
+                        if (hasHigh) violationTypes.push('high');
+                        else if (hasLow) violationTypes.push('low');
+                        else violationTypes.push(null);
+                    }
+                }
+
+                if (violationTypes.length > 0) {
                     const top = chart.chartArea.top;
                     const bottom = chart.chartArea.bottom;
                     const meta = chart.getDatasetMeta(0);
@@ -363,7 +421,7 @@
                     let currentType = null;
 
                     meta.data.forEach((element, index) => {
-                        const vType = dataset._violationTypes[index];
+                        const vType = violationTypes[index];
                         if (vType) {
                             const x = element.x;
                             if (startX === null) {
@@ -538,28 +596,27 @@
                 container.style.gridTemplateColumns = 'repeat(auto-fit, minmax(400px, 1fr))';
             }
 
+            const matchingApps = getMatchingApps();
+            const multiMode = matchingApps.length > 1;
+
             keysToRender.forEach(key => {
                 const cfg = metricsConfig[key];
-                if (!applicationCache[currentFilter]) {
-                    applicationCache[currentFilter] = { rawSeries: {}, verdictsHtml: "" };
-                }
-                if (!applicationCache[currentFilter].rawSeries[key]) {
-                    applicationCache[currentFilter].rawSeries[key] = [];
-                }
-
                 const card = document.createElement('div');
                 card.className = 'card' + (maximizedChartKey === key ? ' maximized' : '');
                 card.id = 'card_' + key;
 
                 const maxBtnText = (maximizedChartKey === key) ? '❐' : '🗖';
 
+                const legendHtml = '' +
+                    '<div class="inline-legend">' +
+                        '<span style="color:#ef4444">--- Upper</span>' +
+                        '<span style="color:#3b82f6">--- Lower</span>' +
+                    '</div>';
+
                 card.innerHTML = '<div class="card-header" draggable="true" data-metric="' + key + '">' +
                     '<h4>☰ ' + cfg.label + '</h4>' +
                     '<div class="header-actions">' +
-                        '<div class="inline-legend">' +
-                            '<span style="color:#ef4444">--- Upper</span>' +
-                            '<span style="color:#3b82f6">--- Lower</span>' +
-                        '</div>' +
+                        legendHtml +
                         '<button class="maximize-btn" onclick="toggleMaximize(\'' + key + '\')">' + maxBtnText + '</button>' +
                     '</div>' +
                 '</div>' +
@@ -576,14 +633,37 @@
                 container.appendChild(card);
 
                 const ctx = document.getElementById('chart_' + key).getContext('2d');
-                charts[key] = new Chart(ctx, {
-                    type: 'line',
-                    data: { labels: [], datasets: [
+                
+                let datasets = [];
+                if (multiMode) {
+                    matchingApps.forEach(app => {
+                        datasets.push({
+                            label: app,
+                            data: [],
+                            borderColor: getRandomColor(app),
+                            backgroundColor: 'transparent',
+                            tension: 0.2,
+                            pointRadius: 0
+                        });
+                    });
+                    // Add average upper, lower, median datasets when multiple series match
+                    datasets.push(
+                        { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                        { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                        { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
+                    );
+                } else {
+                    datasets = [
                         { label: cfg.label, data: [], borderColor: sharedMetricColor, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
                         { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                         { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                        { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                    ]},
+                        { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
+                    ];
+                }
+
+                charts[key] = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: datasets },
                     options: { 
                         responsive: true,
                         maintainAspectRatio: false,
@@ -611,22 +691,12 @@
                                 callbacks: {
                                     title: function(context) { return context[0].label; },
                                     label: function(context) {
-                                        if (context.datasetIndex > 0) return null;
-                                        let label = ' ';
+                                        let label = ' ' + context.dataset.label + ': ';
                                         if (context.parsed.y !== null) label += context.parsed.y.toFixed(2);
                                         return label;
                                     },
                                     afterBody: function(context) {
-                                        const idx = context[0].dataIndex;
-                                        const activeSeries = applicationCache[currentFilter] ? applicationCache[currentFilter].rawSeries[key] : null;
-                                        const pt = activeSeries ? activeSeries[idx] : null;
-                                        let text = '';
-                                        if (pt) {
-                                          text = 'Up ' + pt.up.toFixed(2);
-                                          text += '\nMed ' + pt.me.toFixed(2);
-                                          text += '\nLow ' + pt.lo.toFixed(2);
-                                        }
-                                        return text;
+                                        return '';
                                     }
                                 }
                             },
@@ -679,9 +749,6 @@
 
         function changeFilter() {
             const inputVal = document.getElementById('applicationSearch').value.trim();
-            //if (!inputVal) return;
-
-            saveCurrentStateToCache();
             currentFilter = inputVal;
             selectedTimeLabel = null;
 
@@ -689,31 +756,64 @@
                 ws.send(JSON.stringify({ type: "filter", application: currentFilter }));
             }
 
-            if (!applicationCache[currentFilter]) {
-                applicationCache[currentFilter] = { rawSeries: {}, verdictsHtml: "" };
-            }
-
-            loadStateFromCache(currentFilter);
+            refreshAllViews();
         }
 
-        function saveCurrentStateToCache() {
-            if (applicationCache[currentFilter]) {
-                applicationCache[currentFilter].verdictsHtml = document.getElementById('verdictTableBody').innerHTML;
-            }
-        }
-
-        function loadStateFromCache(applicationKey) {
-            document.getElementById('verdictTableBody').innerHTML = applicationCache[applicationKey] ? (applicationCache[applicationKey].verdictsHtml || "") : "";
-            document.querySelectorAll('#verdictTableBody tr').forEach(row => {
-                const timeLbl = row.getAttribute('data-time');
-                if (timeLbl) {
-                    row.onclick = function() { selectVerdict(timeLbl, row); };
+        function refreshAllViews() {
+            const matchingApps = getMatchingApps();
+            matchingApps.forEach(app => {
+                if (!applicationCache[app]) {
+                    applicationCache[app] = { rawSeries: {}, verdicts: [] };
                 }
             });
 
-            for (const key in charts) {
-                redrawChart(key);
-            }
+            rebuildVerdictTable();
+            initCharts();
+        }
+
+        function rebuildVerdictTable() {
+            const tbody = document.getElementById('verdictTableBody');
+            tbody.innerHTML = "";
+
+            const matchingApps = getMatchingApps();
+            const allVerdicts = [];
+
+            matchingApps.forEach(app => {
+                if (applicationCache[app] && applicationCache[app].verdicts) {
+                    applicationCache[app].verdicts.forEach(v => {
+                        allVerdicts.push({ app, ...v });
+                    });
+                }
+            });
+
+            allVerdicts.sort((a, b) => new Date(b.fullTimestamp || b.time) - new Date(a.fullTimestamp || a.time));
+
+            allVerdicts.forEach(v => {
+                const timeLabel = v.time;
+                const vv = v.verdict;
+                let badgeClass = 'badge-zero';
+                if (vv.impact === '{{.CaseImpactSevere}}') badgeClass = 'badge-most';
+                else if (vv.impact === '{{.CaseImpactAverage}}') badgeClass = 'badge-avg';
+
+                const largeHint = '• Application: ' + v.app + '\n' +
+                                  '• Impact: ' + vv.impact + '\n' +
+                                  '• Score: ' + vv.score + '\n' +
+                                  '• Category: ' + vv.category + '\n' +
+                                  '• Event Name: ' + vv.name + '\n' +
+                                  '• Description:  ' + vv.description + '\n';
+
+                const row = document.createElement('tr');
+                row.setAttribute('data-time', timeLabel);
+                if (timeLabel === selectedTimeLabel) row.className = 'selected';
+                
+                row.title = largeHint;
+                row.innerHTML = '<td>' + timeLabel + '</td>' +
+                    '<td><strong>' + v.app + '</strong></td>' +
+                    '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
+                
+                row.onclick = function() { selectVerdict(timeLabel, row); };
+                tbody.appendChild(row);
+            });
         }
 
         function changeTimeframe() {
@@ -725,34 +825,97 @@
         function redrawChart(key) {
             const c = charts[key];
             if (!c) return;
-            if (!applicationCache[currentFilter]) {
-                applicationCache[currentFilter] = { rawSeries: {}, verdictsHtml: "" };
+
+            const matchingApps = getMatchingApps();
+            const multiMode = matchingApps.length > 1;
+
+            if (multiMode) {
+                const timeSet = new Set();
+                matchingApps.forEach(app => {
+                    if (applicationCache[app] && applicationCache[app].rawSeries[key]) {
+                        applicationCache[app].rawSeries[key].forEach(pt => timeSet.add(pt.time));
+                    }
+                });
+                const labels = Array.from(timeSet);
+                c.data.labels = labels.slice(-maxDataPoints);
+
+                // Update series for each matched app
+                for (let i = 0; i < matchingApps.length; i++) {
+                    const appName = matchingApps[i];
+                    const dataset = c.data.datasets[i];
+                    if (!dataset) continue;
+
+                    const series = (applicationCache[appName] && applicationCache[appName].rawSeries[key]) ? applicationCache[appName].rawSeries[key] : [];
+                    const trimmedLabels = c.data.labels;
+                    dataset.data = trimmedLabels.map(tLabel => {
+                        const pt = series.find(p => p.time === tLabel);
+                        return pt ? pt.val : null;
+                    });
+
+                    dataset.pointRadius = trimmedLabels.map(tLabel => (tLabel === selectedTimeLabel) ? 6 : 0);
+                    dataset.pointBackgroundColor = dataset.borderColor;
+                    dataset.pointBorderColor = trimmedLabels.map(tLabel => (tLabel === selectedTimeLabel) ? '#ffffff' : dataset.borderColor);
+                }
+
+                // Compute average upper, lower, and median across matching apps
+                const trimmedLabels = c.data.labels;
+                const avgUp = [];
+                const avgLo = [];
+                const avgMe = [];
+
+                trimmedLabels.forEach(tLabel => {
+                    let upSum = 0, loSum = 0, meSum = 0, count = 0;
+                    matchingApps.forEach(appName => {
+                        const series = (applicationCache[appName] && applicationCache[appName].rawSeries[key]) ? applicationCache[appName].rawSeries[key] : [];
+                        const pt = series.find(p => p.time === tLabel);
+                        if (pt) {
+                            if (pt.up !== undefined) upSum += pt.up;
+                            if (pt.lo !== undefined) loSum += pt.lo;
+                            if (pt.me !== undefined) meSum += pt.me;
+                            count++;
+                        }
+                    });
+                    avgUp.push(count > 0 ? upSum / count : null);
+                    avgLo.push(count > 0 ? loSum / count : null);
+                    avgMe.push(count > 0 ? meSum / count : null);
+                });
+
+                const upDataset = c.data.datasets[matchingApps.length];
+                const loDataset = c.data.datasets[matchingApps.length + 1];
+                const meDataset = c.data.datasets[matchingApps.length + 2];
+
+                if (upDataset) upDataset.data = avgUp;
+                if (loDataset) loDataset.data = avgLo;
+                if (meDataset) meDataset.data = avgMe;
+
+            } else {
+                const appKey = matchingApps.length === 1 ? matchingApps[0] : currentFilter;
+                if (!applicationCache[appKey]) {
+                    applicationCache[appKey] = { rawSeries: {}, verdicts: [] };
+                }
+                if (!applicationCache[appKey].rawSeries[key]) {
+                    applicationCache[appKey].rawSeries[key] = [];
+                }
+                const series = applicationCache[appKey].rawSeries[key];
+                const trimmed = series.slice(-maxDataPoints);
+
+                c.data.labels = trimmed.map(pt => pt.time);
+                c.data.datasets[0].data = trimmed.map(pt => pt.val);
+                if (c.data.datasets[1]) c.data.datasets[1].data = trimmed.map(pt => pt.up);
+                if (c.data.datasets[2]) c.data.datasets[2].data = trimmed.map(pt => pt.lo);
+                if (c.data.datasets[3]) c.data.datasets[3].data = trimmed.map(pt => pt.me);
+
+                c.data.datasets[0]._violationTypes = trimmed.map(pt => {
+                    if (pt.val > pt.up) return 'high';
+                    if (pt.val < pt.lo) return 'low';
+                    return null;
+                });
+                c.data.datasets[0]._violationPoints = trimmed.map(pt => pt.val > pt.up || pt.val < pt.lo);
+
+                c.data.datasets[0].pointRadius = trimmed.map(pt => (pt.time === selectedTimeLabel) ? 6 : 0);
+                c.data.datasets[0].pointBackgroundColor = sharedMetricColor;
+                c.data.datasets[0].pointBorderColor = (pt) => (pt.time === selectedTimeLabel) ? '#ffffff' : sharedMetricColor;
             }
-            if (!applicationCache[currentFilter].rawSeries[key]) {
-                applicationCache[currentFilter].rawSeries[key] = [];
-            }
-            const series = applicationCache[currentFilter].rawSeries[key];
-            const trimmed = series.slice(-maxDataPoints);
-
-            c.data.labels = trimmed.map(pt => pt.time);
-            c.data.datasets[0].data = trimmed.map(pt => pt.val);
-            c.data.datasets[1].data = trimmed.map(pt => pt.up);
-            c.data.datasets[2].data = trimmed.map(pt => pt.lo);
-            c.data.datasets[3].data = trimmed.map(pt => pt.me);
-
-            c.data.datasets[0]._violationTypes = trimmed.map(pt => {
-                if (pt.val > pt.up) return 'high';
-                if (pt.val < pt.lo) return 'low';
-                return null;
-            });
-            c.data.datasets[0]._violationPoints = trimmed.map(pt => pt.val > pt.up || pt.val < pt.lo);
-
-            c.data.datasets[0].pointRadius = trimmed.map((pt, idx) => {
-                if (pt.time === selectedTimeLabel) return 6;
-                return 0;
-            });
-            c.data.datasets[0].pointBackgroundColor = trimmed.map(pt => (pt.time === selectedTimeLabel) ? sharedMetricColor : sharedMetricColor);
-            c.data.datasets[0].pointBorderColor = trimmed.map(pt => (pt.time === selectedTimeLabel) ? '#ffffff' : sharedMetricColor);
 
             c.update('none');
         }
@@ -769,16 +932,14 @@
             for (const key in charts) { redrawChart(key); }
         }
 
-        async function fetchModelState() {
+        function setModelState(model, state) {
             const ms = document.getElementById('modelStatus');
             try {
-                const res = await fetch('{{.StatePath}}');
-                const data = await res.json();
-                if (data.state === 'Idle') {
+                if (state === 'Idle') {
                     ms.innerText = 'Idle';
-                } else if (data.state === 'Training') {
+                } else if (state === 'Training') {
                     ms.innerText = 'Training...';
-                } else if (data.state === 'Detecting') {
+                } else if (state === 'Detecting') {
                     ms.innerText = 'Detecting...';
                 } else {
                     ms.innerText = 'Unknown';
@@ -787,8 +948,6 @@
                ms.innerText = 'Unknown';
             }
         }
-        setInterval(fetchModelState, 1000);
-        fetchModelState();
 
         function addApplication(app) {
             if (!applicationCache[app]) {
@@ -796,13 +955,18 @@
                 const opt = document.createElement('option');
                 opt.value = app;
                 datalist.appendChild(opt);
-                applicationCache[app] = { rawSeries: {}, verdictsHtml: "" };
+                applicationCache[app] = { rawSeries: {}, verdicts: [] };
             }
         }
 
         function clearVerdicts() {
-            const tbody = document.getElementById('verdictTableBody');
-            tbody.innerHTML = "";
+            const matchingApps = getMatchingApps();
+            matchingApps.forEach(app => {
+                if (applicationCache[app]) {
+                    applicationCache[app].verdicts = [];
+                }
+            });
+            rebuildVerdictTable();
         }
 
         function connectWS() {
@@ -821,23 +985,24 @@
 
             ws.onmessage = function(event) {
                 const v = JSON.parse(event.data);
-                const app = v.ident;
 
-                if (app === '') {
-                    return
+                if (v.state) {
+                    setModelState(v.model, v.state);
                 }
+
+                const app = v.ident;
+                if (!app) return;
+
+                addApplication(app);
                 const timeLabel = new Date(v.timestamp).toLocaleTimeString();
 
                 if (v.points) {
                     v.points.forEach(point => {
-                        addApplication(app);
                         if (!applicationCache[app].rawSeries[point.metric]) {
                             applicationCache[app].rawSeries[point.metric] = [];
                         }
                         
                         const series = applicationCache[app].rawSeries[point.metric];
-                        
-                        // Prevent duplicate appending of the exact same timeLabel for this metric
                         const existingIndex = series.findIndex(pt => pt.time === timeLabel);
                         const pointData = {
                             time: timeLabel,
@@ -848,7 +1013,7 @@
                         };
 
                         if (existingIndex > -1) {
-                            series[existingIndex] = pointData; // Update in place if timestamp already exists
+                            series[existingIndex] = pointData;
                         } else {
                             series.push(pointData);
                             if (series.length > 200) {
@@ -858,8 +1023,28 @@
                     });
                 }
 
-                if (app === currentFilter) {
+                if (v.verdict) {
+                    if (!applicationCache[app].verdicts) {
+                        applicationCache[app].verdicts = [];
+                    }
+                    const verdictObj = {
+                        time: timeLabel,
+                        fullTimestamp: v.timestamp,
+                        verdict: v.verdict
+                    };
 
+                    const existingVerdictIdx = applicationCache[app].verdicts.findIndex(item => item.time === timeLabel);
+                    if (existingVerdictIdx > -1) {
+                        applicationCache[app].verdicts[existingVerdictIdx] = verdictObj;
+                    } else {
+                        applicationCache[app].verdicts.unshift(verdictObj);
+                        if (applicationCache[app].verdicts.length > 50) {
+                            applicationCache[app].verdicts.pop();
+                        }
+                    }
+                }
+
+                if (matchesFilter(app, currentFilter)) {
                     if (v.points) {
                         v.points.forEach(point => {
                             if (charts[point.metric]) {
@@ -867,54 +1052,8 @@
                             }
                         });
                     }
-
                     if (v.verdict) {
-
-                       const tbody = document.getElementById('verdictTableBody');
-                        
-                        let existingRow = null;
-                        tbody.querySelectorAll('tr').forEach(tr => {
-                            if (tr.getAttribute('data-time') === timeLabel) {
-                                existingRow = tr;
-                            }
-                        });
-
-                        const vv = v.verdict;
-                        let badgeClass = 'badge-zero';
-                        if (vv.impact === '{{.CaseImpactSevere}}') badgeClass = 'badge-most';
-                        else if (vv.impact === '{{.CaseImpactAverage}}') badgeClass = 'badge-avg';
-
-                        const largeHint = '• Application: ' + v.ident + '\n' +
-                                          '• Impact: ' + vv.impact + '\n' +
-                                          '• Score: ' + vv.score + '\n' +
-                                          '• Category: ' + vv.category + '\n' +
-                                          '• Event Name: ' + vv.name + '\n' +
-                                          '• Description:  ' + vv.description + '\n';
-
-                        if (existingRow) {
-                            existingRow.title = largeHint;
-                            existingRow.innerHTML = '<td>' + timeLabel + '</td>' +
-                                '<td><strong>' + v.ident + '</strong></td>' +
-                                '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
-                            
-                            existingRow.onclick = function() { selectVerdict(timeLabel, existingRow); };
-                        } else {
-                            const row = document.createElement('tr');
-                            row.setAttribute('data-time', timeLabel);
-                            if (timeLabel === selectedTimeLabel) row.className = 'selected';
-                            
-                            row.title = largeHint;
-                            row.innerHTML = '<td>' + timeLabel + '</td>' +
-                                '<td><strong>' + v.ident + '</strong></td>' +
-                                '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
-                            
-                            row.onclick = function() { selectVerdict(timeLabel, row); };
-
-                            tbody.insertBefore(row, tbody.firstChild);
-                            if (tbody.rows.length > 30) tbody.deleteRow(tbody.rows.length - 1);
-                        }
-
-                        applicationCache[currentFilter].verdictsHtml = tbody.innerHTML;
+                        rebuildVerdictTable();
                     }
                 }
             };
@@ -925,6 +1064,7 @@
                     wsStatus.innerText = '○ Disconnected';
                     wsStatus.style.color = '#ef4444';
                 }
+                setModelState("Unknown", "Unknown");
                 setTimeout(connectWS, 3000); 
             };
         }

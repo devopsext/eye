@@ -2,11 +2,9 @@ package handler
 
 import (
 	"encoding/json"
-	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -46,6 +44,8 @@ type HttpApplicationHandlerData struct {
 	Timestamp time.Time                          `json:"timestamp"`
 	Points    []HttpApplicationHandlerDataPoint  `json:"points"`
 	Verdict   *HttpApplicationHandlerDataVerdict `json:"verdict"`
+	Model     string                             `json:"string"`
+	State     string                             `json:"state"`
 }
 
 type HttpApplicationInfo struct {
@@ -65,9 +65,6 @@ type HttpApplicationHandler struct {
 	wsUpgrader  websocket.Upgrader
 	datachannel chan HttpApplicationHandlerData
 	//
-	stateMutex sync.Mutex
-	stateMap   map[string]string
-	//
 	identMutex sync.Mutex
 	identMap   map[string]*HttpApplicationInfo
 	//
@@ -79,7 +76,6 @@ type HttpApplicationHandler struct {
 
 const (
 	HttpApplicationHandlerWebsocketPath = "/ws"
-	HttpApplicationHandlerStatePath     = "/state"
 	HttpApplicationHandlerListPath      = "/list"
 	HttpApplicationHandlerActivePath    = "/active"
 )
@@ -256,10 +252,10 @@ func (h *HttpApplicationHandler) State(model common.Model, state common.ModelSta
 		return
 	}
 
-	h.stateMutex.Lock()
-	defer h.stateMutex.Unlock()
-
-	h.stateMap[model.Name()] = common.ModelStateToString(state)
+	h.datachannel <- HttpApplicationHandlerData{
+		Model: model.Name(),
+		State: common.ModelStateToString(state),
+	}
 }
 
 func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) error {
@@ -276,7 +272,6 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 
 	type tpl struct {
 		WebsocketPath     string
-		StatePath         string
 		ActivePath        string
 		ListPath          string
 		CaseImpactSevere  string
@@ -284,13 +279,11 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 	}
 
 	websocketPath, _ := url.JoinPath(path, HttpApplicationHandlerWebsocketPath)
-	statePath, _ := url.JoinPath(path, HttpApplicationHandlerStatePath)
 	activePath, _ := url.JoinPath(path, HttpApplicationHandlerActivePath)
 	listPath, _ := url.JoinPath(path, HttpApplicationHandlerListPath)
 
 	return pageTemplate.Execute(w, &tpl{
 		WebsocketPath:     websocketPath,
-		StatePath:         statePath,
 		ActivePath:        activePath,
 		ListPath:          listPath,
 		CaseImpactSevere:  common.CaseImpactToString(common.CaseImpactSevere),
@@ -337,38 +330,6 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 		}
 	}
 	return nil
-}
-
-func (h *HttpApplicationHandler) handleState(w http.ResponseWriter) error {
-
-	h.stateMutex.Lock()
-	defer h.stateMutex.Unlock()
-
-	model := "Unknown"
-	state := "unknown"
-
-	w.Header().Set("Content-Type", "application/json")
-
-	type response struct {
-		Model string `json:"model"`
-		State string `json:"state"`
-	}
-
-	keys := slices.Collect(maps.Keys(h.stateMap))
-	if len(keys) > 0 {
-		model = keys[0]
-		state = h.stateMap[model]
-	}
-
-	data, err := json.Marshal(&response{
-		Model: model,
-		State: state,
-	})
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(data)
-	return err
 }
 
 func (h *HttpApplicationHandler) handleList(w http.ResponseWriter) error {
@@ -431,8 +392,6 @@ func (h *HttpApplicationHandler) HandleHttpRequest(path string, w http.ResponseW
 	switch rest {
 	case HttpApplicationHandlerWebsocketPath:
 		return h.handleWebsocket(w, r)
-	case HttpApplicationHandlerStatePath:
-		return h.handleState(w)
 	case HttpApplicationHandlerListPath:
 		return h.handleList(w)
 	case HttpApplicationHandlerActivePath:
@@ -479,7 +438,6 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		//
-		stateMap:    make(map[string]string),
 		identMap:    make(map[string]*HttpApplicationInfo),
 		datachannel: make(chan HttpApplicationHandlerData),
 		reIdents:    reIdents,
