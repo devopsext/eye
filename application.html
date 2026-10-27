@@ -668,7 +668,7 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         scales: { 
-                            y: { beginAtZero: false, grid: { color: 'rgba(100, 116, 139, 0.2)' } }, 
+                            y: { beginAtZero: false, grid: { color: 'rgba(100, 116, 139, 0.2)' }, grace: '15%' }, 
                             x: { grid: { color: 'rgba(100, 116, 139, 0.2)' } } 
                         },
                         interaction: {
@@ -859,24 +859,23 @@
 
                 // Compute average upper, lower, and median across matching apps
                 const trimmedLabels = c.data.labels;
-                const avgUp = [];
-                const avgLo = [];
+                const maxUp = [];
+                const minLo = [];
                 const avgMe = [];
 
                 trimmedLabels.forEach(tLabel => {
-                    let upSum = 0, loSum = 0, meSum = 0, count = 0;
+                    let mUp = -Infinity, mLo = Infinity, meSum = 0, count = 0, hasUp = false, hasLo = false;
                     matchingApps.forEach(appName => {
                         const series = (applicationCache[appName] && applicationCache[appName].rawSeries[key]) ? applicationCache[appName].rawSeries[key] : [];
                         const pt = series.find(p => p.time === tLabel);
                         if (pt) {
-                            if (pt.up !== undefined) upSum += pt.up;
-                            if (pt.lo !== undefined) loSum += pt.lo;
-                            if (pt.me !== undefined) meSum += pt.me;
-                            count++;
+                            if (pt.up !== undefined && pt.up !== null) { mUp = Math.max(mUp, pt.up); hasUp = true; }
+                            if (pt.lo !== undefined && pt.lo !== null) { mLo = Math.min(mLo, pt.lo); hasLo = true; }
+                            if (pt.me !== undefined && pt.me !== null) { meSum += pt.me; count++; }
                         }
                     });
-                    avgUp.push(count > 0 ? upSum / count : null);
-                    avgLo.push(count > 0 ? loSum / count : null);
+                    maxUp.push(hasUp ? mUp : null);
+                    minLo.push(hasLo ? mLo : null);
                     avgMe.push(count > 0 ? meSum / count : null);
                 });
 
@@ -884,8 +883,8 @@
                 const loDataset = c.data.datasets[matchingApps.length + 1];
                 const meDataset = c.data.datasets[matchingApps.length + 2];
 
-                if (upDataset) upDataset.data = avgUp;
-                if (loDataset) loDataset.data = avgLo;
+                if (upDataset) upDataset.data = maxUp;
+                if (loDataset) loDataset.data = minLo;
                 if (meDataset) meDataset.data = avgMe;
 
             } else {
