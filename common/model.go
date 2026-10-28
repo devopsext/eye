@@ -45,8 +45,6 @@ type ModelFrame interface {
 
 type ModelApplicationFrame interface {
 	ModelFrame
-	Application() string
-	Host() string
 	InRequests() ModelDataPoint
 	InThroughput() ModelDataPoint
 	InLatency() ModelDataPoint

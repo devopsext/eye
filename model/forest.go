@@ -124,7 +124,7 @@ func (af *ForestModelApplicationFrame) Timestamp() time.Time {
 	return common.StampToTime(af.frame.Stamp())
 }
 
-func (af *ForestModelApplicationFrame) application() string {
+func (af *ForestModelApplicationFrame) Ident() string {
 
 	if af.frame == nil || utils.IsEmpty(af.data) {
 		return ""
@@ -135,49 +135,11 @@ func (af *ForestModelApplicationFrame) application() string {
 		return ""
 	}
 
-	app := names.FindByHash(af.frame.Application())
+	app := names.FindByHash(af.frame.Hash())
 	if utils.IsEmpty(app) {
 		return ""
 	}
 	return app
-}
-
-func (af *ForestModelApplicationFrame) Application() string {
-	return af.application()
-}
-
-func (af *ForestModelApplicationFrame) host() string {
-
-	if af.frame == nil || utils.IsEmpty(af.data) {
-		return ""
-	}
-
-	names := af.data.Names()
-	if names == nil {
-		return ""
-	}
-
-	host := names.FindByHash(af.frame.Host())
-	if utils.IsEmpty(host) {
-		return ""
-	}
-	return host
-}
-
-func (af *ForestModelApplicationFrame) Host() string {
-	return af.host()
-}
-
-func (af *ForestModelApplicationFrame) Ident() string {
-
-	app := af.application()
-	host := af.host()
-
-	if utils.IsEmpty(host) {
-		return app
-	}
-
-	return fmt.Sprintf("%s/%s", app, host)
 }
 
 func (af *ForestModelApplicationFrame) Verdict() common.ModelVerdict {
@@ -498,9 +460,7 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 
 			as := signal.AsApplicationSignal()
 			if as != nil {
-				host := as.Host()
-				hs := measurements.FindHostSignal(stamp, host)
-				frame := forest.NewApplicationFrame(stamp, as, hs, host)
+				frame := forest.NewApplicationFrame(stamp, as)
 				if frame != nil && frame.Valid() {
 					appFrames[hash] = append(appFrames[hash], frame)
 				}
@@ -717,8 +677,8 @@ func (fm *ForestModel) findSimilar(measurements *common.Measurements, hash commo
 	// gather all similar hashes, apps mostly
 	as := signal.AsApplicationSignal()
 	if as != nil {
-		if as.Application() > 0 {
-			hashes = append(hashes, as.Application())
+		if as.Hash() > 0 {
+			hashes = append(hashes, as.Hash())
 		}
 	}
 

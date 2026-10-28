@@ -136,114 +136,142 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		return
 	}
 
-	// fulfill applications
+	/*
+	   // fulfill applications
 
-	h.identMutex.Lock()
-	defer h.identMutex.Unlock()
+	   h.identMutex.Lock()
+	   defer h.identMutex.Unlock()
 
-	info := h.identMap[ident]
-	if info == nil {
-		info = &HttpApplicationInfo{}
-	}
-	info.Application = af.Application()
-	info.Host = af.Host()
-	h.identMap[ident] = info
+	   info := h.identMap[ident]
 
-	// check active
-	h.activeMutex.Lock()
-	defer h.activeMutex.Unlock()
-	if h.activeIdent != ident {
-		if h.reIdents == nil {
-			return
-		}
-		if !h.reIdents.MatchString(ident) {
-			return
-		}
-	}
+	   	if info == nil {
+	   		info = &HttpApplicationInfo{}
+	   	}
 
-	ts := af.Timestamp()
+	   info.Application = af.Application()
+	   info.Host = af.Host()
+	   h.identMap[ident] = info
 
-	points := []HttpApplicationHandlerDataPoint{}
+	   // check active
+	   h.activeMutex.Lock()
+	   defer h.activeMutex.Unlock()
 
-	inReq := af.InRequests()
-	if !utils.IsEmpty(inReq) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InRequests", inReq.Value(), inReq.Min(), inReq.Max(), inReq.Median()))
-	}
-	inThru := af.InThroughput()
-	if !utils.IsEmpty(inThru) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InThroughput", inThru.Value(), inThru.Min(), inThru.Max(), inThru.Median()))
-	}
-	inLat := af.InLatency()
-	if !utils.IsEmpty(inLat) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InLatency", inLat.Value(), inLat.Min(), inLat.Max(), inLat.Median()))
-	}
-	inErr := af.InErrors()
-	if !utils.IsEmpty(inErr) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InErrors", inErr.Value(), inErr.Min(), inErr.Max(), inErr.Median()))
-	}
-	//
-	outReq := af.OutRequests()
-	if !utils.IsEmpty(outReq) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutRequests", outReq.Value(), outReq.Min(), outReq.Max(), outReq.Median()))
-	}
-	outThru := af.OutThroughput()
-	if !utils.IsEmpty(outThru) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutThroughput", outThru.Value(), outThru.Min(), outThru.Max(), outThru.Median()))
-	}
-	outLat := af.OutLatency()
-	if !utils.IsEmpty(outLat) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutLatency", outLat.Value(), outLat.Min(), outLat.Max(), outLat.Median()))
-	}
-	outErr := af.OutErrors()
-	if !utils.IsEmpty(outErr) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutErrors", outErr.Value(), outErr.Min(), outErr.Max(), outErr.Median()))
-	}
-	//
-	appCPU := af.CPU()
-	if !utils.IsEmpty(appCPU) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationCPU", appCPU.Value(), appCPU.Min(), appCPU.Max(), appCPU.Median()))
-	}
-	appMem := af.Memory()
-	if !utils.IsEmpty(appMem) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationMemory", appMem.Value(), appMem.Min(), appMem.Max(), appMem.Median()))
-	}
-	hostCPU := af.HostCPU()
-	if !utils.IsEmpty(hostCPU) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostCPU", hostCPU.Value(), hostCPU.Min(), hostCPU.Max(), hostCPU.Median()))
-	}
-	hostMem := af.HostMemory()
-	if !utils.IsEmpty(hostMem) {
-		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max(), hostMem.Median()))
-	}
+	   	if h.activeIdent != ident {
+	   		if h.reIdents == nil {
+	   			return
+	   		}
+	   		if !h.reIdents.MatchString(ident) {
+	   			return
+	   		}
+	   	}
 
-	if len(points) == 0 {
-		return
-	}
+	   ts := af.Timestamp()
 
-	var verdict *HttpApplicationHandlerDataVerdict
+	   points := []HttpApplicationHandlerDataPoint{}
 
-	v := af.Verdict()
-	if !utils.IsEmpty(v) {
+	   inReq := af.InRequests()
 
-		impact := common.CaseImpactToString(v.Impact())
-		if !utils.IsEmpty(impact) {
+	   	if !utils.IsEmpty(inReq) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InRequests", inReq.Value(), inReq.Min(), inReq.Max(), inReq.Median()))
+	   	}
 
-			verdict = &HttpApplicationHandlerDataVerdict{
-				Name:        v.Name(),
-				Impact:      impact,
-				Score:       v.Score(),
-				Category:    common.CaseCategoryToString(v.Category()),
-				Description: v.Description(),
-			}
-		}
-	}
+	   inThru := af.InThroughput()
 
-	h.datachannel <- HttpApplicationHandlerData{
-		Ident:     ident,
-		Timestamp: af.Timestamp(),
-		Points:    points,
-		Verdict:   verdict,
-	}
+	   	if !utils.IsEmpty(inThru) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InThroughput", inThru.Value(), inThru.Min(), inThru.Max(), inThru.Median()))
+	   	}
+
+	   inLat := af.InLatency()
+
+	   	if !utils.IsEmpty(inLat) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InLatency", inLat.Value(), inLat.Min(), inLat.Max(), inLat.Median()))
+	   	}
+
+	   inErr := af.InErrors()
+
+	   	if !utils.IsEmpty(inErr) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "InErrors", inErr.Value(), inErr.Min(), inErr.Max(), inErr.Median()))
+	   	}
+
+	   //
+	   outReq := af.OutRequests()
+
+	   	if !utils.IsEmpty(outReq) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutRequests", outReq.Value(), outReq.Min(), outReq.Max(), outReq.Median()))
+	   	}
+
+	   outThru := af.OutThroughput()
+
+	   	if !utils.IsEmpty(outThru) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutThroughput", outThru.Value(), outThru.Min(), outThru.Max(), outThru.Median()))
+	   	}
+
+	   outLat := af.OutLatency()
+
+	   	if !utils.IsEmpty(outLat) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutLatency", outLat.Value(), outLat.Min(), outLat.Max(), outLat.Median()))
+	   	}
+
+	   outErr := af.OutErrors()
+
+	   	if !utils.IsEmpty(outErr) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "OutErrors", outErr.Value(), outErr.Min(), outErr.Max(), outErr.Median()))
+	   	}
+
+	   //
+	   appCPU := af.CPU()
+
+	   	if !utils.IsEmpty(appCPU) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationCPU", appCPU.Value(), appCPU.Min(), appCPU.Max(), appCPU.Median()))
+	   	}
+
+	   appMem := af.Memory()
+
+	   	if !utils.IsEmpty(appMem) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "ApplicationMemory", appMem.Value(), appMem.Min(), appMem.Max(), appMem.Median()))
+	   	}
+
+	   hostCPU := af.HostCPU()
+
+	   	if !utils.IsEmpty(hostCPU) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostCPU", hostCPU.Value(), hostCPU.Min(), hostCPU.Max(), hostCPU.Median()))
+	   	}
+
+	   hostMem := af.HostMemory()
+
+	   	if !utils.IsEmpty(hostMem) {
+	   		points = append(points, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max(), hostMem.Median()))
+	   	}
+
+	   	if len(points) == 0 {
+	   		return
+	   	}
+
+	   var verdict *HttpApplicationHandlerDataVerdict
+
+	   v := af.Verdict()
+	   if !utils.IsEmpty(v) {
+
+	   		impact := common.CaseImpactToString(v.Impact())
+	   		if !utils.IsEmpty(impact) {
+
+	   			verdict = &HttpApplicationHandlerDataVerdict{
+	   				Name:        v.Name(),
+	   				Impact:      impact,
+	   				Score:       v.Score(),
+	   				Category:    common.CaseCategoryToString(v.Category()),
+	   				Description: v.Description(),
+	   			}
+	   		}
+	   	}
+
+	   	h.datachannel <- HttpApplicationHandlerData{
+	   		Ident:     ident,
+	   		Timestamp: af.Timestamp(),
+	   		Points:    points,
+	   		Verdict:   verdict,
+	   	}
+	*/
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {

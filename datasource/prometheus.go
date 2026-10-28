@@ -1216,54 +1216,67 @@ func (p *Prometheus) string2Time(ts string) time.Time {
 	return t
 }
 
-func (p *Prometheus) getApplicationHost(
+func (p *Prometheus) getApplication(
 	data *PrometheusData, stamp common.Stamp,
-	appName, hostName string, appHostHash common.Hash) (bool, common.Hash, common.Hash) {
+	appName string, appHash common.Hash) (bool, common.Hash) {
 
 	if utils.IsEmpty(appName) {
-		return false, 0, 0
+		return false, 0
 	}
 
-	// find application & hosts in the dictionaries
-	appHash := data.names.AddOrUpdate(appName)
+	// find apps in the dictionaries
 	app := data.applications.Find(stamp, appHash)
 
-	hostHash := data.names.AddOrUpdate(hostName)
-	host := data.hosts.Find(stamp, hostHash)
-
-	// find application signal in measurements
-	if app == nil || host == nil {
-		signal := data.measurements.FindApplicationSignal(stamp, appHostHash)
-		if app == nil && signal != nil {
-			appHash = signal.Application()
+	// find host signal in measurements
+	if app == nil {
+		signal := data.measurements.FindApplicationSignal(stamp, appHash)
+		if signal != nil {
+			appHash = signal.Hash()
 			app = data.applications.Find(stamp, appHash)
-		}
-		if host == nil && signal != nil {
-			hostHash = signal.Host()
-			host = data.hosts.Find(stamp, hostHash)
 		}
 	}
 
-	// create application if there are no
+	// create app if there are no
 	if app == nil {
 		appLbs := make(map[string]string)
 		appLbs[common.ApplicationName] = appName
 		app = common.NewApplication(appHash, data.attributes.AddOrUpdate(appLbs))
 		data.applications.AddOrUpdate(stamp, app)
 	}
+	return true, appHash
+}
+
+func (p *Prometheus) getHost(
+	data *PrometheusData, stamp common.Stamp,
+	hostName string, hostHash common.Hash) (bool, common.Hash) {
+
+	if utils.IsEmpty(hostName) {
+		return false, 0
+	}
+
+	// find hosts in the dictionaries
+	host := data.hosts.Find(stamp, hostHash)
+
+	// find host signal in measurements
+	if host == nil {
+		signal := data.measurements.FindHostSignal(stamp, hostHash)
+		if signal != nil {
+			hostHash = signal.Hash()
+			host = data.hosts.Find(stamp, hostHash)
+		}
+	}
 
 	// create host if there are no
-	if host == nil && !utils.IsEmpty(hostName) {
+	if host == nil {
 		hostLbs := make(map[string]string)
 		hostLbs[common.HostName] = hostName
 		host = common.NewHost(hostHash, data.attributes.AddOrUpdate(hostLbs), nil)
 		data.hosts.AddOrUpdate(stamp, host)
 	}
-
-	return true, appHash, hostHash
+	return true, hostHash
 }
 
-type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash)
+type applicationSignalsOverDataCallback = func(as *common.ApplicationSignal, host common.Hash, kind common.SignalKind, value float64, hash common.Hash)
 
 func (p *Prometheus) applicationSignalsOverData(
 	series map[common.SignalKind]PrometheusSeries,
@@ -1282,55 +1295,22 @@ func (p *Prometheus) applicationSignalsOverData(
 				appName := lbs[common.ApplicationSignalName]
 				hostName := lbs[common.ApplicationSignalHost]
 
-				appHost := data.measurements.BuildApplicationSignalName(appName, hostName)
-				appHostHash := data.names.AddOrUpdate(appHost)
+				appHash := data.names.AddOrUpdate(appName)
+				hostHash := data.names.AddOrUpdate(hostName)
 
-				as := data.measurements.FindApplicationSignal(stamp, appHostHash)
+				as := data.measurements.FindApplicationSignal(stamp, appHash)
 				if as == nil {
-					found, appHash, hostHash := p.getApplicationHost(data, stamp, appName, hostName, appHostHash)
+					found, appHash := p.getApplication(data, stamp, appName, appHash)
 					if !found {
 						continue
 					}
-					as = common.NewApplicationSignal(appHostHash, appHash, hostHash)
+					as = common.NewApplicationSignal(appHash)
 				}
 				data.measurements.AddOrUpdate(stamp, as)
-				callback(as, kind, v.Value, v.Hash)
+				callback(as, hostHash, kind, v.Value, v.Hash)
 			}
 		}
 	}
-
-}
-
-func (p *Prometheus) getHost(
-	data *PrometheusData, stamp common.Stamp,
-	hostName string, hostHash common.Hash) (bool, common.Hash) {
-
-	if utils.IsEmpty(hostName) {
-		return false, 0
-	}
-
-	// find hosts in the dictionaries
-	host := data.hosts.Find(stamp, hostHash)
-
-	// find host signal in measurements
-
-	if host == nil {
-		signal := data.measurements.FindHostSignal(stamp, hostHash)
-		if signal != nil {
-			hostHash = signal.Hash()
-			host = data.hosts.Find(stamp, hostHash)
-		}
-	}
-
-	// create host if there are no
-
-	if host == nil {
-		hostLbs := make(map[string]string)
-		hostLbs[common.HostName] = hostName
-		host = common.NewHost(hostHash, data.attributes.AddOrUpdate(hostLbs), nil)
-		data.hosts.AddOrUpdate(stamp, host)
-	}
-	return true, hostHash
 }
 
 type hostSignalsOverDataCallback = func(hs *common.HostSignal, kind common.SignalKind, value float64, hash common.Hash)
@@ -1400,15 +1380,19 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 	// fill up app incomings
 	p.applicationSignalsOverData(series, data,
-		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, hash common.Hash) {
+		func(as *common.ApplicationSignal, host common.Hash, kind common.SignalKind, value float64, hash common.Hash) {
 
+			ahs := as.AddHostSignals(host)
+			if ahs == nil {
+				return
+			}
 			switch kind {
 			case common.SignalTraffic:
-				as.IncomingTraffic.AddOrUpdate(value, hash, data.attributes.FindTrafficKind(hash))
+				ahs.IncomingTraffic.AddOrUpdate(value, hash, data.attributes.FindTrafficKind(hash))
 			case common.SignalErrors:
-				as.IncomingErrors.AddOrUpdate(value, hash)
+				ahs.IncomingErrors.AddOrUpdate(value, hash)
 			case common.SignalLatency:
-				as.IncomingLatency.AddOrUpdate(value, hash)
+				ahs.IncomingLatency.AddOrUpdate(value, hash)
 			}
 		})
 
@@ -1425,17 +1409,21 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 	// fill up app outgoings and saturations
 	p.applicationSignalsOverData(series, data,
-		func(as *common.ApplicationSignal, kind common.SignalKind, value float64, attribute common.Hash) {
+		func(as *common.ApplicationSignal, host common.Hash, kind common.SignalKind, value float64, attribute common.Hash) {
 
+			ahs := as.AddHostSignals(host)
+			if ahs == nil {
+				return
+			}
 			switch kind {
 			case common.SignalTraffic:
-				as.OutgoingTraffic.AddOrUpdate(value, attribute, data.attributes.FindTrafficKind(attribute))
+				ahs.OutgoingTraffic.AddOrUpdate(value, attribute, data.attributes.FindTrafficKind(attribute))
 			case common.SignalErrors:
-				as.OutgoingErrors.AddOrUpdate(value, attribute)
+				ahs.OutgoingErrors.AddOrUpdate(value, attribute)
 			case common.SignalLatency:
-				as.OutgoingLatency.AddOrUpdate(value, attribute)
+				ahs.OutgoingLatency.AddOrUpdate(value, attribute)
 			case common.SignalSaturation:
-				as.Saturation.AddOrUpdate(value, attribute, data.attributes.FindSaturationKind(attribute))
+				ahs.Saturation.AddOrUpdate(value, attribute, data.attributes.FindSaturationKind(attribute))
 			}
 		})
 

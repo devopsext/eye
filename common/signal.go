@@ -176,11 +176,7 @@ const (
 	SignalSaturationKind = "kind"
 )
 
-type ApplicationSignal struct {
-	hash        Hash
-	application Hash
-	host        Hash
-
+type ApplicationHostSignals struct {
 	IncomingTraffic IncomingTraffic
 	IncomingErrors  IncomingErrors
 	IncomingLatency IncomingLatency
@@ -192,6 +188,12 @@ type ApplicationSignal struct {
 	Saturation ApplicationSaturation
 }
 
+type ApplicationSignal struct {
+	mu          sync.Mutex
+	hash        Hash
+	hostSignals map[Hash]*ApplicationHostSignals
+}
+
 type Dependencies struct {
 	mu    sync.Mutex
 	items map[Hash]*Dependencies
@@ -200,7 +202,7 @@ type Dependencies struct {
 type Signal interface {
 	Hash() Hash
 	Merge(s Signal)
-	ContainsAny(hashs []Hash) bool
+	ContainsAny(hashes []Hash) bool
 	AsApplicationSignal() *ApplicationSignal
 	AsHostSignal() *HostSignal
 }
@@ -1276,25 +1278,82 @@ func NewHostSignal(hash Hash) *HostSignal {
 	}
 }
 
+// ApplicationHostSignals
+
+func (ahs *ApplicationHostSignals) Frontends() []Hash {
+
+	hashes := []Hash{}
+
+	traffic := ahs.IncomingTraffic.Frontends(AllTrafficKinds)
+	errors := ahs.IncomingErrors.Frontends()
+	latency := ahs.IncomingLatency.Frontends()
+
+	hashes = append(hashes, traffic...)
+	hashes = append(hashes, errors...)
+	hashes = append(hashes, latency...)
+
+	return slices.Compact(hashes)
+}
+
+func (ahs *ApplicationHostSignals) Backends() []Hash {
+
+	hashes := []Hash{}
+
+	traffic := ahs.OutgoingTraffic.Backends(AllTrafficKinds)
+	errors := ahs.OutgoingErrors.Backends()
+	latency := ahs.OutgoingLatency.Backends()
+
+	hashes = append(hashes, traffic...)
+	hashes = append(hashes, errors...)
+	hashes = append(hashes, latency...)
+
+	return slices.Compact(hashes)
+}
+
+func NewApplicationHostSignals() *ApplicationHostSignals {
+	return &ApplicationHostSignals{}
+}
+
 // ApplicationSignal
 
 func (as *ApplicationSignal) Hash() Hash {
 	return as.hash
 }
 
-func (as *ApplicationSignal) Application() Hash {
-	return as.application
+func (as *ApplicationSignal) HostSignals(host Hash) *ApplicationHostSignals {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	return as.hostSignals[host]
 }
 
-func (as *ApplicationSignal) Host() Hash {
-	return as.host
+func (as *ApplicationSignal) AddHostSignals(host Hash) *ApplicationHostSignals {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	ahs, _ := as.hostSignals[host]
+	if ahs != nil {
+		return ahs
+	}
+	ahs = NewApplicationHostSignals()
+	as.hostSignals[host] = ahs
+	return ahs
+}
+
+func (as *ApplicationSignal) Hosts() []Hash {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	return slices.Collect(maps.Keys(as.hostSignals))
 }
 
 func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
 
+	hosts := as.Hosts()
 	for _, h := range hashes {
 
-		if as.hash == h || as.application == h || as.host == h {
+		if as.hash == h || utils.Contains(hosts, h) {
 			return true
 		}
 	}
@@ -1303,30 +1362,222 @@ func (as *ApplicationSignal) ContainsAny(hashes []Hash) bool {
 
 func (as *ApplicationSignal) Frontends() []Hash {
 
-	traffic := as.IncomingTraffic.Frontends(AllTrafficKinds)
-	errors := as.IncomingErrors.Frontends()
-	latency := as.IncomingLatency.Frontends()
+	as.mu.Lock()
+	defer as.mu.Unlock()
 
 	hashes := []Hash{}
-	hashes = append(hashes, traffic...)
-	hashes = append(hashes, errors...)
-	hashes = append(hashes, latency...)
+	for _, ahs := range as.hostSignals {
 
+		if ahs == nil {
+			continue
+		}
+
+		backs := ahs.Frontends()
+		hashes = append(hashes, backs...)
+	}
 	return slices.Compact(hashes)
 }
 
 func (as *ApplicationSignal) Backends() []Hash {
 
-	traffic := as.OutgoingTraffic.Backends(AllTrafficKinds)
-	errors := as.OutgoingErrors.Backends()
-	latency := as.OutgoingLatency.Backends()
+	as.mu.Lock()
+	defer as.mu.Unlock()
 
 	hashes := []Hash{}
-	hashes = append(hashes, traffic...)
-	hashes = append(hashes, errors...)
-	hashes = append(hashes, latency...)
+	for _, ahs := range as.hostSignals {
 
+		if ahs == nil {
+			continue
+		}
+
+		backs := ahs.Backends()
+		hashes = append(hashes, backs...)
+	}
 	return slices.Compact(hashes)
+}
+
+func (as *ApplicationSignal) traffic(callback func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic) map[TrafficKind]*Traffic {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	values := make(map[TrafficKind][]Traffic)
+	for _, ahs := range as.hostSignals {
+
+		if ahs == nil {
+			continue
+		}
+
+		avgs := callback(ahs)
+		for kind, v := range avgs {
+
+			arr, ok := values[kind]
+			if !ok {
+				arr = []Traffic{}
+			}
+			if v != nil {
+				arr = append(arr, *v)
+			}
+			values[kind] = arr
+		}
+	}
+
+	r := make(map[TrafficKind]*Traffic)
+	for kind, vls := range values {
+
+		if len(vls) == 0 {
+			r[kind] = nil
+			continue
+		}
+		sum := Sum(vls)
+		r[kind] = &sum
+	}
+	return r
+}
+
+func (as *ApplicationSignal) IncomingRequests() map[TrafficKind]*Traffic {
+
+	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+		return ahs.IncomingTraffic.RequestsAvg()
+	})
+}
+
+func (as *ApplicationSignal) OutgoingRequests() map[TrafficKind]*Traffic {
+
+	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+		return ahs.OutgoingTraffic.RequestsAvg()
+	})
+}
+
+func (as *ApplicationSignal) IncomingThroughput() map[TrafficKind]*Traffic {
+
+	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+		return ahs.IncomingTraffic.ThroughputAvg()
+	})
+}
+
+func (as *ApplicationSignal) OutgoingThroughput() map[TrafficKind]*Traffic {
+
+	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+		return ahs.OutgoingTraffic.ThroughputAvg()
+	})
+}
+
+func (as *ApplicationSignal) latency(callback func(ahs *ApplicationHostSignals) *Latency) *Latency {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	values := []Latency{}
+	for _, ahs := range as.hostSignals {
+
+		if ahs == nil {
+			continue
+		}
+
+		avg := callback(ahs)
+		if avg == nil {
+			continue
+		}
+		values = append(values, *avg)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	avg := Avg(values)
+	return &avg
+}
+
+func (as *ApplicationSignal) IncomingLatency() *Latency {
+
+	return as.latency(func(ahs *ApplicationHostSignals) *Latency {
+		return ahs.IncomingLatency.Avg()
+	})
+}
+
+func (as *ApplicationSignal) OutgoingLatency() *Latency {
+
+	return as.latency(func(ahs *ApplicationHostSignals) *Latency {
+		return ahs.OutgoingLatency.Avg()
+	})
+}
+
+func (as *ApplicationSignal) errors(callback func(ahs *ApplicationHostSignals) *Errors) *Errors {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	values := []Errors{}
+	for _, ahs := range as.hostSignals {
+
+		if ahs == nil {
+			continue
+		}
+
+		sum := callback(ahs)
+		if sum == nil {
+			continue
+		}
+		values = append(values, *sum)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	sum := Sum(values)
+	return &sum
+}
+
+func (as *ApplicationSignal) IncomingErrors() *Errors {
+
+	return as.errors(func(ahs *ApplicationHostSignals) *Errors {
+		return ahs.IncomingErrors.Sum()
+	})
+}
+
+func (as *ApplicationSignal) OutgoingErrors() *Errors {
+
+	return as.errors(func(ahs *ApplicationHostSignals) *Errors {
+		return ahs.OutgoingErrors.Sum()
+	})
+}
+
+func (as *ApplicationSignal) saturation(callback func(ahs *ApplicationHostSignals) *Saturation) *Saturation {
+
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	values := []Errors{}
+	for _, ahs := range as.hostSignals {
+
+		if ahs == nil {
+			continue
+		}
+
+		sum := callback(ahs)
+		if sum == nil {
+			continue
+		}
+		values = append(values, *sum)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	max := Max(values)
+	return &max
+}
+
+func (as *ApplicationSignal) SaturationCPU() *Saturation {
+
+	return as.saturation(func(ahs *ApplicationHostSignals) *Saturation {
+		return ahs.Saturation.CPUMax()
+	})
+}
+
+func (as *ApplicationSignal) SaturationMemory() *Saturation {
+
+	return as.saturation(func(ahs *ApplicationHostSignals) *Saturation {
+		return ahs.Saturation.MemoryMax()
+	})
 }
 
 func (as *ApplicationSignal) Merge(s Signal) {
@@ -1341,12 +1592,11 @@ func (as *ApplicationSignal) AsHostSignal() *HostSignal {
 	return nil
 }
 
-func NewApplicationSignal(hash Hash, app Hash, host Hash) *ApplicationSignal {
+func NewApplicationSignal(hash Hash) *ApplicationSignal {
 
 	return &ApplicationSignal{
 		hash:        hash,
-		application: app,
-		host:        host,
+		hostSignals: make(map[Hash]*ApplicationHostSignals),
 	}
 }
 
@@ -1620,14 +1870,6 @@ func (ms *Measurements) Dependencies(stamp Stamp, parents []Hash) *Dependencies 
 
 	exclude := []Hash{}
 	return ms.unsafeDependencies(stamp, parents, exclude)
-}
-
-func (ms *Measurements) BuildApplicationSignalName(app, host string) string {
-
-	if app == "" {
-		return ""
-	}
-	return app + "/" + host
 }
 
 func NewMeasurements() *Measurements {

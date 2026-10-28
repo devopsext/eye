@@ -85,8 +85,7 @@ type ApplicationFramePoints struct {
 
 type ApplicationFrame struct {
 	//
-	application common.Hash
-	host        common.Hash
+	hash common.Hash
 	//
 	stamp common.Stamp
 	begin common.Stamp
@@ -1177,44 +1176,31 @@ func (af *ApplicationFrame) End() common.Stamp {
 	return af.end
 }
 
-func (af *ApplicationFrame) Application() common.Hash {
-	return af.application
+func (af *ApplicationFrame) Hash() common.Hash {
+	return af.hash
 }
 
-func (af *ApplicationFrame) Host() common.Hash {
-	return af.host
-}
-
-func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal, hostSignal *common.HostSignal, host common.Hash) *ApplicationFrame {
+func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal) *ApplicationFrame {
 
 	r := &ApplicationFrame{
-		application: appSignal.Application(),
-		host:        host,
+		hash: appSignal.Hash(),
 		//
 		stamp: stamp,
 		begin: stamp,
 		end:   stamp,
 		//
-		inRequests:   appSignal.IncomingTraffic.RequestsAvg(),
-		inThroughput: appSignal.IncomingTraffic.ThroughputAvg(),
-		inLatency:    appSignal.IncomingLatency.Avg(),
-		inErrors:     appSignal.IncomingErrors.Sum(),
+		inRequests:   appSignal.IncomingRequests(),
+		inThroughput: appSignal.IncomingThroughput(),
+		inLatency:    appSignal.IncomingLatency(),
+		inErrors:     appSignal.IncomingErrors(),
 		//
-		appCPU: appSignal.Saturation.CPUMax(),
-		appMem: appSignal.Saturation.MemoryMax(),
+		appCPU: appSignal.SaturationCPU(),
+		appMem: appSignal.SaturationMemory(),
 		//
-		outRequests:   appSignal.OutgoingTraffic.RequestsAvg(),
-		outThroughput: appSignal.OutgoingTraffic.ThroughputAvg(),
-		outLatency:    appSignal.OutgoingLatency.Avg(),
-		outErrors:     appSignal.OutgoingErrors.Sum(),
-	}
-
-	if !utils.IsEmpty(hostSignal) {
-		if r.host == common.Hash(0) {
-			r.host = hostSignal.Hash()
-		}
-		r.hostCPU = hostSignal.Saturation.CPUMax()
-		r.hostMem = hostSignal.Saturation.MemoryMax()
+		outRequests:   appSignal.OutgoingRequests(),
+		outThroughput: appSignal.OutgoingThroughput(),
+		outLatency:    appSignal.OutgoingLatency(),
+		outErrors:     appSignal.OutgoingErrors(),
 	}
 	return r
 }
@@ -2458,9 +2444,7 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 
 	frame := ae.aggregateFrames(frames)
 
-	frame.application = frames[0].Application()
-	frame.host = frames[0].Host()
-
+	frame.hash = frames[0].Hash()
 	frame.stamp = stamp
 	frame.begin = begin
 	frame.end = end
