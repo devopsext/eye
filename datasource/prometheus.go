@@ -705,8 +705,8 @@ func (p *Prometheus) gatherHostsByQuery(data *PrometheusData, query string, from
 
 	when := time.Now()
 
-	p.debug("Hosts gathering (%s / %s)...", from, to)
-	p.debug("Hosts gathering started => %s", query)
+	p.debug("Hosts (%s / %s)...", from, to)
+	p.debug("Hosts => %s", query)
 
 	hosts, err := p.loadHosts(data, query, from, to)
 	if err != nil {
@@ -715,9 +715,9 @@ func (p *Prometheus) gatherHostsByQuery(data *PrometheusData, query string, from
 
 	ts, hs := hosts.Sizes()
 	if ts > 0 {
-		p.debug("Hosts gathering finished (%d over %d timeseries) in %s", hs, ts, time.Since(when))
+		p.debug("Hosts finished (%d over %d timeseries) in %s", hs, ts, time.Since(when))
 	} else {
-		p.debug("Hosts gathering finished (no data) in %s", time.Since(when))
+		p.debug("Hosts finished (no data) in %s", time.Since(when))
 	}
 	return hosts, nil
 }
@@ -822,8 +822,8 @@ func (p *Prometheus) gatherApplicationsByQuery(data *PrometheusData, query strin
 
 	when := time.Now()
 
-	p.debug("Applications gathering (%s / %s)...", from, to)
-	p.debug("Applications gathering started => %s", query)
+	p.debug("Applications (%s / %s)...", from, to)
+	p.debug("Applications => %s", query)
 
 	apps, err := p.loadApplications(data, query, from, to)
 	if err != nil {
@@ -832,9 +832,9 @@ func (p *Prometheus) gatherApplicationsByQuery(data *PrometheusData, query strin
 
 	ts, hs := apps.Sizes()
 	if ts > 0 {
-		p.debug("Applications gathering finished (%d over %d timeseries) in %s", hs, ts, time.Since(when))
+		p.debug("Applications finished (%d over %d timeseries) in %s", hs, ts, time.Since(when))
 	} else {
-		p.debug("Applications gathering finished (no data) in %s", time.Since(when))
+		p.debug("Applications finished (no data) in %s", time.Since(when))
 	}
 	return apps, nil
 }
@@ -1007,7 +1007,7 @@ func (p *Prometheus) gatherSignalsByQueries(name string, data *PrometheusData,
 
 	signals := []map[common.SignalKind]PrometheusSeries{}
 
-	p.debug("Signals gathering %s (%s / %s)...", name, from, to)
+	p.debug("Signals %s (%s / %s)...", name, from, to)
 
 	if len(labels) > 0 {
 
@@ -1023,7 +1023,7 @@ func (p *Prometheus) gatherSignalsByQueries(name string, data *PrometheusData,
 
 				qrs := p.prepareQueries(queries, lbs)
 				for k, q := range qrs {
-					p.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
+					p.debug("Signals %s %s => %s", name, common.SignalKindToString(k), q)
 				}
 
 				r, err := p.gatherSignals(data, qrs, from, to)
@@ -1036,9 +1036,9 @@ func (p *Prometheus) gatherSignalsByQueries(name string, data *PrometheusData,
 					infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 				}
 				if len(infos) > 0 {
-					p.debug("Signals gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
+					p.debug("Signals %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
 				} else {
-					p.debug("Signals gathering %s finished (no data) in %s", name, time.Since(when))
+					p.debug("Signals %s finished (no data) in %s", name, time.Since(when))
 				}
 
 				mp.Store(k, r)
@@ -1066,7 +1066,7 @@ func (p *Prometheus) gatherSignalsByQueries(name string, data *PrometheusData,
 
 		queries := p.prepareQueries(queries, nil)
 		for k, q := range queries {
-			p.debug("Signals gathering %s %s started => %s", name, common.SignalKindToString(k), q)
+			p.debug("Signals %s %s => %s", name, common.SignalKindToString(k), q)
 		}
 
 		r, err := p.gatherSignals(data, queries, from, to)
@@ -1079,9 +1079,9 @@ func (p *Prometheus) gatherSignalsByQueries(name string, data *PrometheusData,
 			infos = append(infos, fmt.Sprintf("%s: %d", common.SignalKindToString(k), len(v)))
 		}
 		if len(infos) > 0 {
-			p.debug("Signals gathering %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
+			p.debug("Signals %s finished%s in %s", name, fmt.Sprintf(" (%s)", strings.Join(infos, ", ")), time.Since(when))
 		} else {
-			p.debug("Signals gathering %s finished (no data) in %s", name, time.Since(when))
+			p.debug("Signals %s finished (no data) in %s", name, time.Since(when))
 		}
 
 		signals = append(signals, r)
@@ -1484,7 +1484,7 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		t1 := common.StampToTime(s1)
 		t2 := common.StampToTime(s2)
 
-		p.info("Gathering span (%s / %s) started duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
+		p.info("Gathering span (%s / %s) duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
 
 		when := time.Now()
 

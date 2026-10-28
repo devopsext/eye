@@ -863,6 +863,7 @@ func (fm *ForestModel) setManyDetections(eligible, found []*ForestModelDetection
 func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOnFrame) error {
 
 	measurements := data.Measurements()
+	names := data.Names()
 
 	hashes := fm.findHashes(data.Names(), fm.options.Filter)
 	appFrames := make(map[common.Hash]forest.ApplicationFrames)
@@ -885,8 +886,12 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 
 		gr.Go(func() error {
 
+			name := names.FindByHash(hash)
+			fm.logger.Debug("%s: Detecting %s (%d)", fm.Name(), name, hash)
+
 			// check existence
 			if _, ok := fm.trains.Load(hash); ok {
+				fm.logger.Debug("%s: Training found %s (%d). Skipped", fm.Name(), name, hash)
 				return nil
 			}
 
@@ -905,6 +910,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			if engine == nil {
+				fm.logger.Debug("%s: Engine not found %s (%d)", fm.Name(), name, hash)
 				engine = forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
 				err := engine.LoadForest()
 				if err != nil {
@@ -922,15 +928,13 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			if !engine.Ready() {
-				name := data.Names().FindByHash(hash)
-				fm.logger.Debug("%s: Not ready for %s (%d)", engine.Name(), name, hash)
+				fm.logger.Debug("%s: %s not ready %s (%d)", fm.Name(), engine.Name(), name, hash)
 				return nil
 			}
 
 			stamp := appFrame.Stamp()
 			if !engine.Exists(stamp) {
-				name := data.Names().FindByHash(hash)
-				fm.logger.Debug("%s: Doesn't exist for %s (%d) on %v", engine.Name(), name, hash, common.StampToTime(stamp))
+				fm.logger.Debug("%s: %s doesn't exist %s (%d) on %v", fm.Name(), engine.Name(), name, hash, common.StampToTime(stamp))
 				return nil
 			}
 
