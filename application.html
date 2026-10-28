@@ -134,7 +134,7 @@
 </head>
 <body>
     <div class="controls">
-        <button onclick="resetLayoutPositions();resetZoomAll();clearVerdicts()">🔄 Reset</button>
+        <button onclick="resetLayoutPositions();resetZoomAll();">🔄 Reset</button>
 
         <label for="timeframeSelect"><strong>Frame:</strong></label>
         <select id="timeframeSelect" onchange="changeTimeframe()">
@@ -204,8 +204,7 @@
             "InLatency", "OutLatency",
             "InErrors", "OutErrors",
             "InThroughput", "OutThroughput",
-            "ApplicationCPU", "HostCPU",
-            "ApplicationMemory", "HostMemory",
+            "ApplicationCPU", "ApplicationMemory", 
         ];
 
         let orderedMetrics = [...defaultOrderedMetrics];
@@ -222,8 +221,6 @@
             "OutErrors": { label: "Out Errors" },
             "ApplicationCPU": { label: "Application CPU" },
             "ApplicationMemory": { label: "Application Memory" },
-            "HostCPU": { label: "Host CPU" },
-            "HostMemory": { label: "Host Memory" }
         };
 
         function matchesFilter(appName, filterVal) {

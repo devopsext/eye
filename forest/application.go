@@ -29,10 +29,8 @@ type ApplicationCasePattern struct {
 	outLatency    common.CaseLevel
 	outErrors     common.CaseLevel
 
-	appCPU  common.CaseLevel
-	appMem  common.CaseLevel
-	hostCPU common.CaseLevel
-	hostMem common.CaseLevel
+	appCPU common.CaseLevel
+	appMem common.CaseLevel
 }
 
 type ApplicationCaseVerdict struct {
@@ -79,8 +77,6 @@ type ApplicationFramePoints struct {
 	outErrors     *ApplicationFramePoint
 	appCPU        *ApplicationFramePoint
 	appMem        *ApplicationFramePoint
-	hostCPU       *ApplicationFramePoint
-	hostMem       *ApplicationFramePoint
 }
 
 type ApplicationFrame struct {
@@ -96,10 +92,8 @@ type ApplicationFrame struct {
 	inLatency    ApplicationLatencyValue
 	inErrors     ApplicationErrorsValue
 	//
-	appCPU  ApplicationSaturationValue
-	appMem  ApplicationSaturationValue
-	hostCPU HostSaturationValue
-	hostMem HostSaturationValue
+	appCPU ApplicationSaturationValue
+	appMem ApplicationSaturationValue
 	//
 	outRequests   ApplicationTrafficValues
 	outThroughput ApplicationTrafficValues
@@ -238,9 +232,7 @@ func (c *ApplicationCase) SamePattern(pattern ApplicationCasePattern) bool {
 		c.pattern.outLatency == pattern.outLatency &&
 		c.pattern.outErrors == pattern.outErrors &&
 		c.pattern.appCPU == pattern.appCPU &&
-		c.pattern.appMem == pattern.appMem &&
-		c.pattern.hostCPU == pattern.hostCPU &&
-		c.pattern.hostMem == pattern.hostMem
+		c.pattern.appMem == pattern.appMem
 }
 
 func NewApplicationCase(impact common.CaseImpact, category common.CaseCategory, name, description string, pattern ApplicationCasePattern) *ApplicationCase {
@@ -298,8 +290,6 @@ func (ac *ApplicationCases) getScore(observed, expected *ApplicationCasePattern)
 	check(observed.inErrors, expected.inErrors)
 	check(observed.appCPU, expected.appCPU)
 	check(observed.appMem, expected.appMem)
-	check(observed.hostCPU, expected.hostCPU)
-	check(observed.hostMem, expected.hostMem)
 	check(observed.outRequests, expected.outRequests)
 	check(observed.outThroughput, expected.outThroughput)
 	check(observed.outLatency, expected.outLatency)
@@ -342,8 +332,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelNormal,
 			outThroughput: common.CaseLevelNormal,
 			outLatency:    common.CaseLevelNormal,
@@ -360,8 +348,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelHigh,
 			outThroughput: common.CaseLevelHigh,
 			outLatency:    common.CaseLevelNormal,
@@ -378,8 +364,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelNormal,
@@ -396,8 +380,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelNormal,
@@ -414,8 +396,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelLow,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelLow,
 			outRequests:   common.CaseLevelNormal,
 			outThroughput: common.CaseLevelNormal,
 			outLatency:    common.CaseLevelLow,
@@ -432,8 +412,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelLow,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelLow,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -450,8 +428,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelHigh,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelHigh,
 			outThroughput: common.CaseLevelHigh,
 			outLatency:    common.CaseLevelNormal,
@@ -468,8 +444,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelLow,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelLow,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelNormal,
@@ -486,26 +460,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
-			outRequests:   common.CaseLevelLow,
-			outThroughput: common.CaseLevelLow,
-			outLatency:    common.CaseLevelLow,
-			outErrors:     common.CaseLevelLow,
-		})
-
-	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
-		"Noisy Neighbor CPU Steal",
-		"Host CPU high but App CPU normal/low; outbound drops",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelNormal,
-			inThroughput:  common.CaseLevelNormal,
-			inLatency:     common.CaseLevelHigh,
-			inErrors:      common.CaseLevelHigh,
-			appCPU:        common.CaseLevelNormal,
-			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelHigh,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -522,8 +476,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -540,8 +492,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelHigh,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelHigh,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -558,8 +508,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelLow,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelLow,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -576,8 +524,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelNormal,
 			outThroughput: common.CaseLevelNormal,
 			outLatency:    common.CaseLevelHigh,
@@ -594,8 +540,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelHigh,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -612,8 +556,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelLow,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -630,26 +572,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelHigh,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
-			outRequests:   common.CaseLevelLow,
-			outThroughput: common.CaseLevelLow,
-			outLatency:    common.CaseLevelLow,
-			outErrors:     common.CaseLevelLow,
-		})
-
-	cases.Add(common.CaseImpactAverage, common.CaseCategoryFailure,
-		"Noisy Neighbor Memory Hog",
-		"Host memory high while App memory is normal; app starved of cache/buffers",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelNormal,
-			inThroughput:  common.CaseLevelNormal,
-			inLatency:     common.CaseLevelHigh,
-			inErrors:      common.CaseLevelHigh,
-			appCPU:        common.CaseLevelNormal,
-			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelHigh,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -666,8 +588,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelNormal,
@@ -684,8 +604,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelHigh,
 			outThroughput: common.CaseLevelHigh,
 			outLatency:    common.CaseLevelNormal,
@@ -702,48 +620,10 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelHigh,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelHigh,
 			outThroughput: common.CaseLevelHigh,
 			outLatency:    common.CaseLevelLow,
 			outErrors:     common.CaseLevelHigh,
-		})
-
-	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
-		"App Metric Collector Outage",
-		"Traffic flows normally but has no app saturation",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelNormal,
-			inThroughput:  common.CaseLevelNormal,
-			inLatency:     common.CaseLevelNormal,
-			inErrors:      common.CaseLevelNormal,
-			appCPU:        common.CaseLevelUnknown,
-			appMem:        common.CaseLevelUnknown,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
-			outRequests:   common.CaseLevelNormal,
-			outThroughput: common.CaseLevelNormal,
-			outLatency:    common.CaseLevelNormal,
-			outErrors:     common.CaseLevelNormal,
-		})
-
-	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
-		"Host Agent Transport Failure",
-		"Traffic and App metrics healthy but no host saturation",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelNormal,
-			inThroughput:  common.CaseLevelNormal,
-			inLatency:     common.CaseLevelNormal,
-			inErrors:      common.CaseLevelNormal,
-			appCPU:        common.CaseLevelNormal,
-			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelUnknown,
-			hostMem:       common.CaseLevelUnknown,
-			outRequests:   common.CaseLevelNormal,
-			outThroughput: common.CaseLevelNormal,
-			outLatency:    common.CaseLevelNormal,
-			outErrors:     common.CaseLevelNormal,
 		})
 
 	cases.Add(common.CaseImpactAverage, common.CaseCategoryOperational,
@@ -756,26 +636,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
-			outRequests:   common.CaseLevelLow,
-			outThroughput: common.CaseLevelLow,
-			outLatency:    common.CaseLevelLow,
-			outErrors:     common.CaseLevelLow,
-		})
-
-	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
-		"Host CPU Exhaustion by App",
-		"Both App and Host CPU pinned near 100% while memory is stable",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelHigh,
-			inThroughput:  common.CaseLevelHigh,
-			inLatency:     common.CaseLevelHigh,
-			inErrors:      common.CaseLevelHigh,
-			appCPU:        common.CaseLevelHigh,
-			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelHigh,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -792,8 +652,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelHigh,
@@ -810,8 +668,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelNormal,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -828,8 +684,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelHigh,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelHigh,
 			outThroughput: common.CaseLevelHigh,
 			outLatency:    common.CaseLevelHigh,
@@ -846,30 +700,10 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelNormal,
 			outThroughput: common.CaseLevelNormal,
 			outLatency:    common.CaseLevelHigh,
 			outErrors:     common.CaseLevelHigh,
-		})
-
-	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
-		"Host Memory Exhaustion / Swap Thrashing",
-		"Host memory exhausted causing OS page swing; CPU drops due to I/O wait",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelNormal,
-			inThroughput:  common.CaseLevelNormal,
-			inLatency:     common.CaseLevelHigh,
-			inErrors:      common.CaseLevelHigh,
-			appCPU:        common.CaseLevelLow,
-			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelHigh,
-			outRequests:   common.CaseLevelLow,
-			outThroughput: common.CaseLevelLow,
-			outLatency:    common.CaseLevelLow,
-			outErrors:     common.CaseLevelLow,
 		})
 
 	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
@@ -882,8 +716,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -900,8 +732,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelHigh,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelHigh,
-			hostMem:       common.CaseLevelHigh,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelHigh,
@@ -918,26 +748,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelLow,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
-			outRequests:   common.CaseLevelLow,
-			outThroughput: common.CaseLevelLow,
-			outLatency:    common.CaseLevelLow,
-			outErrors:     common.CaseLevelLow,
-		})
-
-	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
-		"Host OOM-Killer Cascading Storm",
-		"Host memory at 100% with random service restarts and network drops",
-		ApplicationCasePattern{
-			inRequests:    common.CaseLevelNormal,
-			inThroughput:  common.CaseLevelNormal,
-			inLatency:     common.CaseLevelHigh,
-			inErrors:      common.CaseLevelHigh,
-			appCPU:        common.CaseLevelLow,
-			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelHigh,
-			hostMem:       common.CaseLevelHigh,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -954,8 +764,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelNormal,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelNormal,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -972,8 +780,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -990,8 +796,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelLow,
 			appMem:        common.CaseLevelNormal,
-			hostCPU:       common.CaseLevelLow,
-			hostMem:       common.CaseLevelNormal,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -1008,8 +812,6 @@ func NewApplicationCases() *ApplicationCases {
 			inErrors:      common.CaseLevelHigh,
 			appCPU:        common.CaseLevelUnknown,
 			appMem:        common.CaseLevelUnknown,
-			hostCPU:       common.CaseLevelUnknown,
-			hostMem:       common.CaseLevelUnknown,
 			outRequests:   common.CaseLevelLow,
 			outThroughput: common.CaseLevelLow,
 			outLatency:    common.CaseLevelLow,
@@ -1101,9 +903,7 @@ func (fp *ApplicationFramePoints) IsEmpty() bool {
 		fp.outLatency == nil &&
 		fp.outErrors == nil &&
 		fp.appCPU == nil &&
-		fp.appMem == nil &&
-		fp.hostCPU == nil &&
-		fp.hostMem == nil
+		fp.appMem == nil
 }
 
 func (fp *ApplicationFramePoints) InRequets() *ApplicationFramePoint {
@@ -1144,14 +944,6 @@ func (fp *ApplicationFramePoints) CPU() *ApplicationFramePoint {
 
 func (fp *ApplicationFramePoints) Memory() *ApplicationFramePoint {
 	return fp.appMem
-}
-
-func (fp *ApplicationFramePoints) HostCPU() *ApplicationFramePoint {
-	return fp.hostCPU
-}
-
-func (fp *ApplicationFramePoints) HostMemory() *ApplicationFramePoint {
-	return fp.hostMem
 }
 
 // ApplicationFrame
@@ -1631,7 +1423,7 @@ type ApplicationEngineVectors struct {
 	inVec, satVec, outVec                                                           []float64
 	inValid, satValid, outValid                                                     []bool
 	inReqIdx, inThruIdx, inLatIdx, inErrIdx                                         int
-	appCPUIdx, appMemIdx, hostCPUIdx, hostMemIdx, cpuDiffIdx, memDiffIdx            int
+	appCPUIdx, appMemIdx                                                            int
 	outReqIdx, outThruIdx, outLatIdx, outErrIdx, flowReqIdx, flowThruIdx, latDivIdx int
 }
 
@@ -1709,50 +1501,10 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 		appMem = ae.satProfiler.Buckets[b][vectors.appMemIdx].Median
 	}
 
-	vectors.hostCPUIdx = vectors.appMemIdx + 1
-	hostCPUValid := frame.hostCPU != nil
-	hostCPU := 0.0
-	if hostCPUValid {
-		hostCPU = *frame.hostCPU
-	}
-	if !hostCPUValid && len(ae.satProfiler.Buckets[b]) > vectors.hostCPUIdx {
-		hostCPU = ae.satProfiler.Buckets[b][vectors.hostCPUIdx].Median
-	}
-
-	vectors.hostMemIdx = vectors.hostCPUIdx + 1
-	hostMemValid := frame.hostMem != nil
-	hostMem := 0.0
-	if hostMemValid {
-		hostMem = *frame.hostMem
-	}
-	if !hostMemValid && len(ae.satProfiler.Buckets[b]) > vectors.hostMemIdx {
-		hostMem = ae.satProfiler.Buckets[b][vectors.hostMemIdx].Median
-	}
-
-	vectors.cpuDiffIdx = vectors.hostMemIdx + 1
-	cpuDiffVal := false
-	cpuDiff := 0.0
-	if hostCPUValid && appCPUValid {
-		cpuDiffVal = true
-		cpuDiff = hostCPU - appCPU
-	} else if len(ae.satProfiler.Buckets[b]) > vectors.cpuDiffIdx {
-		cpuDiff = ae.satProfiler.Buckets[b][vectors.cpuDiffIdx].Median
-	}
-
-	vectors.memDiffIdx = vectors.cpuDiffIdx + 1
-	memDiffVal := false
-	memDiff := 0.0
-	if hostMemValid && appMemValid {
-		memDiffVal = true
-		memDiff = hostMem - appMem
-	} else if len(ae.satProfiler.Buckets[b]) > vectors.memDiffIdx {
-		memDiff = ae.satProfiler.Buckets[b][vectors.memDiffIdx].Median
-	}
-
-	vectors.satVec = []float64{appCPU, appMem, hostCPU, hostMem, cpuDiff, memDiff}
+	vectors.satVec = []float64{appCPU, appMem}
 	vectors.satVec = append(vectors.satVec, timeVec...)
 
-	vectors.satValid = []bool{appCPUValid, appMemValid, hostCPUValid, hostMemValid, cpuDiffVal, memDiffVal}
+	vectors.satValid = []bool{appCPUValid, appMemValid}
 	for i := 0; i < len(timeVec); i++ {
 		vectors.satValid = append(vectors.satValid, true) // Time is always valid
 	}
@@ -2189,17 +1941,6 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
-	if len(vectors.satVec) > vectors.hostCPUIdx && vectors.satValid[vectors.hostCPUIdx] {
-		val := vectors.satVec[vectors.hostCPUIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostCPUIdx, val)
-		points.hostCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
-	}
-
-	if len(vectors.satVec) > vectors.hostMemIdx && vectors.satValid[vectors.hostMemIdx] {
-		val := vectors.satVec[vectors.hostMemIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostMemIdx, val)
-		points.hostMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
-	}
 	return points
 }
 
@@ -2237,8 +1978,6 @@ func (ae *ApplicationEngine) predict(frame *ApplicationFrame) (*ApplicationFrame
 
 	appCPULevel := classify(ae.satProfiler, vectors.appCPUIdx, vectors.satVec, vectors.satValid, satAnom)
 	appMemLevel := classify(ae.satProfiler, vectors.appMemIdx, vectors.satVec, vectors.satValid, satAnom)
-	hostCPULevel := classify(ae.satProfiler, vectors.hostCPUIdx, vectors.satVec, vectors.satValid, satAnom)
-	hostMemLevel := classify(ae.satProfiler, vectors.hostMemIdx, vectors.satVec, vectors.satValid, satAnom)
 
 	outReqLevel := classify(ae.outProfiler, vectors.outReqIdx, vectors.outVec, vectors.outValid, outAnom)
 	outThruLevel := classify(ae.outProfiler, vectors.outThruIdx, vectors.outVec, vectors.outValid, outAnom)
@@ -2252,8 +1991,6 @@ func (ae *ApplicationEngine) predict(frame *ApplicationFrame) (*ApplicationFrame
 		inErrors:      inErrLevel,
 		appCPU:        appCPULevel,
 		appMem:        appMemLevel,
-		hostCPU:       hostCPULevel,
-		hostMem:       hostMemLevel,
 		outRequests:   outReqLevel,
 		outThroughput: outThruLevel,
 		outLatency:    outLatLevel,
@@ -2335,18 +2072,6 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) Applicati
 		return max
 	}
 
-	maxHostSaturation := func(value HostSaturationValue, max HostSaturationValue) HostSaturationValue {
-
-		if value != nil {
-			vs := max
-			vn := *value
-			if vs == nil || (vs != nil && vn > *vs) {
-				return &vn
-			}
-		}
-		return max
-	}
-
 	sumInRequests := make(ApplicationTrafficValues)
 	cntInRequests := make(map[common.TrafficKind]int)
 	sumInThroughput := make(ApplicationTrafficValues)
@@ -2356,8 +2081,6 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) Applicati
 
 	var maxAppCPU ApplicationSaturationValue
 	var maxAppMem ApplicationSaturationValue
-	var maxHostCPU HostSaturationValue
-	var maxHostMem HostSaturationValue
 
 	sumOutRequests := make(ApplicationTrafficValues)
 	cntOutRequests := make(map[common.TrafficKind]int)
@@ -2375,8 +2098,6 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) Applicati
 
 		maxAppCPU = maxAppSaturation(f.appCPU, maxAppCPU)
 		maxAppMem = maxAppSaturation(f.appMem, maxAppMem)
-		maxHostCPU = maxHostSaturation(f.hostCPU, maxHostCPU)
-		maxHostMem = maxHostSaturation(f.hostMem, maxHostMem)
 
 		sumTraffic(f.outRequests, sumOutRequests, cntOutRequests)
 		sumTraffic(f.outThroughput, sumOutThroughput, cntOutThroughput)
@@ -2390,10 +2111,8 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) Applicati
 		inLatency:    maxInLatency,
 		inErrors:     maxInErrors,
 
-		appCPU:  maxAppCPU,
-		appMem:  maxAppMem,
-		hostCPU: maxHostCPU,
-		hostMem: maxHostMem,
+		appCPU: maxAppCPU,
+		appMem: maxAppMem,
 
 		outRequests:   avgTraffic(sumOutRequests, cntOutRequests),
 		outThroughput: avgTraffic(sumOutThroughput, cntOutThroughput),

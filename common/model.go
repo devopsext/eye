@@ -55,8 +55,6 @@ type ModelApplicationFrame interface {
 	OutErrors() ModelDataPoint
 	CPU() ModelDataPoint
 	Memory() ModelDataPoint
-	HostCPU() ModelDataPoint
-	HostMemory() ModelDataPoint
 }
 
 type ModelFrameSubscriber interface {

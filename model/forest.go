@@ -216,20 +216,6 @@ func (af *ForestModelApplicationFrame) Memory() common.ModelDataPoint {
 	return af.points.Memory()
 }
 
-func (af *ForestModelApplicationFrame) HostCPU() common.ModelDataPoint {
-	if af.points == nil {
-		return nil
-	}
-	return af.points.HostCPU()
-}
-
-func (af *ForestModelApplicationFrame) HostMemory() common.ModelDataPoint {
-	if af.points == nil {
-		return nil
-	}
-	return af.points.HostMemory()
-}
-
 // ForestModelDetection
 
 func (fd *ForestModelDetection) ID() string {
@@ -870,7 +856,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 
 			if engine == nil {
-				fm.logger.Debug("%s: Engine not found %s (%d)", fm.Name(), name, hash)
+				fm.logger.Debug("%s: Engine not found %s (%d). Initializing...", fm.Name(), name, hash)
 				engine = forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
 				err := engine.LoadForest()
 				if err != nil {
