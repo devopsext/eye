@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/devopsext/eye/common"
@@ -67,6 +68,7 @@ type ForestModelDetections struct {
 
 type ForestModelEngine interface {
 	Name() string
+	Ready() bool
 }
 
 type ForestModel struct {
@@ -81,6 +83,9 @@ type ForestModel struct {
 	categories []common.CaseCategory
 	impacts    []common.CaseImpact
 	trains     sync.Map
+
+	// status
+	detected atomic.Int64
 }
 
 const (
@@ -489,8 +494,6 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 		Last:  data.Last(),
 	}
 
-	mm := sync.Map{}
-
 	// run apps engine
 	for hash, frames := range appFrames {
 
@@ -520,7 +523,9 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 				return nil
 			}
 			fm.trains.Delete(hash)
-			mm.Store(hash, engine)
+			if engine.Ready() {
+				fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+			}
 			return nil
 		})
 	}
@@ -542,7 +547,9 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 				errs <- err
 			}
 			fm.trains.Delete(hash)
-			mm.Store(hash, engine)
+			if engine.Ready() {
+				fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+			}
 			return nil
 		})
 	}
@@ -555,19 +562,12 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 		all = append(all, e)
 	}
 
-	mm.Range(func(key any, value any) bool {
+	fm.engines.Range(func(item *ttlcache.Item[common.Hash, ForestModelEngine]) bool {
 
-		h, ok := key.(common.Hash)
-		if !ok {
+		if item == nil {
 			return true
 		}
-		e, ok := value.(*forest.ApplicationEngine)
-		if !ok {
-			return true
-		}
-		if e.Ready() {
-			hs = append(hs, h)
-		}
+		hs = append(hs, item.Key())
 		return true
 	})
 
@@ -994,11 +994,11 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 		return als, err
 	}
 
-	items := fm.detections.Items()
-	if len(items) > 0 {
+	ds := fm.detections.Items()
+	if len(ds) > 0 {
 
 		names := data.Names()
-		for k, v := range items {
+		for k, v := range ds {
 
 			n := names.FindByHash(k)
 			verdict := "none"
@@ -1017,9 +1017,17 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 			fm.logger.Info("%s: Found detection on %s %s%s: %s (%s / %s)", name, begin, n, deps, verdict, category, impact)
 		}
 	}
-
+	fm.detected.Store(int64(len(ds)))
 	fm.logger.Info("%s: Detecting finished found=%d in %s", name, fm.detections.Size(), time.Since(when))
 	return fm.detections.anomalies(), nil
+}
+
+func (fm *ForestModel) Status() *common.ModelStatus {
+
+	return &common.ModelStatus{
+		Trained:  fm.engines.Len(),
+		Detected: int(fm.detected.Load()),
+	}
 }
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {

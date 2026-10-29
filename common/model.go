@@ -82,11 +82,17 @@ type ModelSubscribers struct {
 	States    []ModelStateSubscriber
 }
 
+type ModelStatus struct {
+	Trained  int
+	Detected int
+}
+
 type Model interface {
 	Name() string
 	Enabled() bool
 	Train(data DataSourceData) ([]Hash, error)
 	Detect(data DataSourceData, onFrame ModelOnFrame) ([]ModelAnomaly, error)
+	Status() *ModelStatus
 }
 
 type Models struct {

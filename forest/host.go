@@ -43,6 +43,10 @@ func (he *HostEngine) Train(frames HostFrames) error {
 	return nil
 }
 
+func (he *HostEngine) Ready() bool {
+	return false
+}
+
 func NewHostEngine() *HostEngine {
 
 	return &HostEngine{}

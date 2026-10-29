@@ -89,7 +89,9 @@
         select:hover, input:hover, button:hover { opacity: 0.9; }
         input:focus { border-color: #0284c7; }
         
-        .grid { display: grid; grid-template-columns: minmax(0, 1fr) 8px 460px; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
+        .grid { display: grid; grid-template-columns: minmax(0, 1fr) 8px 460px; gap: 0; align-items: stretch; flex: 1; min-height: 0; transition: grid-template-columns 0.2s ease; }
+        .grid.panel-collapsed { grid-template-columns: minmax(0, 1fr) 0px 0px !important; }
+        .grid.panel-collapsed .splitter, .grid.panel-collapsed .verdict-card { display: none !important; }
         
         .charts-wrapper { overflow-y: auto; height: 100%; position: relative; background: rgba(0, 0, 0, 0.15); border-radius: 8px; border: 1px dashed var(--border-color); padding: 15px; }
         .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px; }
@@ -134,7 +136,7 @@
 </head>
 <body>
     <div class="controls">
-        <button onclick="resetLayoutPositions();resetZoomAll();">🔄 Reset</button>
+        <button onclick="resetLayoutPositions();resetZoomAll();">Reset</button>
 
         <label for="timeframeSelect"><strong>Frame:</strong></label>
         <select id="timeframeSelect" onchange="changeTimeframe()">
@@ -155,10 +157,11 @@
 
         <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:400px;">
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:300px;">
         <datalist id="applicationList"></datalist>
-        <span id="modelStatus" style="font-size:12px;">Unknown</span>
+        <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
         <span id="wsStatus" style="font-size:12px; color:#10b981;">● Connected</span>
+        <button id="toggleRightPanelBtn" onclick="toggleRightPanel()" style="background: var(--control-bg); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; cursor: pointer;">📋</button>
     </div>
 
     <div class="grid" id="mainGrid">
@@ -366,8 +369,15 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             const savedWidth = localStorage.getItem('verdictWidth');
-            if (savedWidth) {
+            if (savedWidth && !localStorage.getItem('isPanelCollapsed')) {
                 mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px ' + savedWidth + 'px';
+            }
+            const savedCollapsed = localStorage.getItem('isPanelCollapsed');
+            if (savedCollapsed === 'true') {
+                isPanelCollapsed = true;
+                mainGrid.classList.add('panel-collapsed');
+                const btn = document.getElementById('toggleRightPanelBtn');
+                if (btn) btn.innerText = '📋';
             }
         });
 
@@ -383,7 +393,6 @@
                 const matchingApps = getMatchingApps();
                 const multiMode = matchingApps.length > 1;
 
-                // Check violations across all datasets (whether single app or multi-series against average limits)
                 let violationTypes = [];
                 const numApps = multiMode ? matchingApps.length : 1;
                 const upDataset = multiMode ? chart.data.datasets[numApps] : chart.data.datasets[1];
@@ -643,7 +652,6 @@
                             pointRadius: 0
                         });
                     });
-                    // Add average upper, lower, median datasets when multiple series match
                     datasets.push(
                         { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                         { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
@@ -685,6 +693,12 @@
                         plugins: {
                             legend: { display: false },
                             tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                itemSort: function(a, b, data) {
+                                    // Sort items from highest value to lowest value
+                                    return (b.parsed.y || 0) - (a.parsed.y || 0);
+                                },
                                 callbacks: {
                                     title: function(context) { return context[0].label; },
                                     label: function(context) {
@@ -734,12 +748,34 @@
             }
         }
 
+        let isPanelCollapsed = false;
+
+        function toggleRightPanel() {
+            isPanelCollapsed = !isPanelCollapsed;
+            const btn = document.getElementById('toggleRightPanelBtn');
+            if (isPanelCollapsed) {
+                mainGrid.classList.add('panel-collapsed');
+                localStorage.setItem('isPanelCollapsed', 'true');
+            } else {
+                mainGrid.classList.remove('panel-collapsed');
+                localStorage.setItem('isPanelCollapsed', 'false');
+            }
+            for (const key in charts) {
+                if (charts[key]) charts[key].resize();
+            }
+        }
+
         function resetLayoutPositions() {
             orderedMetrics = [...defaultOrderedMetrics];
             maximizedChartKey = null;
             localStorage.removeItem('maximizedChartKey');
             localStorage.removeItem('chartOrder');
             localStorage.removeItem('verdictWidth');
+            localStorage.removeItem('isPanelCollapsed');
+            isPanelCollapsed = false;
+            mainGrid.classList.remove('panel-collapsed');
+            const btn = document.getElementById('toggleRightPanelBtn');
+            if (btn) btn.innerText = '📋';
             mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px 460px';
             initCharts();
         }
@@ -775,10 +811,47 @@
             const matchingApps = getMatchingApps();
             const allVerdicts = [];
 
+            // Get selected timeframe window in milliseconds (1 Min = 60,000 ms, etc.)
+            const totalWindowSec = parseInt(document.getElementById('timeframeSelect').value) || 60;
+            const windowMs = totalWindowSec * 1000;
+
+            // Find the absolute latest timestamp across all matching apps (verdicts or raw series)
+            // Fallback to Date.now() only if no data points exist at all.
+            let latestTime = 0;
+            matchingApps.forEach(app => {
+                if (applicationCache[app]) {
+                    if (applicationCache[app].verdicts) {
+                        applicationCache[app].verdicts.forEach(v => {
+                            const t = new Date(v.fullTimestamp || v.time).getTime();
+                            if (!isNaN(t) && t > latestTime) latestTime = t;
+                        });
+                    }
+                    // Also check raw series timestamps to keep sync with charts
+                    if (applicationCache[app].rawSeries) {
+                        Object.values(applicationCache[app].rawSeries).forEach(series => {
+                            series.forEach(pt => {
+                                const t = new Date(pt.fullTimestamp || pt.time).getTime();
+                                if (!isNaN(t) && t > latestTime) latestTime = t;
+                            });
+                        });
+                    }
+                }
+            });
+
+            if (latestTime === 0) {
+                latestTime = Date.now();
+            }
+
+            const cutoffTime = latestTime - windowMs;
+
             matchingApps.forEach(app => {
                 if (applicationCache[app] && applicationCache[app].verdicts) {
                     applicationCache[app].verdicts.forEach(v => {
-                        allVerdicts.push({ app, ...v });
+                        const verdictTime = new Date(v.fullTimestamp || v.time).getTime();
+                        // Include if within the selected timeframe window or if timestamp couldn't be parsed
+                        if (isNaN(verdictTime) || verdictTime >= cutoffTime) {
+                            allVerdicts.push({ app, ...v });
+                        }
                     });
                 }
             });
@@ -817,6 +890,7 @@
             const totalWindowSec = parseInt(document.getElementById('timeframeSelect').value);
             maxDataPoints = Math.max(10, Math.floor(totalWindowSec / updateFreqSec));
             for (const key in charts) { redrawChart(key); }
+            rebuildVerdictTable();
         }
 
         function redrawChart(key) {
@@ -836,7 +910,6 @@
                 const labels = Array.from(timeSet);
                 c.data.labels = labels.slice(-maxDataPoints);
 
-                // Update series for each matched app
                 for (let i = 0; i < matchingApps.length; i++) {
                     const appName = matchingApps[i];
                     const dataset = c.data.datasets[i];
@@ -854,7 +927,6 @@
                     dataset.pointBorderColor = trimmedLabels.map(tLabel => (tLabel === selectedTimeLabel) ? '#ffffff' : dataset.borderColor);
                 }
 
-                // Compute average upper, lower, and median across matching apps
                 const trimmedLabels = c.data.labels;
                 const maxUp = [];
                 const minLo = [];
@@ -928,17 +1000,20 @@
             for (const key in charts) { redrawChart(key); }
         }
 
-        function setModelState(model, state) {
+        function setModel(model) {
             const ms = document.getElementById('modelStatus');
             try {
-                if (state === 'Idle') {
-                    ms.innerText = 'Idle';
-                } else if (state === 'Training') {
-                    ms.innerText = 'Training...';
-                } else if (state === 'Detecting') {
-                    ms.innerText = 'Detecting...';
-                } else {
-                    ms.innerText = 'Unknown';
+                if (model) {
+                  state = model.state
+                  if (state === 'Idle') {
+                      ms.innerText = model.detected.toString() + ' / ' + model.trained.toString();
+                  } else if (state === 'Training') {
+                      ms.innerText = 'Training...';
+                  } else if (state === 'Detecting') {
+                      ms.innerText = 'Detecting...';
+                  } else {
+                      ms.innerText = 'Unknown';
+                  }
                 }
             } catch(e) {
                ms.innerText = 'Unknown';
@@ -982,8 +1057,8 @@
             ws.onmessage = function(event) {
                 const v = JSON.parse(event.data);
 
-                if (v.state) {
-                    setModelState(v.model, v.state);
+                if (v.model) {
+                    setModel(v.model);
                 }
 
                 const app = v.ident;
@@ -1060,7 +1135,7 @@
                     wsStatus.innerText = '○ Disconnected';
                     wsStatus.style.color = '#ef4444';
                 }
-                setModelState("Unknown", "Unknown");
+                setModel(null);
                 setTimeout(connectWS, 3000); 
             };
         }

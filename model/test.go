@@ -64,6 +64,10 @@ func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFra
 	return als, nil
 }
 
+func (t *TestModel) Status() *common.ModelStatus {
+	return nil
+}
+
 func NewTestModel(options TestModelOptions, observability *common.Observability) *TestModel {
 
 	return &TestModel{

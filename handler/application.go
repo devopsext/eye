@@ -39,13 +39,20 @@ type HttpApplicationHandlerDataVerdict struct {
 	Description string `json:"description"`
 }
 
+type HttpApplicationHandlerDataModel struct {
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Count    int    `json:"count"`
+	Trained  int    `json:"trained"`
+	Detected int    `json:"detected"`
+}
+
 type HttpApplicationHandlerData struct {
 	Ident     string                             `json:"ident"`
 	Timestamp time.Time                          `json:"timestamp"`
 	Points    []HttpApplicationHandlerDataPoint  `json:"points"`
 	Verdict   *HttpApplicationHandlerDataVerdict `json:"verdict"`
-	Model     string                             `json:"string"`
-	State     string                             `json:"state"`
+	Model     *HttpApplicationHandlerDataModel   `json:"model"`
 }
 
 type HttpApplicationInfo struct {
@@ -255,9 +262,22 @@ func (h *HttpApplicationHandler) State(model common.Model, state common.ModelSta
 		return
 	}
 
+	trained := 0
+	detected := 0
+
+	status := model.Status()
+	if status != nil {
+		trained = status.Trained
+		detected = status.Detected
+	}
+
 	h.datachannel <- HttpApplicationHandlerData{
-		Model: model.Name(),
-		State: common.ModelStateToString(state),
+		Model: &HttpApplicationHandlerDataModel{
+			Name:     model.Name(),
+			State:    common.ModelStateToString(state),
+			Trained:  trained,
+			Detected: detected,
+		},
 	}
 }
 
