@@ -33,7 +33,6 @@ var slackOptions = notifier.SlackOptions{
 var promSignalOptions = datasource.PrometheusSignalOptions{
 
 	AppQuery:                 envFileContentExpand("PROMETHEUS_APP_QUERY", ""),
-	AppTolerance:             envGet("PROMETHEUS_APP_TOLERANCE", 0).(int),
 	AppSignalCommonLabels:    envStringExpand("PROMETHEUS_APP_SIGNAL_COMMON_LABELS", ""),
 	AppSignalInTrafficQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
 	AppSignalInErrorsQuery:   envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_ERRORS_QUERY", ""),
@@ -127,6 +126,14 @@ var forestModelOptions = model.ForestModelOptions{
 		OutThroughputMaxSlots: envGet("FOREST_MODEL_APPLICATION_OUT_THROUGHPUT_MAX_SLOTS", 1).(int),
 		RangeMultiplier:       envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", 1.5).(float64),
 		ProfileBucketsKind:    envGet("FOREST_MODEL_APPLICATION_PROFILE_BUCKETS_KIND", forest.ApplicationProfilerBucketsKindHour).(int),
+	},
+	HostOptions: forest.HostEngineOptions{
+		Path:               envGet("FOREST_MODEL_HOST_PATH", "").(string),
+		TreesNumber:        envGet("FOREST_MODEL_HOST_TREES_NUMBER", model.ForestModelTreesNumber).(int),
+		SubsampleSize:      envGet("FOREST_MODEL_HOST_SUBSAMPLE_SIZE", model.ForestModelSubsampleSize).(int),
+		OutlierRatio:       envGet("FOREST_MODEL_HOST_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
+		RangeMultiplier:    envGet("FOREST_MODEL_HOST_RANGE_MULTIPLIER", 1.5).(float64),
+		ProfileBucketsKind: envGet("FOREST_MODEL_HOST_PROFILE_BUCKETS_KIND", forest.HostProfilerBucketsKindHour).(int),
 	},
 }
 
@@ -224,7 +231,6 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 	// Prometheus signals
 	flags.StringVar(&promSignalOptions.AppQuery, "prometheus-app-query", promSignalOptions.AppQuery, "Prometheus app query")
-	flags.IntVar(&promSignalOptions.AppTolerance, "prometheus-app-tolerance", promSignalOptions.AppTolerance, "Prometheus app tolerance")
 	flags.StringVar(&promSignalOptions.AppSignalCommonLabels, "prometheus-app-signal-common-labels", promSignalOptions.AppSignalCommonLabels, "Prometheus app common labels")
 	flags.StringVar(&promSignalOptions.AppSignalInTrafficQuery, "prometheus-app-signal-in-traffic-query", promSignalOptions.AppSignalInTrafficQuery, "Prometheus app incoming traffic query")
 	flags.StringVar(&promSignalOptions.AppSignalInErrorsQuery, "prometheus-app-signal-in-errors-query", promSignalOptions.AppSignalInErrorsQuery, "Prometheus app incoming errors query")

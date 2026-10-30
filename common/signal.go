@@ -155,7 +155,6 @@ type HostSaturation struct {
 }
 
 const (
-	//HostSignalName           = "name"
 	HostSignalHost = "host"
 )
 
@@ -1681,32 +1680,6 @@ func (ms *Measurements) AddOrUpdate(stamp Stamp, s Signal) {
 
 	ms.items[hash] = ss
 }
-
-/*func (ms *Measurements) unsafeLookBackByType(stamp Stamp, hash Hash, tolerance int, typ reflect.Type) Signal {
-
-	tb := stamp
-	abs := math.Abs(float64(tolerance))
-	for {
-		tb--
-		ss := ms.items[hash]
-		diff := stamp - tb
-		if ss == nil && diff < Stamp(abs) {
-			continue
-		}
-		if ss == nil {
-			return nil
-		}
-		s := ss[stamp]
-		if utils.IsEmpty(s) {
-			continue
-		}
-		ts := reflect.TypeOf(s)
-		if ts.ConvertibleTo(typ) {
-			return s
-		}
-		return nil
-	}
-}*/
 
 func (ms *Measurements) unsafeFindSignal(stamp Stamp, hash Hash) Signal {
 

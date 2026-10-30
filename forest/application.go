@@ -33,17 +33,17 @@ type ApplicationCasePattern struct {
 	appMem common.CaseLevel
 }
 
-type ApplicationCaseVerdict struct {
-	acase *ApplicationCase
-	score int
-}
-
 type ApplicationCase struct {
 	name        string
 	description string
 	impact      common.CaseImpact
 	category    common.CaseCategory
 	pattern     ApplicationCasePattern
+}
+
+type ApplicationCaseVerdict struct {
+	acase *ApplicationCase
+	score int
 }
 
 type ApplicationCases struct {
@@ -54,7 +54,6 @@ type ApplicationTrafficValues map[common.TrafficKind]*common.Traffic
 type ApplicationLatencyValue *common.Latency
 type ApplicationErrorsValue *common.Errors
 type ApplicationSaturationValue *common.Saturation
-type HostSaturationValue *common.Saturation
 
 type ApplicationFrames []*ApplicationFrame
 
@@ -99,12 +98,6 @@ type ApplicationFrame struct {
 	outThroughput ApplicationTrafficValues
 	outLatency    ApplicationLatencyValue
 	outErrors     ApplicationErrorsValue
-}
-
-type ApplicationFrameLimits struct {
-	From  common.Stamp
-	First common.Stamp
-	Last  common.Stamp
 }
 
 type ApplicationTrafficSlots struct {
@@ -972,27 +965,27 @@ func (af *ApplicationFrame) Hash() common.Hash {
 	return af.hash
 }
 
-func NewApplicationFrame(stamp common.Stamp, appSignal *common.ApplicationSignal) *ApplicationFrame {
+func NewApplicationFrame(stamp common.Stamp, signal *common.ApplicationSignal) *ApplicationFrame {
 
 	r := &ApplicationFrame{
-		hash: appSignal.Hash(),
+		hash: signal.Hash(),
 		//
 		stamp: stamp,
 		begin: stamp,
 		end:   stamp,
 		//
-		inRequests:   appSignal.IncomingRequests(),
-		inThroughput: appSignal.IncomingThroughput(),
-		inLatency:    appSignal.IncomingLatency(),
-		inErrors:     appSignal.IncomingErrors(),
+		inRequests:   signal.IncomingRequests(),
+		inThroughput: signal.IncomingThroughput(),
+		inLatency:    signal.IncomingLatency(),
+		inErrors:     signal.IncomingErrors(),
 		//
-		appCPU: appSignal.SaturationCPU(),
-		appMem: appSignal.SaturationMemory(),
+		appCPU: signal.SaturationCPU(),
+		appMem: signal.SaturationMemory(),
 		//
-		outRequests:   appSignal.OutgoingRequests(),
-		outThroughput: appSignal.OutgoingThroughput(),
-		outLatency:    appSignal.OutgoingLatency(),
-		outErrors:     appSignal.OutgoingErrors(),
+		outRequests:   signal.OutgoingRequests(),
+		outThroughput: signal.OutgoingThroughput(),
+		outLatency:    signal.OutgoingLatency(),
+		outErrors:     signal.OutgoingErrors(),
 	}
 	return r
 }
@@ -1132,7 +1125,7 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 
 // ApplicationProfiler
 
-func TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) (int, float64) {
+func (ap *ApplicationProfiler) TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) (int, float64) {
 
 	t = t.UTC()
 	tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
@@ -1157,7 +1150,7 @@ func TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) (int, float
 	return tm, tms
 }
 
-func Percentile(sorted []float64, p float64) float64 {
+func (ap *ApplicationProfiler) Percentile(sorted []float64, p float64) float64 {
 	idx := p * float64(len(sorted)-1)
 	l := int(math.Floor(idx))
 	u := int(math.Ceil(idx))
@@ -1191,7 +1184,7 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 
 	for row := 0; row < len(matrix); row++ {
 		t := common.StampToTime(stamps[row])
-		b, _ := TimeWindowKey(t, ap.Kind)
+		b, _ := ap.TimeWindowKey(t, ap.Kind)
 
 		if b < 0 || b >= bucketSize {
 			continue
@@ -1222,9 +1215,9 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 
 			sort.Float64s(vals)
 
-			q1 := Percentile(vals, 0.25)
-			med := Percentile(vals, 0.50)
-			q3 := Percentile(vals, 0.75)
+			q1 := ap.Percentile(vals, 0.25)
+			med := ap.Percentile(vals, 0.50)
+			q3 := ap.Percentile(vals, 0.75)
 			iqr := q3 - q1
 
 			if iqr == 0 {
@@ -1309,38 +1302,6 @@ func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnom
 	return common.CaseLevelNormal
 }
 
-/*
-getLimits := func(profiler *ApplicationProfiler, col int, val float64, isPercentage bool) (float64, float64, float64) {
-
-	bucketSize := len(profiler.Buckets)
-	if bucketSize > 0 {
-		floatIdx := vectors.minutes
-
-		idx1 := int(math.Floor(floatIdx)) % bucketSize
-		idx2 := (idx1 + 1) % bucketSize // next bucket
-
-		frac := floatIdx - math.Floor(floatIdx)
-
-		if len(profiler.Buckets[idx1]) > col && len(profiler.Buckets[idx2]) > col {
-			st1 := profiler.Buckets[idx1][col]
-			st2 := profiler.Buckets[idx2][col]
-
-			med := st1.Median*(1-frac) + st2.Median*frac
-			q1 := st1.Q1*(1-frac) + st2.Q1*frac
-			q3 := st1.Q3*(1-frac) + st2.Q3*frac
-			iqr := st1.IQR*(1-frac) + st2.IQR*frac
-
-			upper := q3 + (profiler.K * iqr)
-			lower := q1 - (profiler.K * iqr)
-
-			if lower < 0 {
-				lower = 0
-			}
-			return upper, lower, med
-		}
-	}
-*/
-
 func NewApplicationProfiler(k float64, kind ApplicationProfilerBucketsKind) *ApplicationProfiler {
 
 	size := 0
@@ -1376,7 +1337,7 @@ func (ae *ApplicationEngine) Name() string {
 func (ae *ApplicationEngine) getMedians(profiler *ApplicationProfiler, t time.Time, startIdx, count int) []float64 {
 
 	meds := make([]float64, count)
-	b, _ := TimeWindowKey(t, profiler.Kind)
+	b, _ := profiler.TimeWindowKey(t, profiler.Kind)
 	if len(profiler.Buckets[b]) < startIdx+count {
 		return meds
 	}
@@ -1447,7 +1408,7 @@ func (ae *ApplicationEngine) extractVectors(t time.Time, frame *ApplicationFrame
 	vectors.inLatIdx = vectors.inThruIdx + 1
 	vectors.inErrIdx = vectors.inLatIdx + 1
 
-	b, m := TimeWindowKey(t, ae.inProfiler.Kind)
+	b, m := ae.inProfiler.TimeWindowKey(t, ae.inProfiler.Kind)
 	vectors.bucket = b
 	vectors.minutes = m
 
@@ -1624,7 +1585,7 @@ func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL,
 	return tL, tR, inL, satL, outL, inR, satR, outR
 }
 
-func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationFrameLimits) error {
+func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits common.DataSourceDataLimits) error {
 
 	if len(frames) == 0 {
 		return nil
@@ -1661,7 +1622,7 @@ func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits ApplicationF
 	// split data if new frames are inside it, clean up old data
 	first := frames[0].stamp
 	last := frames[len(frames)-1].stamp
-	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitTimesData(limits.From, first, last)
+	tL, tR, inL, satL, outL, inR, satR, outR := ae.splitTimesData(limits.From(), first, last)
 
 	// find out vectors from new frames
 	stamps := []common.Stamp{}

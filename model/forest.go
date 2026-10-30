@@ -33,6 +33,7 @@ type ForestModelOptions struct {
 	DetectionImpacts    string
 
 	ApplicationOptions forest.ApplicationEngineOptions
+	HostOptions        forest.HostEngineOptions
 }
 
 type ForestModelData struct {
@@ -459,7 +460,7 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 
 			hs := signal.AsHostSignal()
 			if hs != nil {
-				frame := forest.NewHostFrame(stamp, hash, hs)
+				frame := forest.NewHostFrame(stamp, hs)
 				if frame != nil && frame.Valid() {
 					hostFrames[hash] = append(hostFrames[hash], frame)
 				}
@@ -488,12 +489,6 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 	gr.SetLimit(fm.options.Concurrency)
 	errs := make(chan error, length)
 
-	appLimits := forest.ApplicationFrameLimits{
-		From:  data.From(),
-		First: data.First(),
-		Last:  data.Last(),
-	}
-
 	// run apps engine
 	for hash, frames := range appFrames {
 
@@ -512,7 +507,7 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 				errs <- err
 				return nil
 			}
-			err = engine.Train(frames, appLimits)
+			err = engine.Train(frames, data.Limits())
 			if err != nil {
 				errs <- err
 				return nil
@@ -541,10 +536,22 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 				return nil
 			}
 
-			engine := forest.NewHostEngine()
-			err := engine.Train(frames)
+			engine := forest.NewHostEngine(hash, &fm.options.HostOptions, fm.observability)
+
+			err := engine.LoadData()
 			if err != nil {
 				errs <- err
+				return nil
+			}
+			err = engine.Train(frames, data.Limits())
+			if err != nil {
+				errs <- err
+				return nil
+			}
+			err = engine.Save()
+			if err != nil {
+				errs <- err
+				return nil
 			}
 			fm.trains.Delete(hash)
 			if engine.Ready() {
@@ -588,8 +595,9 @@ func (fm *ForestModel) Train(data common.DataSourceData) ([]common.Hash, error) 
 	when := time.Now()
 	name := fm.Name()
 
-	t1 := common.StampToTime(data.First())
-	t2 := common.StampToTime(data.Last())
+	limits := data.Limits()
+	t1 := common.StampToTime(limits.First())
+	t2 := common.StampToTime(limits.Last())
 
 	fm.logger.Info("%s: Training from %v to %s ...", name, t1, t2)
 
@@ -983,8 +991,9 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 	when := time.Now()
 	name := fm.Name()
 
-	t1 := common.StampToTime(data.First())
-	t2 := common.StampToTime(data.Last())
+	limits := data.Limits()
+	t1 := common.StampToTime(limits.First())
+	t2 := common.StampToTime(limits.Last())
 
 	fm.logger.Info("%s: Detecting from %v to %s ...", name, t1, t2)
 

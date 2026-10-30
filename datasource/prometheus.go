@@ -50,7 +50,6 @@ type PrometheusSignalOptions struct {
 
 	// app related
 	AppQuery                 string
-	AppTolerance             int
 	AppSignalCommonLabels    string
 	AppSignalInTrafficQuery  string
 	AppSignalInErrorsQuery   string
@@ -132,6 +131,10 @@ func (pd *PrometheusData) Measurements() *common.Measurements {
 
 func (pd *PrometheusData) Schemas() *common.Schemas {
 	return pd.schemas
+}
+
+func (pd *PrometheusData) Limits() common.DataSourceDataLimits {
+	return pd
 }
 
 func (pd *PrometheusData) From() common.Stamp {

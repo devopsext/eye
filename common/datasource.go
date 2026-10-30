@@ -5,6 +5,12 @@ import (
 	"sync"
 )
 
+type DataSourceDataLimits interface {
+	From() Stamp
+	First() Stamp
+	Last() Stamp
+}
+
 type DataSourceData interface {
 	Names() *Names
 	Attributes() *Attributes
@@ -12,9 +18,7 @@ type DataSourceData interface {
 	Applications() *Applications
 	Measurements() *Measurements
 	Schemas() *Schemas
-	From() Stamp
-	First() Stamp
-	Last() Stamp
+	Limits() DataSourceDataLimits
 }
 
 type DataSource interface {
