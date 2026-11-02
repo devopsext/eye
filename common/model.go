@@ -57,6 +57,12 @@ type ModelApplicationFrame interface {
 	Memory() ModelDataPoint
 }
 
+type ModelHostFrame interface {
+	ModelFrame
+	CPU() ModelDataPoint
+	Memory() ModelDataPoint
+}
+
 type ModelFrameSubscriber interface {
 	Frame(frame ModelFrame)
 }

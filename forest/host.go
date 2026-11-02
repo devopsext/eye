@@ -59,6 +59,7 @@ type HostFramePoints struct {
 
 type HostFrame struct {
 	//
+	name string
 	hash common.Hash
 	//
 	stamp common.Stamp
@@ -129,13 +130,16 @@ type HostEngineFileSaturation struct {
 }
 
 type HostEngineFileV001 struct {
+	Name       string
+	Hash       common.Hash
 	Stamps     []common.Stamp
 	Minutes    []int
 	Saturation HostEngineFileSaturation
 }
 
 type HostEngine struct {
-	id      common.Hash
+	name    string
+	hash    common.Hash
 	options *HostEngineOptions
 
 	stamps  []common.Stamp
@@ -371,6 +375,10 @@ func (af *HostFrame) Hash() common.Hash {
 	return af.hash
 }
 
+func (af *HostFrame) Name() string {
+	return af.name
+}
+
 func NewHostFrame(stamp common.Stamp, signal *common.HostSignal) *HostFrame {
 
 	r := &HostFrame{
@@ -597,19 +605,6 @@ func (ae *HostEngine) Name() string {
 	return "ForestHostEngine"
 }
 
-func (ae *HostEngine) getMedians(profiler *HostProfiler, t time.Time, startIdx, count int) []float64 {
-
-	meds := make([]float64, count)
-	b, _ := profiler.TimeWindowKey(t, profiler.Kind)
-	if len(profiler.Buckets[b]) < startIdx+count {
-		return meds
-	}
-	for i := 0; i < count; i++ {
-		meds[i] = profiler.Buckets[b][startIdx+i].Median
-	}
-	return meds
-}
-
 func (ae *HostEngine) extractTimeVectors(t time.Time) []float64 {
 
 	t = t.UTC()
@@ -796,6 +791,8 @@ func (ae *HostEngine) decodeV001(decoder *gob.Decoder, kinds []HostEngineFileLoa
 		return err
 	}
 
+	ae.name = engineFile.Name
+	ae.hash = engineFile.Hash
 	ae.stamps = engineFile.Stamps
 	ae.minutes = engineFile.Minutes
 
@@ -818,7 +815,7 @@ func (ae *HostEngine) decodeV001(decoder *gob.Decoder, kinds []HostEngineFileLoa
 
 func (ae *HostEngine) load(kinds []HostEngineFileLoadKind) error {
 
-	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%d.data", ae.id))
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.name))
 
 	if !utils.FileExists(fpath) {
 		return nil
@@ -861,7 +858,7 @@ func (ae *HostEngine) Save() error {
 		os.MkdirAll(optPath, os.ModePerm)
 	}
 
-	fpath := filepath.Join(optPath, fmt.Sprintf("%d.data", ae.id))
+	fpath := filepath.Join(optPath, fmt.Sprintf("%s.data", ae.name))
 
 	f, err := os.Create(fpath)
 	if err != nil {
@@ -879,6 +876,8 @@ func (ae *HostEngine) Save() error {
 	}
 
 	engineFile := HostEngineFileV001{
+		Name:    ae.name,
+		Hash:    ae.hash,
 		Stamps:  ae.stamps,
 		Minutes: ae.minutes,
 		Saturation: HostEngineFileSaturation{
@@ -893,7 +892,7 @@ func (ae *HostEngine) Save() error {
 func (ae *HostEngine) Clone() *HostEngine {
 
 	return &HostEngine{
-		id: ae.id,
+		name: ae.name,
 	}
 }
 
@@ -1018,7 +1017,8 @@ func (ae *HostEngine) Consolidate(frames HostFrames) *HostFrame {
 
 	frame := ae.aggregateFrames(frames)
 
-	frame.hash = frames[0].Hash()
+	frame.name = ae.name
+	frame.hash = ae.hash
 	frame.stamp = stamp
 	frame.begin = begin
 	frame.end = end
@@ -1045,12 +1045,13 @@ func (ae *HostEngine) Diagnose(frame *HostFrame, cases *HostCases) (*HostFramePo
 	return points, verdict
 }
 
-func NewHostEngine(id common.Hash, options *HostEngineOptions, observability *common.Observability) *HostEngine {
+func NewHostEngine(name string, hash common.Hash, options *HostEngineOptions, observability *common.Observability) *HostEngine {
 
 	return &HostEngine{
 
 		logger:  observability.Logs(),
-		id:      id,
+		name:    name,
+		hash:    hash,
 		options: options,
 
 		satForest:   iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),

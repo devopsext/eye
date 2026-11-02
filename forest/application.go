@@ -80,6 +80,7 @@ type ApplicationFramePoints struct {
 
 type ApplicationFrame struct {
 	//
+	name string
 	hash common.Hash
 	//
 	stamp common.Stamp
@@ -174,6 +175,8 @@ type ApplicationEngineFileSaturation struct {
 }
 
 type ApplicationEngineFileV001 struct {
+	Name       string
+	Hash       common.Hash
 	Stamps     []common.Stamp
 	Minutes    []int
 	Incoming   ApplicationEngineFileIncoming
@@ -182,7 +185,8 @@ type ApplicationEngineFileV001 struct {
 }
 
 type ApplicationEngine struct {
-	id      common.Hash
+	name    string
+	hash    common.Hash
 	options *ApplicationEngineOptions
 
 	inReqSlots  *ApplicationTrafficSlots
@@ -965,10 +969,13 @@ func (af *ApplicationFrame) Hash() common.Hash {
 	return af.hash
 }
 
+func (af *ApplicationFrame) Name() string {
+	return af.name
+}
+
 func NewApplicationFrame(stamp common.Stamp, signal *common.ApplicationSignal) *ApplicationFrame {
 
 	r := &ApplicationFrame{
-		hash: signal.Hash(),
 		//
 		stamp: stamp,
 		begin: stamp,
@@ -1706,6 +1713,8 @@ func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, kinds []Applicatio
 		return err
 	}
 
+	ae.name = engineFile.Name
+	ae.hash = engineFile.Hash
 	ae.stamps = engineFile.Stamps
 	ae.minutes = engineFile.Minutes
 
@@ -1743,7 +1752,7 @@ func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, kinds []Applicatio
 
 func (ae *ApplicationEngine) load(kinds []ApplicationEngineFileLoadKind) error {
 
-	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%d.data", ae.id))
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.name))
 
 	if !utils.FileExists(fpath) {
 		return nil
@@ -1786,7 +1795,7 @@ func (ae *ApplicationEngine) Save() error {
 		os.MkdirAll(optPath, os.ModePerm)
 	}
 
-	fpath := filepath.Join(optPath, fmt.Sprintf("%d.data", ae.id))
+	fpath := filepath.Join(optPath, fmt.Sprintf("%s.data", ae.name))
 
 	f, err := os.Create(fpath)
 	if err != nil {
@@ -1804,6 +1813,8 @@ func (ae *ApplicationEngine) Save() error {
 	}
 
 	engineFile := ApplicationEngineFileV001{
+		Name:    ae.name,
+		Hash:    ae.hash,
 		Stamps:  ae.stamps,
 		Minutes: ae.minutes,
 		Incoming: ApplicationEngineFileIncoming{
@@ -1827,13 +1838,6 @@ func (ae *ApplicationEngine) Save() error {
 		},
 	}
 	return encoder.Encode(&engineFile)
-}
-
-func (ae *ApplicationEngine) Clone() *ApplicationEngine {
-
-	return &ApplicationEngine{
-		id: ae.id,
-	}
 }
 
 func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) ApplicationFramePoints {
@@ -2124,7 +2128,8 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 
 	frame := ae.aggregateFrames(frames)
 
-	frame.hash = frames[0].Hash()
+	frame.name = ae.name
+	frame.hash = ae.hash
 	frame.stamp = stamp
 	frame.begin = begin
 	frame.end = end
@@ -2151,12 +2156,13 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 	return points, verdict
 }
 
-func NewApplicationEngine(id common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
+func NewApplicationEngine(name string, hash common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
 
 	return &ApplicationEngine{
 
 		logger:  observability.Logs(),
-		id:      id,
+		name:    name,
+		hash:    hash,
 		options: options,
 
 		inReqSlots:  NewApplicationTrafficSlots(options.InRequestsMaxSlots),

@@ -51,7 +51,13 @@ type ForestModelApplicationFrame struct {
 	frame   *forest.ApplicationFrame
 	points  *forest.ApplicationFramePoints
 	verdict *forest.ApplicationCaseVerdict
-	data    common.DataSourceData
+}
+
+type ForestModelHostFrame struct {
+	hash    common.Hash
+	frame   *forest.HostFrame
+	points  *forest.HostFramePoints
+	verdict *forest.HostCaseVerdict
 }
 
 type ForestModelDetection struct {
@@ -77,7 +83,8 @@ type ForestModel struct {
 	observability *common.Observability
 	logger        sreCommon.Logger
 
-	appCases *forest.ApplicationCases
+	appCases  *forest.ApplicationCases
+	hostCases *forest.HostCases
 
 	engines    *ttlcache.Cache[common.Hash, ForestModelEngine]
 	detections *ForestModelDetections
@@ -132,20 +139,10 @@ func (af *ForestModelApplicationFrame) Timestamp() time.Time {
 
 func (af *ForestModelApplicationFrame) Ident() string {
 
-	if af.frame == nil || utils.IsEmpty(af.data) {
+	if af.frame == nil {
 		return ""
 	}
-
-	names := af.data.Names()
-	if names == nil {
-		return ""
-	}
-
-	app := names.FindByHash(af.frame.Hash())
-	if utils.IsEmpty(app) {
-		return ""
-	}
-	return app
+	return af.frame.Name()
 }
 
 func (af *ForestModelApplicationFrame) Verdict() common.ModelVerdict {
@@ -220,6 +217,62 @@ func (af *ForestModelApplicationFrame) Memory() common.ModelDataPoint {
 		return nil
 	}
 	return af.points.Memory()
+}
+
+// ForestModelHostFrame
+
+func (hf *ForestModelHostFrame) begin() common.Stamp {
+	if hf.frame == nil {
+		return common.Stamp(0)
+	}
+	return hf.frame.Begin()
+}
+
+func (hf *ForestModelHostFrame) end() common.Stamp {
+	if hf.frame == nil {
+		return common.Stamp(0)
+	}
+	return hf.frame.End()
+}
+
+func (hf *ForestModelHostFrame) IsEmpty() bool {
+	if hf.points == nil {
+		return true
+	}
+	return hf.points.IsEmpty()
+}
+
+func (hf *ForestModelHostFrame) Timestamp() time.Time {
+	if hf.frame == nil {
+		return time.Now()
+	}
+	return common.StampToTime(hf.frame.Stamp())
+}
+
+func (hf *ForestModelHostFrame) Ident() string {
+
+	if hf.frame == nil {
+		return ""
+	}
+	return hf.frame.Name()
+}
+
+func (hf *ForestModelHostFrame) Verdict() common.ModelVerdict {
+	return hf.verdict
+}
+
+func (hf *ForestModelHostFrame) CPU() common.ModelDataPoint {
+	if hf.points == nil {
+		return nil
+	}
+	return hf.points.CPU()
+}
+
+func (hf *ForestModelHostFrame) Memory() common.ModelDataPoint {
+	if hf.points == nil {
+		return nil
+	}
+	return hf.points.Memory()
 }
 
 // ForestModelDetection
@@ -469,6 +522,52 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 	}
 }
 
+func (fm *ForestModel) appTrain(data common.DataSourceData, hash common.Hash, frames forest.ApplicationFrames) error {
+
+	name := data.Names().FindByHash(hash)
+	engine := forest.NewApplicationEngine(name, hash, &fm.options.ApplicationOptions, fm.observability)
+	err := engine.LoadData()
+	if err != nil {
+		return err
+	}
+	err = engine.Train(frames, data.Limits())
+	if err != nil {
+		return err
+	}
+	err = engine.Save()
+	if err != nil {
+		return err
+	}
+	fm.trains.Delete(hash)
+	if engine.Ready() {
+		fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+	}
+	return nil
+}
+
+func (fm *ForestModel) hostTrain(data common.DataSourceData, hash common.Hash, frames forest.HostFrames) error {
+
+	name := data.Names().FindByHash(hash)
+	engine := forest.NewHostEngine(name, hash, &fm.options.HostOptions, fm.observability)
+	err := engine.LoadData()
+	if err != nil {
+		return nil
+	}
+	err = engine.Train(frames, data.Limits())
+	if err != nil {
+		return err
+	}
+	err = engine.Save()
+	if err != nil {
+		return err
+	}
+	fm.trains.Delete(hash)
+	if engine.Ready() {
+		fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+	}
+	return nil
+}
+
 func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) {
 
 	hs := []common.Hash{}
@@ -499,27 +598,9 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 			if exists {
 				return nil
 			}
-
-			engine := forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
-
-			err := engine.LoadData()
+			err := fm.appTrain(data, hash, frames)
 			if err != nil {
 				errs <- err
-				return nil
-			}
-			err = engine.Train(frames, data.Limits())
-			if err != nil {
-				errs <- err
-				return nil
-			}
-			err = engine.Save()
-			if err != nil {
-				errs <- err
-				return nil
-			}
-			fm.trains.Delete(hash)
-			if engine.Ready() {
-				fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
 			}
 			return nil
 		})
@@ -535,27 +616,9 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 			if exists {
 				return nil
 			}
-
-			engine := forest.NewHostEngine(hash, &fm.options.HostOptions, fm.observability)
-
-			err := engine.LoadData()
+			err := fm.hostTrain(data, hash, frames)
 			if err != nil {
 				errs <- err
-				return nil
-			}
-			err = engine.Train(frames, data.Limits())
-			if err != nil {
-				errs <- err
-				return nil
-			}
-			err = engine.Save()
-			if err != nil {
-				errs <- err
-				return nil
-			}
-			fm.trains.Delete(hash)
-			if engine.Ready() {
-				fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
 			}
 			return nil
 		})
@@ -814,6 +877,142 @@ func (fm *ForestModel) setManyDetections(eligible, found []*ForestModelDetection
 	}
 }
 
+func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, frames forest.ApplicationFrames, onFrame common.ModelOnFrame) (*ForestModelApplicationFrame, error) {
+
+	name := data.Names().FindByHash(hash)
+
+	var engine *forest.ApplicationEngine
+
+	item := fm.engines.Get(hash)
+	if item != nil {
+		val := item.Value()
+		if !utils.IsEmpty(val) {
+			e, ok := val.(*forest.ApplicationEngine)
+			if !ok {
+				return nil, nil
+			}
+			engine = e
+		}
+	}
+
+	if engine == nil {
+		fm.logger.Debug("%s: Engine not found %s (%d). Initializing...", fm.Name(), name, hash)
+		engine = forest.NewApplicationEngine(name, hash, &fm.options.ApplicationOptions, fm.observability)
+		err := engine.LoadForest()
+		if err != nil {
+			return nil, err
+		}
+		if engine.Ready() {
+			fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+		}
+	}
+
+	appFrame := engine.Consolidate(frames)
+	if appFrame == nil {
+		return nil, nil
+	}
+
+	if !engine.Ready() {
+		fm.logger.Debug("%s: %s not ready %s (%d)", fm.Name(), engine.Name(), name, hash)
+		return nil, nil
+	}
+
+	stamp := appFrame.Stamp()
+	if !engine.Exists(stamp) {
+		fm.logger.Debug("%s: %s doesn't exist %s (%d) on %v", fm.Name(), engine.Name(), name, hash, common.StampToTime(stamp))
+		return nil, nil
+	}
+
+	appPoints, appVerdict := engine.Diagnose(appFrame, fm.appCases)
+	if appPoints == nil {
+		return nil, nil
+	}
+
+	verdictFrame := &ForestModelApplicationFrame{
+		hash:    hash,
+		frame:   appFrame,
+		verdict: appVerdict,
+		points:  appPoints,
+	}
+
+	if onFrame != nil {
+		go onFrame(verdictFrame)
+	}
+
+	if appVerdict == nil {
+		return nil, nil
+	}
+	return verdictFrame, nil
+}
+
+func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, frames forest.HostFrames, onFrame common.ModelOnFrame) (*ForestModelHostFrame, error) {
+
+	name := data.Names().FindByHash(hash)
+
+	var engine *forest.HostEngine
+
+	item := fm.engines.Get(hash)
+	if item != nil {
+		val := item.Value()
+		if !utils.IsEmpty(val) {
+			e, ok := val.(*forest.HostEngine)
+			if !ok {
+				return nil, nil
+			}
+			engine = e
+		}
+	}
+
+	if engine == nil {
+		fm.logger.Debug("%s: Engine not found %s (%d). Initializing...", fm.Name(), name, hash)
+		engine = forest.NewHostEngine(name, hash, &fm.options.HostOptions, fm.observability)
+		err := engine.LoadForest()
+		if err != nil {
+			return nil, err
+		}
+		if engine.Ready() {
+			fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
+		}
+	}
+
+	hostFrame := engine.Consolidate(frames)
+	if hostFrame == nil {
+		return nil, nil
+	}
+
+	if !engine.Ready() {
+		fm.logger.Debug("%s: %s not ready %s (%d)", fm.Name(), engine.Name(), name, hash)
+		return nil, nil
+	}
+
+	stamp := hostFrame.Stamp()
+	if !engine.Exists(stamp) {
+		fm.logger.Debug("%s: %s doesn't exist %s (%d) on %v", fm.Name(), engine.Name(), name, hash, common.StampToTime(stamp))
+		return nil, nil
+	}
+
+	hostPoints, hostVerdict := engine.Diagnose(hostFrame, fm.hostCases)
+	if hostPoints == nil {
+		return nil, nil
+	}
+
+	verdictFrame := &ForestModelHostFrame{
+		hash:    hash,
+		frame:   hostFrame,
+		verdict: hostVerdict,
+		points:  hostPoints,
+	}
+
+	if onFrame != nil {
+		go onFrame(verdictFrame)
+	}
+
+	if hostVerdict == nil {
+		return nil, nil
+	}
+	return verdictFrame, nil
+}
+
 func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOnFrame) error {
 
 	measurements := data.Measurements()
@@ -849,68 +1048,39 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 				return nil
 			}
 
-			var engine *forest.ApplicationEngine
-
-			item := fm.engines.Get(hash)
-			if item != nil {
-				val := item.Value()
-				if !utils.IsEmpty(val) {
-					e, ok := val.(*forest.ApplicationEngine)
-					if !ok {
-						return nil
-					}
-					engine = e
-				}
-			}
-
-			if engine == nil {
-				fm.logger.Debug("%s: Engine not found %s (%d). Initializing...", fm.Name(), name, hash)
-				engine = forest.NewApplicationEngine(hash, &fm.options.ApplicationOptions, fm.observability)
-				err := engine.LoadForest()
-				if err != nil {
-					errs <- err
-					return nil
-				}
-				if engine.Ready() {
-					fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
-				}
-			}
-
-			appFrame := engine.Consolidate(frames)
-			if appFrame == nil {
+			verdictFrame, err := fm.appDetect(data, hash, frames, onFrame)
+			if err != nil {
+				errs <- err
 				return nil
 			}
-
-			if !engine.Ready() {
-				fm.logger.Debug("%s: %s not ready %s (%d)", fm.Name(), engine.Name(), name, hash)
-				return nil
-			}
-
-			stamp := appFrame.Stamp()
-			if !engine.Exists(stamp) {
-				fm.logger.Debug("%s: %s doesn't exist %s (%d) on %v", fm.Name(), engine.Name(), name, hash, common.StampToTime(stamp))
-				return nil
-			}
-
-			appPoints, appVerdict := engine.Diagnose(appFrame, fm.appCases)
-			if appPoints == nil {
-				return nil
-			}
-
-			verdictFrame := &ForestModelApplicationFrame{
-				hash:    hash,
-				frame:   appFrame,
-				verdict: appVerdict,
-				points:  appPoints,
-				data:    data,
-			}
-
-			if appVerdict != nil {
+			if verdictFrame != nil {
 				verdictFrames.Store(hash, verdictFrame)
 			}
+			return nil
+		})
+	}
 
-			if onFrame != nil {
-				go onFrame(verdictFrame)
+	// run host engine
+	for hash, frames := range hostFrames {
+
+		gr.Go(func() error {
+
+			name := names.FindByHash(hash)
+			fm.logger.Debug("%s: Detecting %s (%d)", fm.Name(), name, hash)
+
+			// check existence
+			if _, ok := fm.trains.Load(hash); ok {
+				fm.logger.Debug("%s: Training found %s (%d). Skipped", fm.Name(), name, hash)
+				return nil
+			}
+
+			verdictFrame, err := fm.hostDetect(data, hash, frames, onFrame)
+			if err != nil {
+				errs <- err
+				return nil
+			}
+			if verdictFrame != nil {
+				verdictFrames.Store(hash, verdictFrame)
 			}
 			return nil
 		})
@@ -1056,6 +1226,7 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 		observability: observability,
 		logger:        observability.Logs(),
 		appCases:      forest.NewApplicationCases(),
+		hostCases:     forest.NewHostCases(),
 		engines: ttlcache.New(
 			ttlcache.WithTTL[common.Hash, ForestModelEngine](common.DefaultTTL(options.EngineTTL, 1*time.Hour)),
 		),
