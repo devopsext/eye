@@ -81,12 +81,45 @@
             --splitter-bg: #80DEEA;
             --splitter-hover: #37474F;
         }
+        body.theme-obsidian {
+            background: linear-gradient(135deg, #090d16 0%, #171524 100%) !important;
+            --bg-color: transparent;
+            --panel-bg: rgba(22, 24, 38, 0.9);
+            --text-color: #c4b5fd;
+            --border-color: #312e81;
+            --control-bg: rgba(49, 46, 129, 0.45);
+            --table-hover: rgba(49, 46, 129, 0.3);
+            --splitter-bg: #4338ca;
+            --splitter-hover: #a78bfa;
+        }
+        body.theme-synthwave {
+            background: linear-gradient(135deg, #2b0938 0%, #0d1b2a 55%, #1b062e 100%) !important;
+            --bg-color: transparent;
+            --panel-bg: rgba(34, 12, 53, 0.85);
+            --text-color: #00f5d4;
+            --border-color: #f72585;
+            --control-bg: rgba(114, 9, 183, 0.45);
+            --table-hover: rgba(247, 37, 133, 0.25);
+            --splitter-bg: #f72585;
+            --splitter-hover: #00f5d4;
+        }
+        body.theme-monokai {
+            --bg-color: #1e1f1c;
+            --panel-bg: #272822;
+            --text-color: #a6e22e;
+            --border-color: #49483e;
+            --control-bg: #3e3d32;
+            --table-hover: #3e3d32;
+            --splitter-bg: #75715e;
+            --splitter-hover: #f92672;
+        }
 
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 15px; box-sizing: border-box; transition: background 0.3s, color 0.3s; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         * { box-sizing: border-box; }
         .controls { background: var(--panel-bg); padding: 10px 15px; border-radius: 8px; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--border-color); flex-shrink: 0; }
-        select, input, button { background: var(--control-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; outline: none; font-size: 13px; }
+        select, input, button { background: var(--control-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; outline: none; font-size: 13px; cursor: pointer; }
         select:hover, input:hover, button:hover { opacity: 0.9; }
+        input[type="text"]:hover, input[type="text"]:focus { cursor: text; }
         input:focus { border-color: #0284c7; }
         
         .grid { display: grid; grid-template-columns: minmax(0, 1fr) 8px 460px; gap: 0; align-items: stretch; flex: 1; min-height: 0; transition: grid-template-columns 0.2s ease; }
@@ -116,6 +149,8 @@
         .splitter:hover, .splitter.dragging { background: var(--splitter-hover); }
 
         .verdict-card { background: var(--panel-bg); border-radius: 8px; padding: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; height: 100%; display: flex; flex-direction: column; border: 1px solid var(--border-color); min-height: 0; }
+        .verdict-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; flex-shrink: 0; }
+        .verdict-header h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-color); }
         .table-container { flex: 1; overflow-y: auto; width: 100%; margin-top: 5px; min-height: 0; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
         th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -152,13 +187,21 @@
             <option value="nordic">Nordic</option>
             <option value="crimson">Crimson</option>
             <option value="cyberpunk">Cyberpunk</option>
+            <option value="emerald">Emerald</option>
             <option value="solar" selected>Solar</option>
+            <option value="obsidian">Obsidian</option>
+            <option value="synthwave">Synthwave</option>
+            <option value="monokai">Monokai</option>
         </select>
 
         <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:300px;">
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="changeFilter()" onchange="changeFilter()" style="width:260px;">
         <datalist id="applicationList"></datalist>
+
+        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:260px;">
+        <datalist id="hostList"></datalist>
+
         <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
         <span id="wsStatus" style="font-size:12px; color:#10b981;">● Connected</span>
         <button id="toggleRightPanelBtn" onclick="toggleRightPanel()" style="background: var(--control-bg); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; cursor: pointer;">📋</button>
@@ -172,6 +215,15 @@
         <div class="splitter" id="dragSplitter"></div>
         
         <div class="verdict-card">
+            <div class="verdict-header">
+                <h3>Verdicts</h3>
+                <select id="impactFilterSelect" onchange="rebuildVerdictTable()" style="padding: 3px 6px; font-size: 11px;">
+                    <option value="all" selected>All Impacts</option>
+                    <option value="severe">Severe</option>
+                    <option value="average">Average</option>
+                    <option value="zero">Zero / Normal</option>
+                </select>
+            </div>
             <div class="table-container">
                 <table>
                     <thead>
@@ -190,6 +242,7 @@
 
     <script>
         let currentFilter = document.getElementById('applicationSearch').value.trim();
+        let currentHostFilter = document.getElementById('hostSearch').value.trim();
         let updateFreqSec = 3;
         let maxDataPoints = Math.floor(180 / updateFreqSec);
         let sharedMetricColor = document.getElementById('metricColorPicker').value;
@@ -197,6 +250,7 @@
         let ws = null;
         
         const applicationCache = {};
+        const hostCache = {};
         let availableApplications = [];
         let selectedTimeLabel = null;
         let hoveredIndex = null;
@@ -208,6 +262,7 @@
             "InErrors", "OutErrors",
             "InThroughput", "OutThroughput",
             "ApplicationCPU", "ApplicationMemory", 
+            "HostCPU", "HostMemory",
         ];
 
         let orderedMetrics = [...defaultOrderedMetrics];
@@ -224,32 +279,177 @@
             "OutErrors": { label: "Out Errors" },
             "ApplicationCPU": { label: "Application CPU" },
             "ApplicationMemory": { label: "Application Memory" },
+            "HostCPU": { label: "Host CPU", isHost: true },
+            "HostMemory": { label: "Host Memory", isHost: true },
         };
 
-        function matchesFilter(appName, filterVal) {
-            if (!filterVal) return true;
-            try {
-                const regex = new RegExp(filterVal, 'i');
-                return regex.test(appName);
-            } catch (e) {
-                return appName.toLowerCase().includes(filterVal.toLowerCase());
+        function isHostMetric(key) {
+            return Boolean(metricsConfig[key] && metricsConfig[key].isHost);
+        }
+
+        function ensureAppCache(app) {
+            if (!applicationCache[app]) {
+                applicationCache[app] = { rawSeries: {}, verdicts: [], hosts: new Set() };
+            } else if (!applicationCache[app].hosts) {
+                applicationCache[app].hosts = new Set();
             }
         }
 
-        function getMatchingApps() {
-            const appsSet = new Set(Object.keys(applicationCache));
-            availableApplications.forEach(a => appsSet.add(a));
-            return Array.from(appsSet).filter(app => matchesFilter(app, currentFilter));
+        function ensureHostCache(hostIdent) {
+            if (!hostCache[hostIdent]) {
+                hostCache[hostIdent] = { rawSeries: {}, apps: new Set() };
+            } else if (!hostCache[hostIdent].apps) {
+                hostCache[hostIdent].apps = new Set();
+            }
         }
 
-        function getRandomColor(app) {
-            if (appColorMap[app]) return appColorMap[app];
+        function matchesFilter(name, filterVal) {
+            if (!filterVal) return true;
+            try {
+                const regex = new RegExp(filterVal, 'i');
+                return regex.test(name);
+            } catch (e) {
+                return name.toLowerCase().includes(filterVal.toLowerCase());
+            }
+        }
+
+        function getAllKnownApps() {
+            const appsSet = new Set(Object.keys(applicationCache));
+            availableApplications.forEach(a => appsSet.add(a));
+            return Array.from(appsSet);
+        }
+
+        function getAllKnownHosts() {
+            const hostsSet = new Set(Object.keys(hostCache));
+            Object.values(applicationCache).forEach(appObj => {
+                if (appObj && appObj.hosts) {
+                    appObj.hosts.forEach(h => hostsSet.add(h));
+                }
+            });
+            return Array.from(hostsSet);
+        }
+
+        function appHasHostMatching(app, hostFilterVal) {
+            if (!hostFilterVal) return true;
+            const appObj = applicationCache[app];
+            if (appObj && appObj.hosts && appObj.hosts.size > 0) {
+                for (const h of appObj.hosts) {
+                    if (matchesFilter(h, hostFilterVal)) return true;
+                }
+            }
+            for (const [h, hObj] of Object.entries(hostCache)) {
+                if (hObj && hObj.apps && hObj.apps.has(app) && matchesFilter(h, hostFilterVal)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function hostHasAppMatching(host, appFilterVal) {
+            if (!appFilterVal) return true;
+            const hObj = hostCache[host];
+            if (hObj && hObj.apps && hObj.apps.size > 0) {
+                for (const app of hObj.apps) {
+                    if (matchesFilter(app, appFilterVal)) return true;
+                }
+            }
+            for (const [app, appObj] of Object.entries(applicationCache)) {
+                if (appObj && appObj.hosts && appObj.hosts.has(host) && matchesFilter(app, appFilterVal)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function updateFilterLists() {
+            const appDatalist = document.getElementById('applicationList');
+            const hostDatalist = document.getElementById('hostList');
+            if (!appDatalist || !hostDatalist) return;
+
+            const allApps = getAllKnownApps();
+            const filteredAppsForList = allApps.filter(app => appHasHostMatching(app, currentHostFilter)).sort();
+
+            appDatalist.innerHTML = '';
+            filteredAppsForList.forEach(app => {
+                const opt = document.createElement('option');
+                opt.value = app;
+                appDatalist.appendChild(opt);
+            });
+
+            const allHosts = getAllKnownHosts();
+            const filteredHostsForList = allHosts.filter(host => hostHasAppMatching(host, currentFilter)).sort();
+
+            hostDatalist.innerHTML = '';
+            filteredHostsForList.forEach(host => {
+                const opt = document.createElement('option');
+                opt.value = host;
+                hostDatalist.appendChild(opt);
+            });
+        }
+
+        function getMatchingApps() {
+            return getAllKnownApps().filter(app => {
+                if (!matchesFilter(app, currentFilter)) return false;
+                if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
+                return true;
+            });
+        }
+
+        function getMatchingHosts() {
+            const matchingApps = getMatchingApps();
+            const hostsSet = new Set();
+
+            matchingApps.forEach(app => {
+                if (applicationCache[app] && applicationCache[app].hosts) {
+                    applicationCache[app].hosts.forEach(h => {
+                        if (hostCache[h] && matchesFilter(h, currentHostFilter)) {
+                            hostsSet.add(h);
+                        }
+                    });
+                }
+            });
+
+            if (hostsSet.size === 0 && !currentFilter) {
+                Object.keys(hostCache).forEach(h => {
+                    if (matchesFilter(h, currentHostFilter)) {
+                        hostsSet.add(h);
+                    }
+                });
+            }
+
+            return Array.from(hostsSet);
+        }
+
+        function hasHostDataForMatchingApps() {
+            const matchingHosts = getMatchingHosts();
+            return matchingHosts.some(h => {
+                const hc = hostCache[h];
+                if (!hc || !hc.rawSeries) return false;
+                return Object.keys(hc.rawSeries).some(m => hc.rawSeries[m] && hc.rawSeries[m].length > 0);
+            });
+        }
+
+        function getEntitiesForChart(key) {
+            if (isHostMetric(key)) {
+                return {
+                    entities: getMatchingHosts(),
+                    cache: hostCache
+                };
+            }
+            return {
+                entities: getMatchingApps(),
+                cache: applicationCache
+            };
+        }
+
+        function getRandomColor(entityName) {
+            if (appColorMap[entityName]) return appColorMap[entityName];
             const letters = '0123456789ABCDEF';
             let color = '#';
             for (let i = 0; i < 6; i++) {
                 color += letters[Math.floor(Math.random() * 16)];
             }
-            appColorMap[app] = color;
+            appColorMap[entityName] = color;
             return color;
         }
 
@@ -259,24 +459,32 @@
                 const data = await res.json();
                 if (data && data.applications) {
                     availableApplications = Object.keys(data.applications);
-                    const datalist = document.getElementById('applicationList');
-                    datalist.innerHTML = '';
                     availableApplications.forEach(key => {
-                        if (!applicationCache[key]) {
-                            applicationCache[key] = { rawSeries: {}, verdicts: [] };
+                        ensureAppCache(key);
+                        const appMeta = data.applications[key];
+                        if (appMeta && Array.isArray(appMeta.hosts)) {
+                            appMeta.hosts.forEach(h => {
+                                ensureHostCache(h);
+                                applicationCache[key].hosts.add(h);
+                                hostCache[h].apps.add(key);
+                            });
                         }
-                        const opt = document.createElement('option');
-                        opt.value = key;
-                        datalist.appendChild(opt);
                     });
                 }
 
                 const activeRes = await fetch('{{.ActivePath}}');
                 const activeData = await activeRes.json();
-                if (activeData && activeData.application) {
-                    currentFilter = activeData.application;
-                    document.getElementById('applicationSearch').value = currentFilter;
+                if (activeData) {
+                    if (activeData.application && !currentFilter) {
+                        currentFilter = activeData.application;
+                        document.getElementById('applicationSearch').value = currentFilter;
+                    }
+                    if (activeData.host && !currentHostFilter) {
+                        currentHostFilter = activeData.host;
+                        document.getElementById('hostSearch').value = currentHostFilter;
+                    }
                 }
+                updateFilterLists();
             } catch(err) {
                 console.error("Failed to load applications from API", err);
             }
@@ -287,8 +495,8 @@
             localStorage.setItem('sharedMetricColor', newColor);
             for (const key in charts) {
                 const c = charts[key];
-                const matchingApps = getMatchingApps();
-                if (matchingApps.length <= 1 && c.data.datasets[0]) {
+                const { entities } = getEntitiesForChart(key);
+                if (entities.length <= 1 && c.data.datasets[0]) {
                     c.data.datasets[0].borderColor = sharedMetricColor;
                     c.update('none');
                 }
@@ -299,19 +507,16 @@
             const theme = document.getElementById('themeSelect').value;
             document.body.className = '';
             localStorage.setItem('selectedTheme', theme);
-            if (theme === 'midnight') document.body.classList.add('theme-midnight');
-            if (theme === 'crimson') document.body.classList.add('theme-crimson');
-            if (theme === 'cyberpunk') document.body.classList.add('theme-cyberpunk');
-            if (theme === 'solar') document.body.classList.add('theme-solar');
-            if (theme === 'nordic') document.body.classList.add('theme-nordic');
+            if (theme) {
+                document.body.classList.add('theme-' + theme);
+            }
         }
 
         window.addEventListener('DOMContentLoaded', async () => {
-            const savedTheme = localStorage.getItem('selectedTheme');
-            if (savedTheme) {
-                document.getElementById('themeSelect').value = savedTheme;
-                changeTheme();
-            }
+            const savedTheme = localStorage.getItem('selectedTheme') || 'solar';
+            document.getElementById('themeSelect').value = savedTheme;
+            changeTheme();
+
             const savedColor = localStorage.getItem('sharedMetricColor');
             if (savedColor) {
                 sharedMetricColor = savedColor;
@@ -330,6 +535,7 @@
             if (savedMax) {
                 maximizedChartKey = savedMax;
             }
+
             setInterval(fetchApplications, 5000);
             await fetchApplications();
             initCharts();
@@ -390,19 +596,21 @@
 
                 ctx.save();
                 
-                const matchingApps = getMatchingApps();
-                const multiMode = matchingApps.length > 1;
+                const metricKey = chart.canvas.id.replace('chart_', '');
+                const { entities } = getEntitiesForChart(metricKey);
+                const multiMode = entities.length > 1;
 
                 let violationTypes = [];
-                const numApps = multiMode ? matchingApps.length : 1;
-                const upDataset = multiMode ? chart.data.datasets[numApps] : chart.data.datasets[1];
-                const loDataset = multiMode ? chart.data.datasets[numApps + 1] : chart.data.datasets[2];
+                const numEntities = multiMode ? entities.length : 1;
+                const upDataset = multiMode ? chart.data.datasets[numEntities] : chart.data.datasets[1];
+                const loDataset = multiMode ? chart.data.datasets[numEntities + 1] : chart.data.datasets[2];
 
                 if (upDataset && loDataset && chart.data.labels.length > 0) {
                     for (let i = 0; i < chart.data.labels.length; i++) {
                         let hasHigh = false;
                         let hasLow = false;
-                        for (let d = 0; d < numApps; d++) {
+                        for (let d = 0; d < numEntities; d++) {
+                            if (!chart.data.datasets[d]) continue;
                             const val = chart.data.datasets[d].data[i];
                             const up = upDataset.data[i];
                             const lo = loDataset.data[i];
@@ -584,6 +792,40 @@
             initCharts();
         }
 
+        function buildDatasetsForChart(key) {
+            const cfg = metricsConfig[key];
+            const { entities } = getEntitiesForChart(key);
+            const multiMode = entities.length > 1;
+            let datasets = [];
+
+            if (multiMode) {
+                entities.forEach(entity => {
+                    datasets.push({
+                        label: entity,
+                        data: [],
+                        borderColor: getRandomColor(entity),
+                        backgroundColor: 'transparent',
+                        tension: 0.2,
+                        pointRadius: 0
+                    });
+                });
+                datasets.push(
+                    { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
+                );
+            } else {
+                const singleLabel = (entities.length === 1) ? entities[0] : cfg.label;
+                datasets = [
+                    { label: singleLabel, data: [], borderColor: sharedMetricColor, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
+                    { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
+                ];
+            }
+            return datasets;
+        }
+
         function initCharts() {
             for (const key in charts) {
                 if (charts[key]) {
@@ -594,16 +836,24 @@
 
             const container = document.getElementById('chartsContainer');
             container.innerHTML = '';
-            
-            const keysToRender = maximizedChartKey ? [maximizedChartKey] : orderedMetrics;
+
+            const showHostCharts = hasHostDataForMatchingApps();
+            if (maximizedChartKey && isHostMetric(maximizedChartKey) && !showHostCharts) {
+                maximizedChartKey = null;
+                localStorage.removeItem('maximizedChartKey');
+            }
+
+            const visibleMetrics = orderedMetrics.filter(key => {
+                if (isHostMetric(key)) return showHostCharts;
+                return true;
+            });
+
+            const keysToRender = maximizedChartKey ? [maximizedChartKey] : visibleMetrics;
             if (maximizedChartKey) {
                 container.style.gridTemplateColumns = '1fr';
             } else {
                 container.style.gridTemplateColumns = 'repeat(auto-fit, minmax(400px, 1fr))';
             }
-
-            const matchingApps = getMatchingApps();
-            const multiMode = matchingApps.length > 1;
 
             keysToRender.forEach(key => {
                 const cfg = metricsConfig[key];
@@ -639,32 +889,7 @@
                 container.appendChild(card);
 
                 const ctx = document.getElementById('chart_' + key).getContext('2d');
-                
-                let datasets = [];
-                if (multiMode) {
-                    matchingApps.forEach(app => {
-                        datasets.push({
-                            label: app,
-                            data: [],
-                            borderColor: getRandomColor(app),
-                            backgroundColor: 'transparent',
-                            tension: 0.2,
-                            pointRadius: 0
-                        });
-                    });
-                    datasets.push(
-                        { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                        { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                        { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
-                    );
-                } else {
-                    datasets = [
-                        { label: cfg.label, data: [], borderColor: sharedMetricColor, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
-                        { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                        { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                        { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
-                    ];
-                }
+                const datasets = buildDatasetsForChart(key);
 
                 charts[key] = new Chart(ctx, {
                     type: 'line',
@@ -696,7 +921,6 @@
                                 mode: 'index',
                                 intersect: false,
                                 itemSort: function(a, b, data) {
-                                    // Sort items from highest value to lowest value
                                     return (b.parsed.y || 0) - (a.parsed.y || 0);
                                 },
                                 callbacks: {
@@ -781,12 +1005,18 @@
         }
 
         function changeFilter() {
-            const inputVal = document.getElementById('applicationSearch').value.trim();
-            currentFilter = inputVal;
+            currentFilter = document.getElementById('applicationSearch').value.trim();
+            currentHostFilter = document.getElementById('hostSearch').value.trim();
             selectedTimeLabel = null;
 
+            updateFilterLists();
+
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "filter", application: currentFilter }));
+                ws.send(JSON.stringify({
+                    type: "filter",
+                    application: currentFilter,
+                    host: currentHostFilter
+                }));
             }
 
             refreshAllViews();
@@ -794,11 +1024,7 @@
 
         function refreshAllViews() {
             const matchingApps = getMatchingApps();
-            matchingApps.forEach(app => {
-                if (!applicationCache[app]) {
-                    applicationCache[app] = { rawSeries: {}, verdicts: [] };
-                }
-            });
+            matchingApps.forEach(app => ensureAppCache(app));
 
             rebuildVerdictTable();
             initCharts();
@@ -811,12 +1037,10 @@
             const matchingApps = getMatchingApps();
             const allVerdicts = [];
 
-            // Get selected timeframe window in milliseconds (1 Min = 60,000 ms, etc.)
             const totalWindowSec = parseInt(document.getElementById('timeframeSelect').value) || 60;
             const windowMs = totalWindowSec * 1000;
+            const impactFilterVal = document.getElementById('impactFilterSelect') ? document.getElementById('impactFilterSelect').value : 'all';
 
-            // Find the absolute latest timestamp across all matching apps (verdicts or raw series)
-            // Fallback to Date.now() only if no data points exist at all.
             let latestTime = 0;
             matchingApps.forEach(app => {
                 if (applicationCache[app]) {
@@ -826,7 +1050,6 @@
                             if (!isNaN(t) && t > latestTime) latestTime = t;
                         });
                     }
-                    // Also check raw series timestamps to keep sync with charts
                     if (applicationCache[app].rawSeries) {
                         Object.values(applicationCache[app].rawSeries).forEach(series => {
                             series.forEach(pt => {
@@ -848,9 +1071,20 @@
                 if (applicationCache[app] && applicationCache[app].verdicts) {
                     applicationCache[app].verdicts.forEach(v => {
                         const verdictTime = new Date(v.fullTimestamp || v.time).getTime();
-                        // Include if within the selected timeframe window or if timestamp couldn't be parsed
                         if (isNaN(verdictTime) || verdictTime >= cutoffTime) {
-                            allVerdicts.push({ app, ...v });
+                            const impact = v.verdict.impact;
+                            let matchesImpact = true;
+                            if (impactFilterVal === 'severe') {
+                                matchesImpact = (impact === '{{.CaseImpactSevere}}');
+                            } else if (impactFilterVal === 'average') {
+                                matchesImpact = (impact === '{{.CaseImpactAverage}}');
+                            } else if (impactFilterVal === 'zero') {
+                                matchesImpact = (impact !== '{{.CaseImpactSevere}}' && impact !== '{{.CaseImpactAverage}}');
+                            }
+
+                            if (matchesImpact) {
+                                allVerdicts.push({ app, ...v });
+                            }
                         }
                     });
                 }
@@ -897,25 +1131,33 @@
             const c = charts[key];
             if (!c) return;
 
-            const matchingApps = getMatchingApps();
-            const multiMode = matchingApps.length > 1;
+            const { entities, cache } = getEntitiesForChart(key);
+            const multiMode = entities.length > 1;
+            const expectedDatasetCount = multiMode ? (entities.length + 3) : 4;
+
+            if (c.data.datasets.length !== expectedDatasetCount) {
+                c.data.datasets = buildDatasetsForChart(key);
+            }
 
             if (multiMode) {
                 const timeSet = new Set();
-                matchingApps.forEach(app => {
-                    if (applicationCache[app] && applicationCache[app].rawSeries[key]) {
-                        applicationCache[app].rawSeries[key].forEach(pt => timeSet.add(pt.time));
+                entities.forEach(entity => {
+                    if (cache[entity] && cache[entity].rawSeries[key]) {
+                        cache[entity].rawSeries[key].forEach(pt => timeSet.add(pt.time));
                     }
                 });
                 const labels = Array.from(timeSet);
                 c.data.labels = labels.slice(-maxDataPoints);
 
-                for (let i = 0; i < matchingApps.length; i++) {
-                    const appName = matchingApps[i];
+                for (let i = 0; i < entities.length; i++) {
+                    const entityName = entities[i];
                     const dataset = c.data.datasets[i];
                     if (!dataset) continue;
 
-                    const series = (applicationCache[appName] && applicationCache[appName].rawSeries[key]) ? applicationCache[appName].rawSeries[key] : [];
+                    dataset.label = entityName;
+                    dataset.borderColor = getRandomColor(entityName);
+
+                    const series = (cache[entityName] && cache[entityName].rawSeries[key]) ? cache[entityName].rawSeries[key] : [];
                     const trimmedLabels = c.data.labels;
                     dataset.data = trimmedLabels.map(tLabel => {
                         const pt = series.find(p => p.time === tLabel);
@@ -934,8 +1176,8 @@
 
                 trimmedLabels.forEach(tLabel => {
                     let mUp = -Infinity, mLo = Infinity, meSum = 0, count = 0, hasUp = false, hasLo = false;
-                    matchingApps.forEach(appName => {
-                        const series = (applicationCache[appName] && applicationCache[appName].rawSeries[key]) ? applicationCache[appName].rawSeries[key] : [];
+                    entities.forEach(entityName => {
+                        const series = (cache[entityName] && cache[entityName].rawSeries[key]) ? cache[entityName].rawSeries[key] : [];
                         const pt = series.find(p => p.time === tLabel);
                         if (pt) {
                             if (pt.up !== undefined && pt.up !== null) { mUp = Math.max(mUp, pt.up); hasUp = true; }
@@ -948,26 +1190,28 @@
                     avgMe.push(count > 0 ? meSum / count : null);
                 });
 
-                const upDataset = c.data.datasets[matchingApps.length];
-                const loDataset = c.data.datasets[matchingApps.length + 1];
-                const meDataset = c.data.datasets[matchingApps.length + 2];
+                const upDataset = c.data.datasets[entities.length];
+                const loDataset = c.data.datasets[entities.length + 1];
+                const meDataset = c.data.datasets[entities.length + 2];
 
                 if (upDataset) upDataset.data = maxUp;
                 if (loDataset) loDataset.data = minLo;
                 if (meDataset) meDataset.data = avgMe;
 
-            } else {
-                const appKey = matchingApps.length === 1 ? matchingApps[0] : currentFilter;
-                if (!applicationCache[appKey]) {
-                    applicationCache[appKey] = { rawSeries: {}, verdicts: [] };
+            } else if (entities.length === 1) {
+                const entityKey = entities[0];
+                if (!cache[entityKey]) {
+                    if (isHostMetric(key)) ensureHostCache(entityKey);
+                    else ensureAppCache(entityKey);
                 }
-                if (!applicationCache[appKey].rawSeries[key]) {
-                    applicationCache[appKey].rawSeries[key] = [];
+                if (!cache[entityKey].rawSeries[key]) {
+                    cache[entityKey].rawSeries[key] = [];
                 }
-                const series = applicationCache[appKey].rawSeries[key];
+                const series = cache[entityKey].rawSeries[key];
                 const trimmed = series.slice(-maxDataPoints);
 
                 c.data.labels = trimmed.map(pt => pt.time);
+                c.data.datasets[0].label = entityKey;
                 c.data.datasets[0].data = trimmed.map(pt => pt.val);
                 if (c.data.datasets[1]) c.data.datasets[1].data = trimmed.map(pt => pt.up);
                 if (c.data.datasets[2]) c.data.datasets[2].data = trimmed.map(pt => pt.lo);
@@ -983,6 +1227,9 @@
                 c.data.datasets[0].pointRadius = trimmed.map(pt => (pt.time === selectedTimeLabel) ? 6 : 0);
                 c.data.datasets[0].pointBackgroundColor = sharedMetricColor;
                 c.data.datasets[0].pointBorderColor = (pt) => (pt.time === selectedTimeLabel) ? '#ffffff' : sharedMetricColor;
+            } else {
+                c.data.labels = [];
+                c.data.datasets.forEach(ds => { ds.data = []; });
             }
 
             c.update('none');
@@ -1004,16 +1251,16 @@
             const ms = document.getElementById('modelStatus');
             try {
                 if (model) {
-                  state = model.state
-                  if (state === 'Idle') {
-                      ms.innerText = model.detected.toString() + ' / ' + model.trained.toString();
-                  } else if (state === 'Training') {
-                      ms.innerText = 'Training...';
-                  } else if (state === 'Detecting') {
-                      ms.innerText = 'Detecting...';
-                  } else {
-                      ms.innerText = 'Unknown';
-                  }
+                    const state = model.state;
+                    if (state === 'Idle') {
+                        ms.innerText = model.detected.toString() + ' / ' + model.trained.toString();
+                    } else if (state === 'Training') {
+                        ms.innerText = 'Training...';
+                    } else if (state === 'Detecting') {
+                        ms.innerText = 'Detecting...';
+                    } else {
+                        ms.innerText = 'Unknown';
+                    }
                 }
             } catch(e) {
                ms.innerText = 'Unknown';
@@ -1021,12 +1268,10 @@
         }
 
         function addApplication(app) {
-            if (!applicationCache[app]) {
-                const datalist = document.getElementById('applicationList');
-                const opt = document.createElement('option');
-                opt.value = app;
-                datalist.appendChild(opt);
-                applicationCache[app] = { rawSeries: {}, verdicts: [] };
+            const isNew = !applicationCache[app];
+            ensureAppCache(app);
+            if (isNew) {
+                updateFilterLists();
             }
         }
 
@@ -1040,6 +1285,45 @@
             rebuildVerdictTable();
         }
 
+        function ingestHostPoints(appIdent, hostIdent, points, timeLabel, fullTimestamp, updatedHostMetrics) {
+            if (!hostIdent || !Array.isArray(points)) return false;
+            ensureAppCache(appIdent);
+            const isNewHost = !hostCache[hostIdent];
+            ensureHostCache(hostIdent);
+
+            const hadLink = applicationCache[appIdent].hosts.has(hostIdent);
+            applicationCache[appIdent].hosts.add(hostIdent);
+            hostCache[hostIdent].apps.add(appIdent);
+
+            points.forEach(point => {
+                if (!hostCache[hostIdent].rawSeries[point.metric]) {
+                    hostCache[hostIdent].rawSeries[point.metric] = [];
+                }
+                const series = hostCache[hostIdent].rawSeries[point.metric];
+                const existingIndex = series.findIndex(pt => pt.time === timeLabel);
+                const pointData = {
+                    time: timeLabel,
+                    fullTimestamp: fullTimestamp,
+                    val: point.value,
+                    up: point.max,
+                    lo: point.min,
+                    me: point.median,
+                };
+
+                if (existingIndex > -1) {
+                    series[existingIndex] = pointData;
+                } else {
+                    series.push(pointData);
+                    if (series.length > 200) {
+                        series.shift();
+                    }
+                }
+                updatedHostMetrics.add(point.metric);
+            });
+
+            return isNewHost || !hadLink;
+        }
+
         function connectWS() {
             const loc = window.location;
             const wsProtocol = loc.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -1051,7 +1335,11 @@
                     wsStatus.innerText = '● Connected';
                     wsStatus.style.color = '#10b981';
                 }
-                ws.send(JSON.stringify({ type: 'filter', application: currentFilter }));
+                ws.send(JSON.stringify({
+                    type: 'filter',
+                    application: currentFilter,
+                    host: currentHostFilter
+                }));
             };
 
             ws.onmessage = function(event) {
@@ -1061,22 +1349,23 @@
                     setModel(v.model);
                 }
 
-                const app = v.ident;
-                if (!app) return;
+                const appIdent = v.ident;
+                if (!appIdent) return;
 
-                addApplication(app);
+                addApplication(appIdent);
                 const timeLabel = new Date(v.timestamp).toLocaleTimeString();
 
                 if (v.points) {
                     v.points.forEach(point => {
-                        if (!applicationCache[app].rawSeries[point.metric]) {
-                            applicationCache[app].rawSeries[point.metric] = [];
+                        if (!applicationCache[appIdent].rawSeries[point.metric]) {
+                            applicationCache[appIdent].rawSeries[point.metric] = [];
                         }
                         
-                        const series = applicationCache[app].rawSeries[point.metric];
+                        const series = applicationCache[appIdent].rawSeries[point.metric];
                         const existingIndex = series.findIndex(pt => pt.time === timeLabel);
                         const pointData = {
                             time: timeLabel,
+                            fullTimestamp: v.timestamp,
                             val: point.value,
                             up: point.max,
                             lo: point.min,
@@ -1094,9 +1383,39 @@
                     });
                 }
 
+                const updatedHostMetrics = new Set();
+                let topologyChanged = false;
+                if (v.hosts) {
+                    if (Array.isArray(v.hosts)) {
+                        v.hosts.forEach(hostObj => {
+                            if (hostObj) {
+                                if (ingestHostPoints(appIdent, hostObj.ident, hostObj.points, timeLabel, v.timestamp, updatedHostMetrics)) {
+                                    topologyChanged = true;
+                                }
+                            }
+                        });
+                    } else if (typeof v.hosts === 'object') {
+                        Object.entries(v.hosts).forEach(([key, val]) => {
+                            if (Array.isArray(val)) {
+                                if (ingestHostPoints(appIdent, key, val, timeLabel, v.timestamp, updatedHostMetrics)) {
+                                    topologyChanged = true;
+                                }
+                            } else if (val && typeof val === 'object') {
+                                if (ingestHostPoints(appIdent, val.ident || key, val.points, timeLabel, v.timestamp, updatedHostMetrics)) {
+                                    topologyChanged = true;
+                                }
+                            }
+                        });
+                    }
+                }
+
+                if (topologyChanged) {
+                    updateFilterLists();
+                }
+
                 if (v.verdict) {
-                    if (!applicationCache[app].verdicts) {
-                        applicationCache[app].verdicts = [];
+                    if (!applicationCache[appIdent].verdicts) {
+                        applicationCache[appIdent].verdicts = [];
                     }
                     const verdictObj = {
                         time: timeLabel,
@@ -1104,25 +1423,40 @@
                         verdict: v.verdict
                     };
 
-                    const existingVerdictIdx = applicationCache[app].verdicts.findIndex(item => item.time === timeLabel);
+                    const existingVerdictIdx = applicationCache[appIdent].verdicts.findIndex(item => item.time === timeLabel);
                     if (existingVerdictIdx > -1) {
-                        applicationCache[app].verdicts[existingVerdictIdx] = verdictObj;
+                        applicationCache[appIdent].verdicts[existingVerdictIdx] = verdictObj;
                     } else {
-                        applicationCache[app].verdicts.unshift(verdictObj);
-                        if (applicationCache[app].verdicts.length > 50) {
-                            applicationCache[app].verdicts.pop();
+                        applicationCache[appIdent].verdicts.unshift(verdictObj);
+                        if (applicationCache[appIdent].verdicts.length > 50) {
+                            applicationCache[appIdent].verdicts.pop();
                         }
                     }
                 }
 
-                if (matchesFilter(app, currentFilter)) {
-                    if (v.points) {
-                        v.points.forEach(point => {
-                            if (charts[point.metric]) {
-                                redrawChart(point.metric);
+                const matchingApps = getMatchingApps();
+                if (matchingApps.includes(appIdent)) {
+                    const showHostCharts = hasHostDataForMatchingApps();
+                    const needsHostCardInit = showHostCharts &&
+                                              Array.from(updatedHostMetrics).some(m => isHostMetric(m) && !charts[m]) &&
+                                              (!maximizedChartKey || isHostMetric(maximizedChartKey));
+                    if (needsHostCardInit) {
+                        initCharts();
+                    } else {
+                        if (v.points) {
+                            v.points.forEach(point => {
+                                if (charts[point.metric]) {
+                                    redrawChart(point.metric);
+                                }
+                            });
+                        }
+                        updatedHostMetrics.forEach(metric => {
+                            if (charts[metric]) {
+                                redrawChart(metric);
                             }
                         });
                     }
+
                     if (v.verdict) {
                         rebuildVerdictTable();
                     }

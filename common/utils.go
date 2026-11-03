@@ -197,27 +197,6 @@ func String2Hash32(s string) uint32 {
 	return hash
 }
 
-/*func ApplicationsCompact(apps []*Application) []*Application {
-
-	slices.SortFunc(apps, func(a, b *Application) int {
-
-		if a == nil && b == nil {
-			return 0
-		}
-		if a == nil {
-			return 1
-		}
-		if b == nil {
-			return -1
-		}
-		aInt := uintptr(unsafe.Pointer(a))
-		bInt := uintptr(unsafe.Pointer(b))
-
-		return cmp.Compare(aInt, bInt)
-	})
-	return slices.Compact(apps)
-}*/
-
 func packTo64(h1, h2 uint32) uint64 {
 	return (uint64(h1) << 32) | uint64(h2)
 }
@@ -335,6 +314,19 @@ func Max[T Number](slice []T) T {
 
 func Len[T any](s []T) int {
 	return len(s)
+}
+
+func Unique[T comparable](slice []T) []T {
+	seen := make(map[T]bool)
+	result := []T{}
+
+	for _, v := range slice {
+		if !seen[v] {
+			seen[v] = true
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 func MetricLabelsPath(metric string, labels Labels) string {

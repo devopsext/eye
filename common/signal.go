@@ -1291,7 +1291,7 @@ func (ahs *ApplicationHostSignals) Frontends() []Hash {
 	hashes = append(hashes, errors...)
 	hashes = append(hashes, latency...)
 
-	return slices.Compact(hashes)
+	return Unique(hashes)
 }
 
 func (ahs *ApplicationHostSignals) Backends() []Hash {
@@ -1306,7 +1306,7 @@ func (ahs *ApplicationHostSignals) Backends() []Hash {
 	hashes = append(hashes, errors...)
 	hashes = append(hashes, latency...)
 
-	return slices.Compact(hashes)
+	return Unique(hashes)
 }
 
 func NewApplicationHostSignals() *ApplicationHostSignals {
@@ -1374,7 +1374,7 @@ func (as *ApplicationSignal) Frontends() []Hash {
 		backs := ahs.Frontends()
 		hashes = append(hashes, backs...)
 	}
-	return slices.Compact(hashes)
+	return Unique(hashes)
 }
 
 func (as *ApplicationSignal) Backends() []Hash {
@@ -1392,7 +1392,7 @@ func (as *ApplicationSignal) Backends() []Hash {
 		backs := ahs.Backends()
 		hashes = append(hashes, backs...)
 	}
-	return slices.Compact(hashes)
+	return Unique(hashes)
 }
 
 func (as *ApplicationSignal) traffic(callback func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic) map[TrafficKind]*Traffic {

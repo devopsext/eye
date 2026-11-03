@@ -43,6 +43,12 @@ type ModelFrame interface {
 	IsEmpty() bool
 }
 
+type ModelHostFrame interface {
+	ModelFrame
+	CPU() ModelDataPoint
+	Memory() ModelDataPoint
+}
+
 type ModelApplicationFrame interface {
 	ModelFrame
 	InRequests() ModelDataPoint
@@ -55,12 +61,7 @@ type ModelApplicationFrame interface {
 	OutErrors() ModelDataPoint
 	CPU() ModelDataPoint
 	Memory() ModelDataPoint
-}
-
-type ModelHostFrame interface {
-	ModelFrame
-	CPU() ModelDataPoint
-	Memory() ModelDataPoint
+	Hosts() []ModelHostFrame
 }
 
 type ModelFrameSubscriber interface {

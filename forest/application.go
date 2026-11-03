@@ -80,8 +80,9 @@ type ApplicationFramePoints struct {
 
 type ApplicationFrame struct {
 	//
-	name string
-	hash common.Hash
+	name  string
+	hash  common.Hash
+	hosts []common.Hash
 	//
 	stamp common.Stamp
 	begin common.Stamp
@@ -965,6 +966,10 @@ func (af *ApplicationFrame) End() common.Stamp {
 	return af.end
 }
 
+func (af *ApplicationFrame) Hosts() []common.Hash {
+	return af.hosts
+}
+
 func (af *ApplicationFrame) Hash() common.Hash {
 	return af.hash
 }
@@ -976,6 +981,9 @@ func (af *ApplicationFrame) Name() string {
 func NewApplicationFrame(stamp common.Stamp, signal *common.ApplicationSignal) *ApplicationFrame {
 
 	r := &ApplicationFrame{
+		//
+		hash:  signal.Hash(),
+		hosts: signal.Hosts(),
 		//
 		stamp: stamp,
 		begin: stamp,
@@ -2130,6 +2138,16 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 
 	frame.name = ae.name
 	frame.hash = ae.hash
+
+	// consolidate hosts
+	hosts := []common.Hash{}
+	for _, f := range frames {
+		for _, h := range f.hosts {
+			hosts = append(hosts, h)
+		}
+	}
+	frame.hosts = common.Unique(hosts)
+
 	frame.stamp = stamp
 	frame.begin = begin
 	frame.end = end

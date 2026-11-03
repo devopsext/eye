@@ -48,11 +48,12 @@ type HttpApplicationHandlerDataModel struct {
 }
 
 type HttpApplicationHandlerData struct {
-	Ident     string                             `json:"ident"`
-	Timestamp time.Time                          `json:"timestamp"`
-	Points    []HttpApplicationHandlerDataPoint  `json:"points"`
-	Verdict   *HttpApplicationHandlerDataVerdict `json:"verdict"`
-	Model     *HttpApplicationHandlerDataModel   `json:"model"`
+	Ident     string                                       `json:"ident"`
+	Timestamp time.Time                                    `json:"timestamp"`
+	Points    []HttpApplicationHandlerDataPoint            `json:"points"`
+	Verdict   *HttpApplicationHandlerDataVerdict           `json:"verdict"`
+	Hosts     map[string][]HttpApplicationHandlerDataPoint `json:"hosts"`
+	Model     *HttpApplicationHandlerDataModel             `json:"model"`
 }
 
 type HttpApplicationInfo struct {
@@ -247,13 +248,38 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		}
 	}
 
-	h.datachannel <- HttpApplicationHandlerData{
+	data := HttpApplicationHandlerData{
 		Ident:     ident,
 		Timestamp: af.Timestamp(),
 		Points:    points,
 		Verdict:   verdict,
 	}
 
+	hosts := af.Hosts()
+	if len(hosts) > 0 {
+		data.Hosts = make(map[string][]HttpApplicationHandlerDataPoint)
+		for _, h := range hosts {
+
+			ident := h.Ident()
+			dataHostPoints, ok := data.Hosts[ident]
+			if !ok {
+				dataHostPoints = []HttpApplicationHandlerDataPoint{}
+			}
+
+			ts := h.Timestamp()
+
+			hostCPU := h.CPU()
+			if !utils.IsEmpty(hostCPU) {
+				dataHostPoints = append(dataHostPoints, NewHttpApplicationHandlerDataPoint(ts, "HostCPU", hostCPU.Value(), hostCPU.Min(), hostCPU.Max(), hostCPU.Median()))
+			}
+			hostMem := h.Memory()
+			if !utils.IsEmpty(hostMem) {
+				dataHostPoints = append(dataHostPoints, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max(), hostMem.Median()))
+			}
+			data.Hosts[ident] = dataHostPoints
+		}
+	}
+	h.datachannel <- data
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {
