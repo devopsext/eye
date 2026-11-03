@@ -480,24 +480,10 @@ func (fm *ForestModel) findHashes(names *common.Names, filter []string) []common
 	return r
 }
 
-type timeWindow struct {
-	Start time.Time
-	End   time.Time
-}
-
-func (fm *ForestModel) stampIsExcluded(stamp time.Time, exclusions []timeWindow) bool {
-
-	for _, window := range exclusions {
-		if (stamp.Equal(window.Start) || stamp.After(window.Start)) && (stamp.Equal(window.End) || stamp.Before(window.End)) {
-			return true
-		}
-	}
-	return false
-}
-
-func (fm *ForestModel) prepare(measurements *common.Measurements, filter []common.Hash,
+func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
 	appFrames map[common.Hash]forest.ApplicationFrames, hostFrames map[common.Hash]forest.HostFrames) {
 
+	measurements := data.Measurements()
 	filterExists := len(filter) > 0
 
 	for hash, signals := range measurements.Items() {
@@ -507,9 +493,8 @@ func (fm *ForestModel) prepare(measurements *common.Measurements, filter []commo
 				continue
 			}
 
-			t := common.StampToTime(stamp)
-			// exclude invalid window time frames
-			if fm.stampIsExcluded(t, []timeWindow{}) {
+			// exclude issues
+			if data.IssueExists(hash, stamp) {
 				continue
 			}
 
@@ -581,13 +566,12 @@ func (fm *ForestModel) hostTrain(data common.DataSourceData, hash common.Hash, f
 func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) {
 
 	hs := []common.Hash{}
-	measurements := data.Measurements()
 
 	hashes := fm.findHashes(data.Names(), fm.options.Filter)
 	appFrames := make(map[common.Hash]forest.ApplicationFrames)
 	hostFrames := make(map[common.Hash]forest.HostFrames)
 
-	fm.prepare(measurements, hashes, appFrames, hostFrames)
+	fm.prepare(data, hashes, appFrames, hostFrames)
 
 	length := len(appFrames) + len(hostFrames)
 	if length == 0 {
@@ -1026,14 +1010,13 @@ func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, a
 
 func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOnFrame) error {
 
-	measurements := data.Measurements()
 	names := data.Names()
 
 	hashes := fm.findHashes(data.Names(), fm.options.Filter)
 	appFrames := make(map[common.Hash]forest.ApplicationFrames)
 	hostFrames := make(map[common.Hash]forest.HostFrames)
 
-	fm.prepare(measurements, hashes, appFrames, hostFrames)
+	fm.prepare(data, hashes, appFrames, hostFrames)
 
 	length := len(appFrames) + len(hostFrames)
 	if length == 0 {

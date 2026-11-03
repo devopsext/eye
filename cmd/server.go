@@ -47,6 +47,25 @@ var promSignalOptions = datasource.PrometheusSignalOptions{
 	HostSignalSaturationQuery: envFileContentExpand("PROMETHEUS_HOST_SIGNAL_SATURATION_QUERY", ""),
 }
 
+var promIssuesOptions = datasource.PrometheusIssuesOptions{
+	Prometheus: toolsVendors.PrometheusOptions{
+		URL:      envStringExpand("PROMETHEUS_ISSUES_URL", ""),
+		User:     envStringExpand("PROMETHEUS_ISSUES_USER", ""),
+		Password: envStringExpand("PROMETHEUS_ISSUES_PASSWORD", ""),
+		Timeout:  envGet("PROMETHEUS_ISSUES_TIMEOUT", 30).(int),
+		Insecure: envGet("PROMETHEUS_ISSUES_INSECURE", false).(bool),
+		Query:    envFileContentExpand("PROMETHEUS_ISSUES_QUERY", ""),
+		From:     envGet("PROMETHEUS_ISSUES_FROM", "").(string),
+		To:       envGet("PROMETHEUS_ISSUES_TO", "").(string),
+		Step:     envGet("PROMETHEUS_ISSUES_STEP", "60s").(string),
+		Params:   envGet("PROMETHEUS_ISSUES_PARAMS", "").(string),
+	},
+	StartName:  envStringExpand("PROMETHEUS_ISSUES_START_NAME", ""),
+	EndName:    envStringExpand("PROMETHEUS_ISSUES_END_NAME", ""),
+	Names:      envStringExpand("PROMETHEUS_ISSUES_NAMES", ""),
+	TimeFormat: envGet("PROMETHEUS_ISSUES_TIME_FORMAT", time.RFC3339).(string),
+}
+
 var promLongOptions = datasource.PrometheusOptions{
 
 	Name: envGet("PROMETHEUS_LONG_NAME", "Longterm").(string),
@@ -56,13 +75,13 @@ var promLongOptions = datasource.PrometheusOptions{
 		Password: envStringExpand("PROMETHEUS_LONG_PASSWORD", ""),
 		Timeout:  envGet("PROMETHEUS_LONG_TIMEOUT", 30).(int),
 		Insecure: envGet("PROMETHEUS_LONG_INSECURE", false).(bool),
-		From:     envGet("PROMETHEUS_LONG_FROM", "-1h").(string),
+		From:     envGet("PROMETHEUS_LONG_FROM", "").(string),
 		To:       envGet("PROMETHEUS_LONG_TO", "").(string),
 		Step:     envGet("PROMETHEUS_LONG_STEP", "60s").(string),
 		Params:   envGet("PROMETHEUS_LONG_PARAMS", "").(string),
 	},
 	Span:        envGet("PROMETHEUS_LONG_SPAN", "").(string),
-	Window:      envGet("PROMETHEUS_LONG_WINDOW", "").(string),
+	Frame:       envGet("PROMETHEUS_LONG_FRAME", "").(string),
 	Schedule:    envGet("PROMETHEUS_LONG_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_LONG_CONCURRENCY", 50).(int),
 	TimeFormat:  envGet("PROMETHEUS_LONG_TIME_FORMAT", time.DateTime).(string),
@@ -78,13 +97,13 @@ var promShortOptions = datasource.PrometheusOptions{
 		Password: envStringExpand("PROMETHEUS_SHORT_PASSWORD", ""),
 		Timeout:  envGet("PROMETHEUS_SHORT_TIMEOUT", 30).(int),
 		Insecure: envGet("PROMETHEUS_SHORT_INSECURE", false).(bool),
-		From:     envGet("PROMETHEUS_SHORT_FROM", "-5m").(string),
+		From:     envGet("PROMETHEUS_SHORT_FROM", "").(string),
 		To:       envGet("PROMETHEUS_SHORT_TO", "").(string),
 		Step:     envGet("PROMETHEUS_SHORT_STEP", "15s").(string),
 		Params:   envGet("PROMETHEUS_SHORT_PARAMS", "").(string),
 	},
 	Span:        envGet("PROMETHEUS_SHORT_SPAN", "").(string),
-	Window:      envGet("PROMETHEUS_SHORT_WINDOW", "").(string),
+	Frame:       envGet("PROMETHEUS_SHORT_FRAME", "").(string),
 	Schedule:    envGet("PROMETHEUS_SHORT_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_SHORT_CONCURRENCY", 50).(int),
 	TimeFormat:  envGet("PROMETHEUS_SHORT_TIME_FORMAT", time.DateTime).(string),
@@ -193,8 +212,8 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			generators.Add(generator.NewPushgateway(pushgatewayOptions, obs))
 
 			datasources := common.NewDataSources()
-			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.Train, generators.SetData))
-			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.Detect))
+			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, promIssuesOptions, obs, models.Train, generators.SetData))
+			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, promIssuesOptions, obs, models.Detect))
 
 			schedules := common.NewSchedules()
 			schedules.AddDatasources(datasources)
@@ -254,7 +273,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&promLongOptions.Prometheus.Step, "prometheus-long-step", promLongOptions.Prometheus.Step, "Prometheus long term step")
 	flags.StringVar(&promLongOptions.Prometheus.Params, "prometheus-long-params", promLongOptions.Prometheus.Params, "Prometheus long term params")
 	flags.StringVar(&promLongOptions.Span, "prometheus-long-span", promLongOptions.Span, "Prometheus long term span")
-	flags.StringVar(&promLongOptions.Window, "prometheus-long-window", promLongOptions.Window, "Prometheus long term window")
+	flags.StringVar(&promLongOptions.Frame, "prometheus-long-frame", promLongOptions.Frame, "Prometheus long term frame")
 	flags.StringVar(&promLongOptions.Schedule, "prometheus-long-schedule", promLongOptions.Schedule, "Prometheus long term schedule")
 	flags.IntVar(&promLongOptions.Concurrency, "prometheus-long-concurrency", promLongOptions.Concurrency, "Prometheus long term concurrency")
 	flags.StringVar(&promLongOptions.TimeFormat, "prometheus-long-time-format", promLongOptions.TimeFormat, "Prometheus long term log time format")
@@ -271,7 +290,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&promShortOptions.Prometheus.Step, "prometheus-short-step", promShortOptions.Prometheus.Step, "Prometheus short term step")
 	flags.StringVar(&promShortOptions.Prometheus.Params, "prometheus-short-params", promShortOptions.Prometheus.Params, "Prometheus short term params")
 	flags.StringVar(&promShortOptions.Span, "prometheus-short-span", promShortOptions.Span, "Prometheus short term span")
-	flags.StringVar(&promShortOptions.Window, "prometheus-short-window", promShortOptions.Window, "Prometheus short term window")
+	flags.StringVar(&promShortOptions.Frame, "prometheus-short-frame", promShortOptions.Frame, "Prometheus short term frame")
 	flags.StringVar(&promShortOptions.Schedule, "prometheus-short-schedule", promShortOptions.Schedule, "Prometheus short term schedule")
 	flags.IntVar(&promShortOptions.Concurrency, "prometheus-short-concurrency", promShortOptions.Concurrency, "Prometheus short term concurrency")
 	flags.StringVar(&promShortOptions.TimeFormat, "prometheus-short-time-format", promShortOptions.TimeFormat, "Prometheus short term log time format")

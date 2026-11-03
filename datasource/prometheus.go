@@ -64,15 +64,29 @@ type PrometheusSignalOptions struct {
 	HostSignalSaturationQuery string
 }
 
+type PrometheusIssuesOptions struct {
+	Prometheus toolsVendors.PrometheusOptions
+	StartName  string
+	EndName    string
+	Names      string
+	TimeFormat string
+}
+
 type PrometheusOptions struct {
 	Name        string
 	Prometheus  toolsVendors.PrometheusOptions
 	Span        string
-	Window      string
+	Frame       string
 	Schedule    string
 	Concurrency int
 	TimeFormat  string
 	State       string
+}
+
+type PrometheusDataIssue struct {
+	start  common.Stamp
+	end    common.Stamp
+	hashes []common.Hash
 }
 
 type PrometheusData struct {
@@ -82,6 +96,7 @@ type PrometheusData struct {
 	applications *common.Applications
 	measurements *common.Measurements
 	schemas      *common.Schemas
+	issues       []PrometheusDataIssue
 	from         common.Stamp
 	first        common.Stamp
 	last         common.Stamp
@@ -97,6 +112,7 @@ type PrometheusState struct {
 type Prometheus struct {
 	mu            sync.Mutex
 	signalOptions PrometheusSignalOptions
+	issuesOptions PrometheusIssuesOptions
 	promOptions   PrometheusOptions
 	observability *common.Observability
 	logger        sreCommon.Logger
@@ -147,6 +163,19 @@ func (pd *PrometheusData) First() common.Stamp {
 
 func (pd *PrometheusData) Last() common.Stamp {
 	return pd.last
+}
+
+func (pd *PrometheusData) IssueExists(hash common.Hash, stamp common.Stamp) bool {
+
+	for _, issue := range pd.issues {
+
+		if (stamp == issue.start || stamp > issue.start) &&
+			(stamp == issue.end || stamp < issue.end) &&
+			utils.Contains(issue.hashes, hash) {
+			return true
+		}
+	}
+	return false
 }
 
 // PrometheusState
@@ -286,7 +315,7 @@ func (ps *PrometheusState) FindGaps(items PrometheusStateItems, st1, st2 common.
 	return found
 }
 
-func (ps *PrometheusState) RebuildIntervals(from, to time.Time, window time.Duration) PrometheusStateItems {
+func (ps *PrometheusState) RebuildIntervals(from, to time.Time, frame time.Duration) PrometheusStateItems {
 
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -296,12 +325,12 @@ func (ps *PrometheusState) RebuildIntervals(from, to time.Time, window time.Dura
 	r := make(PrometheusStateItems)
 	t1 := from
 
-	// add windows
+	// add frames
 	for t1.Unix() < to.Unix() {
 
 		st1 := common.TimeToStamp(t1)
 
-		t2 := t1.Add(window)
+		t2 := t1.Add(frame)
 		st2 := common.TimeToStamp(t2)
 
 		// all from left side
@@ -440,14 +469,7 @@ func (p *Prometheus) sliceCommonLabels(parent, labels map[string]string) []map[s
 	return r
 }
 
-func (p *Prometheus) loadData(q string, from, to time.Time) (*common.PrometheusResponseData, error) {
-
-	opts := toolsVendors.PrometheusOptions{}
-	copier.Copy(&opts, &p.promOptions.Prometheus)
-
-	opts.Query = q
-	opts.From = strconv.Itoa(int(from.UTC().Unix()))
-	opts.To = strconv.Itoa(int(to.UTC().Unix()))
+func (p *Prometheus) loadDataOpts(opts toolsVendors.PrometheusOptions) (*common.PrometheusResponseData, error) {
 
 	prom := toolsVendors.NewPrometheus(opts)
 	if prom == nil {
@@ -476,6 +498,19 @@ func (p *Prometheus) loadData(q string, from, to time.Time) (*common.PrometheusR
 		return nil, nil
 	}
 	return res.Data, nil
+
+}
+
+func (p *Prometheus) loadData(opts toolsVendors.PrometheusOptions, q string, from, to time.Time) (*common.PrometheusResponseData, error) {
+
+	options := toolsVendors.PrometheusOptions{}
+	copier.Copy(&options, &opts)
+
+	options.Query = q
+	options.From = strconv.Itoa(int(from.UTC().Unix()))
+	options.To = strconv.Itoa(int(to.UTC().Unix()))
+
+	return p.loadDataOpts(options)
 }
 
 func (p *Prometheus) getStampedValue(values []any) (bool, common.Stamp, float64) {
@@ -635,7 +670,7 @@ func (p *Prometheus) setSchemas(data *PrometheusData, q string, lbs common.Label
 
 func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Time) (*common.Hosts, error) {
 
-	promData, err := p.loadData(q, from, to)
+	promData, err := p.loadData(p.promOptions.Prometheus, q, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -780,7 +815,7 @@ func (p *Prometheus) gatherHostsBySpan(data *PrometheusData, query string, from,
 
 func (p *Prometheus) loadApplications(data *PrometheusData, q string, from, to time.Time) (*common.Applications, error) {
 
-	promData, err := p.loadData(q, from, to)
+	promData, err := p.loadData(p.promOptions.Prometheus, q, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -898,7 +933,7 @@ func (p *Prometheus) gatherApplicationsBySpan(data *PrometheusData, query string
 
 func (p *Prometheus) loadSeriesData(data *PrometheusData, q string, from, to time.Time) (PrometheusSeries, error) {
 
-	promData, err := p.loadData(q, from, to)
+	promData, err := p.loadData(p.promOptions.Prometheus, q, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -1205,14 +1240,14 @@ func (p *Prometheus) string2Time(ts string) time.Time {
 
 		d, err := time.ParseDuration(ts)
 		if err == nil {
-			td := time.Now().Add(d)
+			td := time.Now().UTC().Add(d)
 			return td
 		}
 	}
 
 	i, err := strconv.Atoi(ts)
 	if err != nil {
-		return time.Now()
+		return time.Now().UTC()
 	}
 
 	t = time.Unix(int64(i), 0)
@@ -1453,9 +1488,83 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 	return nil
 }
 
-func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duration, state *PrometheusState, yaml string) {
+func (p *Prometheus) gatherIssues(data *PrometheusData, spanFrom, spanTo time.Time) ([]PrometheusDataIssue, error) {
 
-	items := state.RebuildIntervals(from, to, window)
+	r := []PrometheusDataIssue{}
+
+	names := common.RemoveEmptyStrings(strings.Split(p.issuesOptions.Names, ","))
+	if len(names) == 0 {
+		return r, nil
+	}
+
+	spanFromStamp := common.TimeToStamp(spanFrom)
+	spanToStamp := common.TimeToStamp(spanTo)
+
+	promData, err := p.loadDataOpts(p.issuesOptions.Prometheus)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, dr := range promData.Result {
+
+		start := dr.Labels[p.issuesOptions.StartName]
+		if utils.IsEmpty(start) {
+			continue
+		}
+		startTime, err := time.Parse(p.issuesOptions.TimeFormat, start)
+		if err != nil {
+			continue
+		}
+		startTime = startTime.UTC()
+
+		end := dr.Labels[p.issuesOptions.EndName]
+		if utils.IsEmpty(end) {
+			continue
+		}
+		endTime, err := time.Parse(p.issuesOptions.TimeFormat, end)
+		if err != nil {
+			continue
+		}
+		endTime = endTime.UTC()
+
+		startStamp := common.TimeToStamp(startTime)
+		endStamp := common.TimeToStamp(endTime)
+
+		if startStamp > spanToStamp {
+			continue
+		}
+
+		if endStamp < spanFromStamp {
+			continue
+		}
+
+		hashes := []common.Hash{}
+		for _, n := range names {
+
+			v := strings.TrimSpace(dr.Labels[n])
+			if utils.IsEmpty(v) {
+				continue
+			}
+			found := data.names.FindByRegex(v)
+			hashes = append(hashes, found...)
+		}
+
+		hashes = common.Unique(hashes)
+		if len(hashes) == 0 {
+			continue
+		}
+		r = append(r, PrometheusDataIssue{
+			start:  startStamp,
+			end:    endStamp,
+			hashes: hashes,
+		})
+	}
+	return r, nil
+}
+
+func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration, state *PrometheusState, yaml string) {
+
+	items := state.RebuildIntervals(from, to, frame)
 
 	state.TryPurgeUntil(items, from)
 
@@ -1475,9 +1584,9 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 		t1 := common.StampToTime(s1)
 		t2 := common.StampToTime(s2)
 
-		p.info("Gathering span (%s / %s) duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
-
 		when := time.Now()
+
+		p.info("Gathering span  (%s / %s) duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
 
 		data := &PrometheusData{
 			attributes:   common.NewAttributes(),
@@ -1496,6 +1605,15 @@ func (p *Prometheus) gatherWindows(from, to time.Time, span, window time.Duratio
 			continue
 		}
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
+
+		p.info("Gathering issues (%s / %s)...", t1, t2)
+		issues, err := p.gatherIssues(data, t1, t2)
+		if err != nil {
+			p.error("Gathering issues (%s / %s) finished with error: %s", t1, t2, err)
+			continue
+		}
+		data.issues = issues
+		p.info("Gathering issues (%s / %s) found %d finished in %s", t1, t2, len(issues), time.Since(when))
 
 		gr := &errgroup.Group{}
 		for _, on := range p.onData {
@@ -1544,7 +1662,7 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	from := p.string2Time(p.promOptions.Prometheus.From)
 
-	to := time.Now()
+	to := time.Now().UTC()
 	if !utils.IsEmpty(p.promOptions.Prometheus.To) {
 		to = p.string2Time(p.promOptions.Prometheus.To)
 	}
@@ -1557,11 +1675,11 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 		}
 	}
 
-	win := to.Sub(from)
-	if !utils.IsEmpty(p.promOptions.Window) {
-		s, err := time.ParseDuration(p.promOptions.Window)
+	frame := to.Sub(from)
+	if !utils.IsEmpty(p.promOptions.Frame) {
+		s, err := time.ParseDuration(p.promOptions.Frame)
 		if err == nil {
-			win = s
+			frame = s
 		}
 	}
 
@@ -1580,17 +1698,18 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 	}
 
 	when := time.Now()
-	p.info("Gathering window (%s / %s) duration=%s...", from, to, to.Sub(from))
-	p.gatherWindows(from, to, span, win, state, yaml)
-	p.info("Gathering window (%s / %s) finished in %s", from, to, time.Since(when))
+	p.info("Gathering frame (%s / %s) duration=%s...", from, to, to.Sub(from))
+	p.gatherFrames(from, to, span, frame, state, yaml)
+	p.info("Gathering (%s / %s) finished in %s", from, to, time.Since(when))
 }
 
-func NewPrometheus(options PrometheusOptions, signalOptions PrometheusSignalOptions,
+func NewPrometheus(options PrometheusOptions, signalOptions PrometheusSignalOptions, issuesOptions PrometheusIssuesOptions,
 	observability *common.Observability, onData ...common.DataSourceOnData) *Prometheus {
 
 	return &Prometheus{
 		promOptions:   options,
 		signalOptions: signalOptions,
+		issuesOptions: issuesOptions,
 		observability: observability,
 		logger:        observability.Logs(),
 		onData:        onData,

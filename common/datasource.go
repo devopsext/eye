@@ -11,6 +11,12 @@ type DataSourceDataLimits interface {
 	Last() Stamp
 }
 
+type DataSourceDataIssue interface {
+	Start() Stamp
+	End() Stamp
+	Names() []Hash
+}
+
 type DataSourceData interface {
 	Names() *Names
 	Attributes() *Attributes
@@ -19,6 +25,7 @@ type DataSourceData interface {
 	Measurements() *Measurements
 	Schemas() *Schemas
 	Limits() DataSourceDataLimits
+	IssueExists(hash Hash, stamp Stamp) bool
 }
 
 type DataSource interface {
