@@ -48,6 +48,8 @@ var promSignalOptions = datasource.PrometheusSignalOptions{
 }
 
 var promIssuesOptions = datasource.PrometheusIssuesOptions{
+	Name:     envGet("PROMETHEUS_ISSUES_NAME", "Issues").(string),
+	Schedule: envGet("PROMETHEUS_ISSUES_SCHEDULE", "").(string),
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("PROMETHEUS_ISSUES_URL", ""),
 		User:     envStringExpand("PROMETHEUS_ISSUES_USER", ""),
@@ -63,12 +65,14 @@ var promIssuesOptions = datasource.PrometheusIssuesOptions{
 	StartName:  envStringExpand("PROMETHEUS_ISSUES_START_NAME", ""),
 	EndName:    envStringExpand("PROMETHEUS_ISSUES_END_NAME", ""),
 	Names:      envStringExpand("PROMETHEUS_ISSUES_NAMES", ""),
+	Pattern:    envStringExpand("PROMETHEUS_ISSUES_PATTERN", ""),
 	TimeFormat: envGet("PROMETHEUS_ISSUES_TIME_FORMAT", time.RFC3339).(string),
 }
 
 var promLongOptions = datasource.PrometheusOptions{
 
-	Name: envGet("PROMETHEUS_LONG_NAME", "Longterm").(string),
+	Name:     envGet("PROMETHEUS_LONG_NAME", "Longterm").(string),
+	Schedule: envGet("PROMETHEUS_LONG_SCHEDULE", "").(string),
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("PROMETHEUS_LONG_URL", ""),
 		User:     envStringExpand("PROMETHEUS_LONG_USER", ""),
@@ -82,7 +86,6 @@ var promLongOptions = datasource.PrometheusOptions{
 	},
 	Span:        envGet("PROMETHEUS_LONG_SPAN", "").(string),
 	Frame:       envGet("PROMETHEUS_LONG_FRAME", "").(string),
-	Schedule:    envGet("PROMETHEUS_LONG_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_LONG_CONCURRENCY", 50).(int),
 	TimeFormat:  envGet("PROMETHEUS_LONG_TIME_FORMAT", time.DateTime).(string),
 	State:       envGet("PROMETHEUS_LONG_STATE", "").(string),
@@ -90,7 +93,8 @@ var promLongOptions = datasource.PrometheusOptions{
 
 var promShortOptions = datasource.PrometheusOptions{
 
-	Name: envGet("PROMETHEUS_LONG_NAME", "Shortterm").(string),
+	Name:     envGet("PROMETHEUS_LONG_NAME", "Shortterm").(string),
+	Schedule: envGet("PROMETHEUS_SHORT_SCHEDULE", "").(string),
 	Prometheus: toolsVendors.PrometheusOptions{
 		URL:      envStringExpand("PROMETHEUS_SHORT_URL", ""),
 		User:     envStringExpand("PROMETHEUS_SHORT_USER", ""),
@@ -104,7 +108,6 @@ var promShortOptions = datasource.PrometheusOptions{
 	},
 	Span:        envGet("PROMETHEUS_SHORT_SPAN", "").(string),
 	Frame:       envGet("PROMETHEUS_SHORT_FRAME", "").(string),
-	Schedule:    envGet("PROMETHEUS_SHORT_SCHEDULE", "").(string),
 	Concurrency: envGet("PROMETHEUS_SHORT_CONCURRENCY", 50).(int),
 	TimeFormat:  envGet("PROMETHEUS_SHORT_TIME_FORMAT", time.DateTime).(string),
 }
@@ -204,27 +207,27 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 				States:    handlers.StateSubscribers(),
 			}
 
+			issues := datasource.NewPrometheusIssues(promIssuesOptions, obs)
+
 			models := common.NewModels(modelSubscribers)
 			models.Add(model.NewTestModel(testModelOptions, obs))
-			models.Add(model.NewForestModel(forestModelOptions, obs))
+			models.Add(model.NewForestModel(forestModelOptions, obs, issues))
 
 			generators := common.NewGenerators()
 			generators.Add(generator.NewPushgateway(pushgatewayOptions, obs))
 
 			datasources := common.NewDataSources()
+			datasources.Add(issues)
 			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, promIssuesOptions, obs, models.Train, generators.SetData))
 			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, promIssuesOptions, obs, models.Detect))
 
 			schedules := common.NewSchedules()
 			schedules.AddDatasources(datasources)
 			schedules.AddGenerators(generators)
-			scheduler := server.NewScheduler(schedules, obs)
-
-			http := server.NewHttpServer(httpServerOptions, handlers, obs)
 
 			servers := common.NewServers()
-			servers.Add(scheduler)
-			servers.Add(http)
+			servers.Add(server.NewScheduler(schedules, obs))
+			servers.Add(server.NewHttpServer(httpServerOptions, handlers, obs))
 			servers.Start(wg)
 
 			wg.Wait()

@@ -64,29 +64,15 @@ type PrometheusSignalOptions struct {
 	HostSignalSaturationQuery string
 }
 
-type PrometheusIssuesOptions struct {
-	Prometheus toolsVendors.PrometheusOptions
-	StartName  string
-	EndName    string
-	Names      string
-	TimeFormat string
-}
-
 type PrometheusOptions struct {
 	Name        string
+	Schedule    string
 	Prometheus  toolsVendors.PrometheusOptions
 	Span        string
 	Frame       string
-	Schedule    string
 	Concurrency int
 	TimeFormat  string
 	State       string
-}
-
-type PrometheusDataIssue struct {
-	start  common.Stamp
-	end    common.Stamp
-	hashes []common.Hash
 }
 
 type PrometheusData struct {
@@ -96,7 +82,6 @@ type PrometheusData struct {
 	applications *common.Applications
 	measurements *common.Measurements
 	schemas      *common.Schemas
-	issues       []PrometheusDataIssue
 	from         common.Stamp
 	first        common.Stamp
 	last         common.Stamp
@@ -163,19 +148,6 @@ func (pd *PrometheusData) First() common.Stamp {
 
 func (pd *PrometheusData) Last() common.Stamp {
 	return pd.last
-}
-
-func (pd *PrometheusData) IssueExists(hash common.Hash, stamp common.Stamp) bool {
-
-	for _, issue := range pd.issues {
-
-		if (stamp == issue.start || stamp > issue.start) &&
-			(stamp == issue.end || stamp < issue.end) &&
-			utils.Contains(issue.hashes, hash) {
-			return true
-		}
-	}
-	return false
 }
 
 // PrometheusState
@@ -1488,80 +1460,6 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 	return nil
 }
 
-func (p *Prometheus) gatherIssues(data *PrometheusData, spanFrom, spanTo time.Time) ([]PrometheusDataIssue, error) {
-
-	r := []PrometheusDataIssue{}
-
-	names := common.RemoveEmptyStrings(strings.Split(p.issuesOptions.Names, ","))
-	if len(names) == 0 {
-		return r, nil
-	}
-
-	spanFromStamp := common.TimeToStamp(spanFrom)
-	spanToStamp := common.TimeToStamp(spanTo)
-
-	promData, err := p.loadDataOpts(p.issuesOptions.Prometheus)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, dr := range promData.Result {
-
-		start := dr.Labels[p.issuesOptions.StartName]
-		if utils.IsEmpty(start) {
-			continue
-		}
-		startTime, err := time.Parse(p.issuesOptions.TimeFormat, start)
-		if err != nil {
-			continue
-		}
-		startTime = startTime.UTC()
-
-		end := dr.Labels[p.issuesOptions.EndName]
-		if utils.IsEmpty(end) {
-			continue
-		}
-		endTime, err := time.Parse(p.issuesOptions.TimeFormat, end)
-		if err != nil {
-			continue
-		}
-		endTime = endTime.UTC()
-
-		startStamp := common.TimeToStamp(startTime)
-		endStamp := common.TimeToStamp(endTime)
-
-		if startStamp > spanToStamp {
-			continue
-		}
-
-		if endStamp < spanFromStamp {
-			continue
-		}
-
-		hashes := []common.Hash{}
-		for _, n := range names {
-
-			v := strings.TrimSpace(dr.Labels[n])
-			if utils.IsEmpty(v) {
-				continue
-			}
-			found := data.names.FindByRegex(v)
-			hashes = append(hashes, found...)
-		}
-
-		hashes = common.Unique(hashes)
-		if len(hashes) == 0 {
-			continue
-		}
-		r = append(r, PrometheusDataIssue{
-			start:  startStamp,
-			end:    endStamp,
-			hashes: hashes,
-		})
-	}
-	return r, nil
-}
-
 func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration, state *PrometheusState, yaml string) {
 
 	items := state.RebuildIntervals(from, to, frame)
@@ -1606,15 +1504,6 @@ func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration,
 		}
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
 
-		p.info("Gathering issues (%s / %s)...", t1, t2)
-		issues, err := p.gatherIssues(data, t1, t2)
-		if err != nil {
-			p.error("Gathering issues (%s / %s) finished with error: %s", t1, t2, err)
-			continue
-		}
-		data.issues = issues
-		p.info("Gathering issues (%s / %s) found %d finished in %s", t1, t2, len(issues), time.Since(when))
-
 		gr := &errgroup.Group{}
 		for _, on := range p.onData {
 
@@ -1627,7 +1516,6 @@ func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration,
 				return nil
 			})
 		}
-
 		gr.Wait()
 
 		state.AddOrUpdateTimes(t1, t2)

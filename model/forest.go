@@ -84,6 +84,7 @@ type ForestModel struct {
 	observability *common.Observability
 	logger        sreCommon.Logger
 
+	issues    common.DataSourceIssues
 	appCases  *forest.ApplicationCases
 	hostCases *forest.HostCases
 
@@ -92,7 +93,6 @@ type ForestModel struct {
 	categories []common.CaseCategory
 	impacts    []common.CaseImpact
 	trains     sync.Map
-
 	// status
 	detected atomic.Int64
 }
@@ -486,6 +486,8 @@ func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
 	measurements := data.Measurements()
 	filterExists := len(filter) > 0
 
+	issues := fm.issues.Reduce(filter, data.Names(), data.Limits())
+
 	for hash, signals := range measurements.Items() {
 		for stamp, signal := range signals {
 
@@ -494,7 +496,7 @@ func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
 			}
 
 			// exclude issues
-			if data.IssueExists(hash, stamp) {
+			if issues.Exists(hash, stamp) {
 				continue
 			}
 
@@ -1057,6 +1059,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			return nil
 		})
 	}
+	gr.Wait()
 
 	// run apps engine
 	for hash, frames := range appFrames {
@@ -1211,7 +1214,7 @@ func (fm *ForestModel) Status() *common.ModelStatus {
 	}
 }
 
-func NewForestModel(options ForestModelOptions, observability *common.Observability) *ForestModel {
+func NewForestModel(options ForestModelOptions, observability *common.Observability, issues common.DataSourceIssues) *ForestModel {
 
 	categories := common.StringToCaseCategories(options.DetectionCategories)
 	if len(categories) == 0 {
@@ -1235,5 +1238,6 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 		detections: NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
 		categories: categories,
 		impacts:    impacts,
+		issues:     issues,
 	}
 }

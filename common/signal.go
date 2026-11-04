@@ -460,7 +460,7 @@ func (ns *Names) FindByHashes(hashes []Hash) []string {
 	return r
 }
 
-/*func (ns *Names) FindByName2(name string) Hash {
+func (ns *Names) FindByName(name string) Hash {
 
 	if name == "" {
 		return 0
@@ -479,7 +479,7 @@ func (ns *Names) FindByHashes(hashes []Hash) []string {
 		return 0
 	}
 	return hash
-}*/
+}
 
 func (ns *Names) FindByRegex(regex string) []Hash {
 

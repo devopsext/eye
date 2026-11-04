@@ -28,6 +28,10 @@ func (t *TestModel) Enabled() bool {
 	return t.options.Enabled
 }
 
+func (t *TestModel) Issues(issues common.DataSourceIssues) error {
+	return nil
+}
+
 func (t *TestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
 
 	hs := []common.Hash{}
