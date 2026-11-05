@@ -74,6 +74,7 @@ type HttpApplicationHandler struct {
 	//
 	identMutex sync.Mutex
 	identMap   map[string]*HttpApplicationInfo
+	identSeen  []string
 	//
 	activeMutex sync.Mutex
 	activeIdent string
@@ -103,7 +104,7 @@ func NewHttpApplicationHandlerDataPoint(timestamp time.Time, metric string, valu
 // HttpApplicationHandler
 
 func (h *HttpApplicationHandler) Name() string {
-	return "Application"
+	return "HttpApplication"
 }
 
 func (h *HttpApplicationHandler) Path() string {
@@ -134,7 +135,7 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 
 	af, ok := frame.(common.ModelApplicationFrame)
 	if !ok {
-		h.logger.Debug("%s: Frame %s is not supported", frame.Ident(), h.Name())
+		h.logger.Debug("%s: Frame %s is not supported", h.Name(), frame.Ident())
 		return
 	}
 
@@ -161,7 +162,7 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	h.activeMutex.Lock()
 	defer h.activeMutex.Unlock()
 
-	if h.activeIdent != ident {
+	if !utils.Contains(h.identSeen, ident) {
 		if h.reIdents == nil {
 			return
 		}
@@ -280,6 +281,10 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		}
 	}
 	h.datachannel <- data
+
+	if !utils.Contains(h.identSeen, ident) {
+		h.identSeen = append(h.identSeen, ident)
+	}
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {
@@ -315,7 +320,7 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 	}
 	pageTemplate, err := template.New("application").Parse(string(data))
 	if err != nil {
-		h.logger.Error("%s: Page %s has error: %s", h.options.Page, err)
+		h.logger.Error("%s: Page %s has error: %s", h.Name(), h.options.Page, err)
 		return err
 	}
 
@@ -372,9 +377,12 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 			h.logger.Error("%s: Cannot unmarshal message: %s, error: %s", name, msg, err)
 			break
 		}
-		if payload.Type == "filter" {
+		if payload.Type == "filter" && !utils.IsEmpty(payload.Application) {
 			h.activeMutex.Lock()
 			h.activeIdent = payload.Application
+			if !utils.Contains(h.identSeen, h.activeIdent) {
+				h.identSeen = append(h.identSeen, h.activeIdent)
+			}
 			h.activeMutex.Unlock()
 		}
 	}

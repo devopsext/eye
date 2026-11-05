@@ -161,6 +161,7 @@
         th:nth-child(1), td:nth-child(1) { width: 75px; }
         th:nth-child(2), td:nth-child(2) { width: auto; }
         th:nth-child(3), td:nth-child(3) { width: 100px; }
+        th:nth-child(4), td:nth-child(4) { width: 65px; }
 
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; display: inline-block; }
         .badge-most { background: #ef4444; color: #fff; }
@@ -196,10 +197,10 @@
 
         <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="changeFilter()" onchange="changeFilter()" style="width:260px;">
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:260px;">
         <datalist id="applicationList"></datalist>
 
-        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="changeFilter()" onchange="changeFilter()" style="margin-right: auto; width:260px;">
+        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="margin-right: auto; width:260px;">
         <datalist id="hostList"></datalist>
 
         <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
@@ -231,6 +232,7 @@
                             <th>Time</th>
                             <th>Application</th>
                             <th>Impact</th>
+                            <th>Score</th>
                         </tr>
                     </thead>
                     <tbody id="verdictTableBody">
@@ -255,6 +257,18 @@
         let selectedTimeLabel = null;
         let hoveredIndex = null;
         const appColorMap = {};
+
+        let debounceTimer = null;
+
+        function handleSearchInput() {
+            // Clear the previous timer if the user is still typing
+            clearTimeout(debounceTimer);
+            
+            // Set a new timer for 1 second (1000 milliseconds)
+            debounceTimer = setTimeout(() => {
+                changeFilter();
+            }, 1000);
+        }
 
         const defaultOrderedMetrics = [
             "InRequests", "OutRequests", 
@@ -429,15 +443,34 @@
             });
         }
 
+        function limitToTopN(entityList, cacheObj, metricKey, limit = 10) {
+            if (entityList.length <= limit) return entityList;
+
+            // Sort entities descending based on their most recent data point value for this metric
+            return entityList.sort((a, b) => {
+                const seriesA = cacheObj[a] && cacheObj[a].rawSeries[metricKey] ? cacheObj[a].rawSeries[metricKey] : [];
+                const seriesB = cacheObj[b] && cacheObj[b].rawSeries[metricKey] ? cacheObj[b].rawSeries[metricKey] : [];
+                
+                const latestA = seriesA.length > 0 ? (seriesA[seriesA.length - 1].val || 0) : 0;
+                const latestB = seriesB.length > 0 ? (seriesB[seriesB.length - 1].val || 0) : 0;
+                
+                return latestB - latestA; // Highest values first
+            }).slice(0, limit);
+        }
+
         function getEntitiesForChart(key) {
             if (isHostMetric(key)) {
+                let hosts = getMatchingHosts();
+                // Limit to top 10 hosts based on their latest metric value
                 return {
-                    entities: getMatchingHosts(),
+                    entities: limitToTopN(hosts, hostCache, key, 10),
                     cache: hostCache
                 };
             }
+            let apps = getMatchingApps();
+            // Limit to top 10 apps based on their latest metric value
             return {
-                entities: getMatchingApps(),
+                entities: limitToTopN(apps, applicationCache, key, 10),
                 cache: applicationCache
             };
         }
@@ -1113,7 +1146,8 @@
                 row.title = largeHint;
                 row.innerHTML = '<td>' + timeLabel + '</td>' +
                     '<td><strong>' + v.app + '</strong></td>' +
-                    '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>';
+                    '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>' +
+                    '<td>' + vv.score + '</td>';
                 
                 row.onclick = function() { selectVerdict(timeLabel, row); };
                 tbody.appendChild(row);
