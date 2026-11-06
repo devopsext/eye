@@ -5,9 +5,14 @@ import (
 	"sync"
 )
 
+type ScheduleOptions struct {
+	Schedule    string
+	Immediately bool
+}
+
 type Schedule interface {
 	Name() string
-	Schedule() string
+	ScheduleOptions() ScheduleOptions
 	Start(wg *sync.WaitGroup)
 }
 

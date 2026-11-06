@@ -28,7 +28,7 @@ type DataSourceData interface {
 
 type DataSource interface {
 	Name() string
-	Schedule() string
+	ScheduleOptions() ScheduleOptions
 	Start(wg *sync.WaitGroup)
 }
 

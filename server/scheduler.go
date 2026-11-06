@@ -41,9 +41,9 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 			continue
 		}
 		name := item.Name()
-		schedule := item.Schedule()
+		options := item.ScheduleOptions()
 
-		if utils.IsEmpty(schedule) {
+		if utils.IsEmpty(options.Schedule) {
 			sr.logger.Debug("Scheduler skipped %s schedule", name)
 			continue
 		}
@@ -68,7 +68,8 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 	for _, s := range filtered {
 
 		name := s.Name()
-		schedule := s.Schedule()
+		options := s.ScheduleOptions()
+		schedule := options.Schedule
 
 		if schedule == ScheduleOnce {
 			sr.once(wg, s)
@@ -80,7 +81,11 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 
 		opts := []gocron.JobOption{}
 		opts = append(opts, gocron.WithName(name))
-		opts = append(opts, gocron.JobOption(gocron.WithStartImmediately()))
+
+		if options.Immediately {
+			opts = append(opts, gocron.JobOption(gocron.WithStartImmediately()))
+		}
+
 		limitMode := gocron.LimitModeReschedule
 
 		if len(strings.Split(schedule, " ")) == 1 {
@@ -91,7 +96,7 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 			} else {
 				d, err := time.ParseDuration(schedule)
 				if err != nil {
-					sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
+					sr.logger.Error("Scheduler cannot set schedule %s for %s, error: %s", schedule, name, err)
 					continue
 				}
 				def = gocron.DurationJob(d)
@@ -104,7 +109,7 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 
 		job, err := scheduler.NewJob(def, task, opts...)
 		if err != nil {
-			sr.logger.Error("Scheduler cannot schedule %s model %s, error: %s", schedule, name, err)
+			sr.logger.Error("Scheduler cannot set schedule %s for %s, error: %s", schedule, name, err)
 			continue
 		}
 		sr.logger.Info("Scheduler scheduled %s with id %s", name, job.ID())

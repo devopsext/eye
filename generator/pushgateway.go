@@ -25,17 +25,18 @@ type PushgatewayOptions struct {
 	URL      string
 	Timeout  int
 	Insecure bool
-	Schedule string
 	Files    string
 	Outdir   string
+	Schedule string
 }
 
 type Pushgateway struct {
-	mu            sync.Mutex
-	options       PushgatewayOptions
-	observability *common.Observability
-	logger        sreCommon.Logger
-	client        *http.Client
+	mu              sync.Mutex
+	options         PushgatewayOptions
+	scheduleOptions common.ScheduleOptions
+	observability   *common.Observability
+	logger          sreCommon.Logger
+	client          *http.Client
 }
 
 // Pushgateway
@@ -44,8 +45,8 @@ func (pg *Pushgateway) Name() string {
 	return pg.options.Name
 }
 
-func (pg *Pushgateway) Schedule() string {
-	return pg.options.Schedule
+func (pg *Pushgateway) ScheduleOptions() common.ScheduleOptions {
+	return pg.scheduleOptions
 }
 
 func (pg *Pushgateway) labels(v *common.GeneratorValue) string {
@@ -381,7 +382,11 @@ func NewPushgateway(options PushgatewayOptions, observability *common.Observabil
 	}
 
 	return &Pushgateway{
-		options:       options,
+		options: options,
+		scheduleOptions: common.ScheduleOptions{
+			Schedule:    options.Schedule,
+			Immediately: true,
+		},
 		observability: observability,
 		logger:        logger,
 		client:        utils.NewHttpClient(options.Timeout, options.Insecure),

@@ -23,6 +23,7 @@ type PrometheusIssuesOptions struct {
 	Names      string
 	Pattern    string
 	TimeFormat string
+	Preload    bool
 }
 
 type PrometheusIssueHash struct {
@@ -43,12 +44,13 @@ type PrometheusIssueNames struct {
 }
 
 type PrometheusIssues struct {
-	mu            sync.Mutex
-	muIssues      sync.Mutex
-	options       PrometheusIssuesOptions
-	observability *common.Observability
-	logger        sreCommon.Logger
-	issues        []PrometheusIssueNames
+	mu              sync.Mutex
+	muIssues        sync.Mutex
+	options         PrometheusIssuesOptions
+	scheduleOptions common.ScheduleOptions
+	observability   *common.Observability
+	logger          sreCommon.Logger
+	issues          []PrometheusIssueNames
 }
 
 // PrometheusIssueHashes
@@ -97,8 +99,8 @@ func (pi *PrometheusIssues) Name() string {
 	return pi.options.Name
 }
 
-func (pi *PrometheusIssues) Schedule() string {
-	return pi.options.Schedule
+func (pi *PrometheusIssues) ScheduleOptions() common.ScheduleOptions {
+	return pi.scheduleOptions
 }
 
 func (pi *PrometheusIssues) loadDataOpts(opts toolsVendors.PrometheusOptions) (*common.PrometheusResponseData, error) {
@@ -245,12 +247,7 @@ func (pi *PrometheusIssues) gatherIssues() ([]PrometheusIssueNames, error) {
 	return r, nil
 }
 
-func (pi *PrometheusIssues) Start(wg *sync.WaitGroup) {
-
-	if !pi.mu.TryLock() {
-		return
-	}
-	defer pi.mu.Unlock()
+func (pi *PrometheusIssues) Load() {
 
 	when := time.Now()
 	pi.logger.Info("Gathering issues...")
@@ -261,12 +258,30 @@ func (pi *PrometheusIssues) Start(wg *sync.WaitGroup) {
 	}
 	pi.issues = issues
 	pi.logger.Info("Gathering issues found %d finished in %s", len(issues), time.Since(when))
+
+}
+
+func (pi *PrometheusIssues) Start(wg *sync.WaitGroup) {
+
+	if !pi.mu.TryLock() {
+		return
+	}
+	defer pi.mu.Unlock()
+
+	wg.Add(1)
+	defer wg.Done()
+
+	pi.Load()
 }
 
 func NewPrometheusIssues(options PrometheusIssuesOptions, observability *common.Observability) *PrometheusIssues {
 
 	return &PrometheusIssues{
-		options:       options,
+		options: options,
+		scheduleOptions: common.ScheduleOptions{
+			Schedule:    options.Schedule,
+			Immediately: !options.Preload,
+		},
 		observability: observability,
 		logger:        observability.Logs(),
 	}

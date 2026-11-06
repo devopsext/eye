@@ -67,6 +67,7 @@ var promIssuesOptions = datasource.PrometheusIssuesOptions{
 	Names:      envStringExpand("PROMETHEUS_ISSUES_NAMES", ""),
 	Pattern:    envStringExpand("PROMETHEUS_ISSUES_PATTERN", ""),
 	TimeFormat: envGet("PROMETHEUS_ISSUES_TIME_FORMAT", time.RFC3339).(string),
+	Preload:    envGet("PROMETHEUS_ISSUES_PRELOAD", false).(bool),
 }
 
 var promLongOptions = datasource.PrometheusOptions{
@@ -218,8 +219,8 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			datasources := common.NewDataSources()
 			datasources.Add(issues)
-			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, promIssuesOptions, obs, models.Train, generators.SetData))
-			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, promIssuesOptions, obs, models.Detect))
+			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.Train, generators.SetData))
+			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.Detect))
 
 			schedules := common.NewSchedules()
 			schedules.AddDatasources(datasources)
@@ -228,6 +229,10 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 			servers := common.NewServers()
 			servers.Add(server.NewScheduler(schedules, obs))
 			servers.Add(server.NewHttpServer(httpServerOptions, handlers, obs))
+
+			if promIssuesOptions.Preload {
+				issues.Load()
+			}
 			servers.Start(wg)
 
 			wg.Wait()

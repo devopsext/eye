@@ -812,7 +812,7 @@
                     initCharts();
                 }
             }
-        }
+        }s
 
         function toggleMaximize(key) {
             if (maximizedChartKey === key) {
@@ -1284,6 +1284,7 @@
         function setModel(model) {
             const ms = document.getElementById('modelStatus');
             try {
+                ms.innerText = 'Unknown';
                 if (model) {
                     const state = model.state;
                     if (state === 'Idle') {
@@ -1292,8 +1293,6 @@
                         ms.innerText = 'Training...';
                     } else if (state === 'Detecting') {
                         ms.innerText = 'Detecting...';
-                    } else {
-                        ms.innerText = 'Unknown';
                     }
                 }
             } catch(e) {

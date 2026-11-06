@@ -30,7 +30,7 @@ type GeneratorValues = map[string]*GeneratorValue
 
 type Generator interface {
 	Name() string
-	Schedule() string
+	ScheduleOptions() ScheduleOptions
 	Start(wg *sync.WaitGroup)
 	SetData(data DataSourceData) error
 	Generate(values GeneratorValues) error

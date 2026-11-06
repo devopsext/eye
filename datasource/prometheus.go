@@ -95,13 +95,13 @@ type PrometheusState struct {
 }
 
 type Prometheus struct {
-	mu            sync.Mutex
-	signalOptions PrometheusSignalOptions
-	issuesOptions PrometheusIssuesOptions
-	promOptions   PrometheusOptions
-	observability *common.Observability
-	logger        sreCommon.Logger
-	onData        []common.DataSourceOnData
+	mu              sync.Mutex
+	signalOptions   PrometheusSignalOptions
+	scheduleOptions common.ScheduleOptions
+	promOptions     PrometheusOptions
+	observability   *common.Observability
+	logger          sreCommon.Logger
+	onData          []common.DataSourceOnData
 }
 
 const (
@@ -356,8 +356,8 @@ func (p *Prometheus) Name() string {
 	return p.promOptions.Name
 }
 
-func (p *Prometheus) Schedule() string {
-	return p.promOptions.Schedule
+func (p *Prometheus) ScheduleOptions() common.ScheduleOptions {
+	return p.scheduleOptions
 }
 
 func (p *Prometheus) setTimeFormat(args ...any) []any {
@@ -460,6 +460,12 @@ func (p *Prometheus) loadDataOpts(opts toolsVendors.PrometheusOptions) (*common.
 
 	if res.Status != "success" {
 		return nil, fmt.Errorf("prometheus got wrong status %s", res.Status)
+	}
+
+	if len(res.Warnings) > 0 {
+		warnings := common.Unique(res.Warnings)
+		s := strings.Join(warnings, ", ")
+		return nil, fmt.Errorf("prometheus has error: %s", s)
 	}
 
 	if !utils.Contains([]string{"vector", "matrix"}, res.Data.ResultType) {
@@ -1484,7 +1490,7 @@ func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration,
 
 		when := time.Now()
 
-		p.info("Gathering span  (%s / %s) duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
+		p.info("Gathering span (%s / %s) duration=%s left=%s...", t1, t2, t2.Sub(t1), to.Sub(t2))
 
 		data := &PrometheusData{
 			attributes:   common.NewAttributes(),
@@ -1591,13 +1597,16 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 	p.info("Gathering (%s / %s) finished in %s", from, to, time.Since(when))
 }
 
-func NewPrometheus(options PrometheusOptions, signalOptions PrometheusSignalOptions, issuesOptions PrometheusIssuesOptions,
+func NewPrometheus(options PrometheusOptions, signalOptions PrometheusSignalOptions,
 	observability *common.Observability, onData ...common.DataSourceOnData) *Prometheus {
 
 	return &Prometheus{
 		promOptions:   options,
 		signalOptions: signalOptions,
-		issuesOptions: issuesOptions,
+		scheduleOptions: common.ScheduleOptions{
+			Schedule:    options.Schedule,
+			Immediately: true,
+		},
 		observability: observability,
 		logger:        observability.Logs(),
 		onData:        onData,

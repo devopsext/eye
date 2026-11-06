@@ -11,6 +11,7 @@ type PrometheusResponseData struct {
 }
 
 type PrometheusResponse struct {
-	Status string                  `json:"status"`
-	Data   *PrometheusResponseData `json:"data"`
+	Status   string                  `json:"status"`
+	Data     *PrometheusResponseData `json:"data"`
+	Warnings []string                `json:"warnings"`
 }
