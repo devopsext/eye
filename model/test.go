@@ -43,7 +43,7 @@ func (t *TestModel) Train(data common.DataSourceData) ([]common.Hash, error) {
 	t.logger.Info("%s: Training...", name)
 
 	when := time.Now()
-	d, _ := time.ParseDuration(t.options.WaitInterval)
+	d, _ := common.ParseDuration(t.options.WaitInterval)
 	time.Sleep(d)
 
 	t.logger.Info("%s: Training finished in %s", name, time.Since(when))
@@ -61,7 +61,7 @@ func (t *TestModel) Detect(data common.DataSourceData, onFrame common.ModelOnFra
 	t.logger.Info("%s: Detecting...", name)
 
 	when := time.Now()
-	d, _ := time.ParseDuration(t.options.WaitInterval)
+	d, _ := common.ParseDuration(t.options.WaitInterval)
 	time.Sleep(d)
 
 	t.logger.Info("%s: Detecting finished in %s", name, time.Since(when))

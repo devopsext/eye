@@ -94,7 +94,7 @@ func (sr *Scheduler) Start(wg *sync.WaitGroup) {
 				def = gocron.DurationJob(1 * time.Millisecond)
 				limitMode = gocron.LimitModeWait
 			} else {
-				d, err := time.ParseDuration(schedule)
+				d, err := common.ParseDuration(schedule)
 				if err != nil {
 					sr.logger.Error("Scheduler cannot set schedule %s for %s, error: %s", schedule, name, err)
 					continue

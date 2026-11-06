@@ -443,33 +443,40 @@ func (p *Prometheus) sliceCommonLabels(parent, labels map[string]string) []map[s
 
 func (p *Prometheus) loadDataOpts(opts toolsVendors.PrometheusOptions) (*common.PrometheusResponseData, error) {
 
+	steps, err := common.ParseDuration(opts.Step)
+	if err != nil {
+		opts.Step = ""
+	} else {
+		opts.Step = fmt.Sprintf("%d", int64(steps.Seconds()))
+	}
+
 	prom := toolsVendors.NewPrometheus(opts)
 	if prom == nil {
-		return nil, fmt.Errorf("prometheus cannot create client")
+		return nil, fmt.Errorf("can't create client for %s", opts.Query)
 	}
 
 	d, err := prom.Get()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't get data for %s", opts.Query)
 	}
 
 	var res common.PrometheusResponse
 	if err := json.Unmarshal(d, &res); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't unmarshal result status %s for %s", res.Status, opts.Query)
 	}
 
 	if res.Status != "success" {
-		return nil, fmt.Errorf("prometheus got wrong status %s", res.Status)
+		return nil, fmt.Errorf("got wrong status %s for %s", res.Status, opts.Query)
+	}
+
+	if !utils.Contains([]string{"vector", "matrix"}, res.Data.ResultType) {
+		return nil, fmt.Errorf("supports only vector and matrix data for %s", opts.Query)
 	}
 
 	if len(res.Warnings) > 0 {
 		warnings := common.Unique(res.Warnings)
 		s := strings.Join(warnings, ", ")
-		return nil, fmt.Errorf("prometheus has error: %s", s)
-	}
-
-	if !utils.Contains([]string{"vector", "matrix"}, res.Data.ResultType) {
-		return nil, fmt.Errorf("prometheus supports only vector and matrix data")
+		p.debug("%s for %s", s, opts.Query)
 	}
 
 	if (res.Data == nil) || (len(res.Data.Result) == 0) {
@@ -1216,7 +1223,7 @@ func (p *Prometheus) string2Time(ts string) time.Time {
 		return t
 	} else {
 
-		d, err := time.ParseDuration(ts)
+		d, err := common.ParseDuration(ts)
 		if err == nil {
 			td := time.Now().UTC().Add(d)
 			return td
@@ -1505,7 +1512,7 @@ func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration,
 		}
 		err := p.gatherSpans(data, t1, t2, span)
 		if err != nil {
-			p.error("Gathering span (%s / %s) finished with error: %s", t1, t2, err)
+			p.error("Gathering span (%s / %s) finished in %s with error: %s. Skipping", t1, t2, time.Since(when), err)
 			continue
 		}
 		p.info("Gathering span (%s / %s) finished in %s left=%s", t1, t2, time.Since(when), to.Sub(t2))
@@ -1563,7 +1570,7 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	span := to.Sub(from)
 	if !utils.IsEmpty(p.promOptions.Span) {
-		s, err := time.ParseDuration(p.promOptions.Span)
+		s, err := common.ParseDuration(p.promOptions.Span)
 		if err == nil {
 			span = s
 		}
@@ -1571,7 +1578,7 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	frame := to.Sub(from)
 	if !utils.IsEmpty(p.promOptions.Frame) {
-		s, err := time.ParseDuration(p.promOptions.Frame)
+		s, err := common.ParseDuration(p.promOptions.Frame)
 		if err == nil {
 			frame = s
 		}
