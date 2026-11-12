@@ -73,6 +73,7 @@ type PrometheusOptions struct {
 	Concurrency int
 	TimeFormat  string
 	State       string
+	Interval    string
 }
 
 type PrometheusData struct {
@@ -287,7 +288,7 @@ func (ps *PrometheusState) FindGaps(items PrometheusStateItems, st1, st2 common.
 	return found
 }
 
-func (ps *PrometheusState) RebuildIntervals(from, to time.Time, frame time.Duration) PrometheusStateItems {
+func (ps *PrometheusState) RebuildIntervals(from, to time.Time, frame, interval time.Duration) PrometheusStateItems {
 
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -305,34 +306,27 @@ func (ps *PrometheusState) RebuildIntervals(from, to time.Time, frame time.Durat
 		t2 := t1.Add(frame)
 		st2 := common.TimeToStamp(t2)
 
-		// all from left side
-		if st1 < min && st2 <= min {
+		next := common.Stamp(0)
+		if st1 < min && st2 <= min { // all from left side
 			r[st1] = st2
-			t1 = common.StampToTime(st2)
-			continue
-		}
-
-		// all from right side
-		if st1 >= max && st2 > max {
+			next = st2
+		} else if st1 >= max && st2 > max { // all from right side
 			r[st1] = st2
-			t1 = common.StampToTime(st2)
-			continue
-		}
-
-		// part from left side
-		if st1 < min && st2 > min {
+			next = st2
+		} else if st1 < min && st2 > min { // part from left side
 			r[st1] = min
-			t1 = common.StampToTime(min)
-			continue
-		}
-
-		// part from right side
-		if st1 < max && st2 > max {
+			next = min
+		} else if st1 < max && st2 > max { // part from right side
 			r[max] = st2
-			t1 = common.StampToTime(st2)
-			continue
+			next = st2
 		}
-		t1 = common.StampToTime(st2)
+		t1 = common.StampToTime(next)
+
+		// if there is shift
+		if interval > time.Duration(0) {
+			t1 = t1.Add(interval)
+			t1 = t1.Add(-frame)
+		}
 	}
 
 	// in case there are gaps
@@ -457,12 +451,12 @@ func (p *Prometheus) loadDataOpts(opts toolsVendors.PrometheusOptions) (*common.
 
 	d, err := prom.Get()
 	if err != nil {
-		return nil, fmt.Errorf("can't get data for %s", opts.Query)
+		return nil, fmt.Errorf("can't get data for %s error %s", opts.Query, err)
 	}
 
 	var res common.PrometheusResponse
 	if err := json.Unmarshal(d, &res); err != nil {
-		return nil, fmt.Errorf("can't unmarshal result status %s for %s", res.Status, opts.Query)
+		return nil, fmt.Errorf("can't unmarshal result status %s for %s error %s", res.Status, opts.Query, err)
 	}
 
 	if res.Status != "success" {
@@ -476,7 +470,7 @@ func (p *Prometheus) loadDataOpts(opts toolsVendors.PrometheusOptions) (*common.
 	if len(res.Warnings) > 0 {
 		warnings := common.Unique(res.Warnings)
 		s := strings.Join(warnings, ", ")
-		p.debug("%s for %s", s, opts.Query)
+		p.error("%s for %s", s, opts.Query)
 	}
 
 	if (res.Data == nil) || (len(res.Data.Result) == 0) {
@@ -1473,9 +1467,9 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 	return nil
 }
 
-func (p *Prometheus) gatherFrames(from, to time.Time, span, frame time.Duration, state *PrometheusState, yaml string) {
+func (p *Prometheus) gatherFrames(from, to time.Time, span, frame, interval time.Duration, state *PrometheusState, yaml string) {
 
-	items := state.RebuildIntervals(from, to, frame)
+	items := state.RebuildIntervals(from, to, frame, interval)
 
 	state.TryPurgeUntil(items, from)
 
@@ -1584,6 +1578,14 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 		}
 	}
 
+	interval := time.Duration(0)
+	if !utils.IsEmpty(p.promOptions.Interval) {
+		s, err := common.ParseDuration(p.promOptions.Interval)
+		if err == nil {
+			interval = s
+		}
+	}
+
 	state := NewPrometheusState()
 	yaml := p.promOptions.State
 
@@ -1600,7 +1602,7 @@ func (p *Prometheus) Start(wg *sync.WaitGroup) {
 
 	when := time.Now()
 	p.info("Gathering frame (%s / %s) duration=%s...", from, to, to.Sub(from))
-	p.gatherFrames(from, to, span, frame, state, yaml)
+	p.gatherFrames(from, to, span, frame, interval, state, yaml)
 	p.info("Gathering (%s / %s) finished in %s", from, to, time.Since(when))
 }
 

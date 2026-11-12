@@ -90,6 +90,7 @@ var promLongOptions = datasource.PrometheusOptions{
 	Concurrency: envGet("PROMETHEUS_LONG_CONCURRENCY", 50).(int),
 	TimeFormat:  envGet("PROMETHEUS_LONG_TIME_FORMAT", time.DateTime).(string),
 	State:       envGet("PROMETHEUS_LONG_STATE", "").(string),
+	Interval:    envGet("PROMETHEUS_LONG_INTERVAL", "").(string),
 }
 
 var promShortOptions = datasource.PrometheusOptions{
@@ -111,6 +112,7 @@ var promShortOptions = datasource.PrometheusOptions{
 	Frame:       envGet("PROMETHEUS_SHORT_FRAME", "").(string),
 	Concurrency: envGet("PROMETHEUS_SHORT_CONCURRENCY", 50).(int),
 	TimeFormat:  envGet("PROMETHEUS_SHORT_TIME_FORMAT", time.DateTime).(string),
+	Interval:    envGet("PROMETHEUS_SHORT_INTERVAL", "").(string),
 }
 
 var pushgatewayOptions = generator.PushgatewayOptions{
