@@ -508,7 +508,7 @@ func (ap *HostProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 	}
 }
 
-func (ap *HostProfiler) getLimits(ms float64, col int, val float64) (float64, float64, float64) {
+func (ap *HostProfiler) getLimits(ms float64, col int, val float64, saturation bool) (float64, float64, float64) {
 
 	bucketSize := len(ap.Buckets)
 	if bucketSize > 0 {
@@ -534,13 +534,21 @@ func (ap *HostProfiler) getLimits(ms float64, col int, val float64) (float64, fl
 			if lower < 0 {
 				lower = 0
 			}
+			if saturation && upper > 100 {
+				upper = 100
+			}
 			return upper, lower, med
 		}
 	}
 
 	if val != 0 {
 		absVal := math.Abs(val * ap.K)
-		return val + absVal, val - absVal, val
+		upper := val + absVal
+		if saturation && upper > 100 {
+			upper = 100
+		}
+		lower := val - absVal
+		return upper, lower, val
 	}
 	return 1.0, 0.0, 0.5
 }
@@ -556,7 +564,7 @@ func (ap *HostProfiler) Classify(ms float64, col int, val float64, isAnomaly, is
 		return common.CaseLevelUnknown
 	}
 
-	max, min, med := ap.getLimits(ms, col, val)
+	max, min, med := ap.getLimits(ms, col, val, true)
 
 	if val > max {
 		return common.CaseLevelHigh
@@ -903,13 +911,13 @@ func (ae *HostEngine) extractPoints(vectors HostEngineVectors) HostFramePoints {
 
 	if len(vectors.satVec) > vectors.hostCPUIdx && vectors.satValid[vectors.hostCPUIdx] {
 		val := vectors.satVec[vectors.hostCPUIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostCPUIdx, val)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostCPUIdx, val, true)
 		points.hostCPU = NewHostFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.hostMemIdx && vectors.satValid[vectors.hostMemIdx] {
 		val := vectors.satVec[vectors.hostMemIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostMemIdx, val)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostMemIdx, val, true)
 		points.hostMem = NewHostFramePoint(vectors.time, val, min, max, med)
 	}
 	return points
@@ -950,30 +958,42 @@ func (ae *HostEngine) predict(frame *HostFrame) (*HostFramePoints, *HostCasePatt
 
 func (ae *HostEngine) aggregateFrames(frames HostFrames) HostFrame {
 
-	maxHostSaturation := func(value HostSaturationValue, max HostSaturationValue) HostSaturationValue {
+	sumHostSaturation := func(value HostSaturationValue, sum HostSaturationValue, cnt int) (HostSaturationValue, int) {
 
 		if value != nil {
-			vs := max
 			vn := *value
-			if vs == nil || (vs != nil && vn > *vs) {
-				return &vn
+			if sum != nil {
+				vn = *sum + vn
 			}
+			return &vn, cnt + 1
 		}
-		return max
+		return sum, cnt
 	}
 
-	var maxHostCPU HostSaturationValue
-	var maxHostMem HostSaturationValue
+	avgHostSaturation := func(sum HostSaturationValue, cnt int) HostSaturationValue {
+
+		if sum != nil && cnt > 0 {
+			v := common.Saturation(float64(*sum) / float64(cnt))
+			return &v
+		}
+		return sum
+	}
+
+	var sumHostCPU HostSaturationValue
+	var cntHostCPU int
+
+	var sumHostMem HostSaturationValue
+	var cntHostMem int
 
 	for _, f := range frames {
 
-		maxHostCPU = maxHostSaturation(f.hostCPU, maxHostCPU)
-		maxHostMem = maxHostSaturation(f.hostMem, maxHostMem)
+		sumHostCPU, cntHostCPU = sumHostSaturation(f.hostCPU, sumHostCPU, cntHostCPU)
+		sumHostMem, cntHostMem = sumHostSaturation(f.hostMem, sumHostMem, cntHostMem)
 	}
 
 	return HostFrame{
-		hostCPU: maxHostCPU,
-		hostMem: maxHostMem,
+		hostCPU: avgHostSaturation(sumHostCPU, cntHostCPU),
+		hostMem: avgHostSaturation(sumHostMem, cntHostMem),
 	}
 }
 
@@ -1012,8 +1032,8 @@ func (ae *HostEngine) Consolidate(frames HostFrames) *HostFrame {
 	begin := frames[0].Stamp()
 	end := frames[len(frames)-1].Stamp()
 
-	//stamp := begin + (end-begin)/2
-	stamp := begin
+	stamp := begin + (end-begin)/2
+	//stamp := begin
 
 	frame := ae.aggregateFrames(frames)
 

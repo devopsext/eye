@@ -185,6 +185,10 @@ func (pi *PrometheusIssues) gatherIssues() ([]PrometheusIssueNames, error) {
 		return nil, err
 	}
 
+	if promData == nil {
+		return nil, nil
+	}
+
 	var re *regexp.Regexp
 
 	if !utils.IsEmpty(pi.options.Pattern) {

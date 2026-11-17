@@ -197,10 +197,14 @@
 
         <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:260px;">
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer;">
+            <input type="checkbox" id="top5FilterToggle" checked onchange="changeFilter()"> Top 5
+        </label>
+
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:220px;">
         <datalist id="applicationList"></datalist>
 
-        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="margin-right: auto; width:260px;">
+        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="margin-right: auto; width:220px;">
         <datalist id="hostList"></datalist>
 
         <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
@@ -261,10 +265,7 @@
         let debounceTimer = null;
 
         function handleSearchInput() {
-            // Clear the previous timer if the user is still typing
             clearTimeout(debounceTimer);
-            
-            // Set a new timer for 1 second (1000 milliseconds)
             debounceTimer = setTimeout(() => {
                 changeFilter();
             }, 1000);
@@ -375,13 +376,30 @@
             return false;
         }
 
+        function limitToTopN(entityList, cacheObj, metricKey, limit = 5) {
+            const top5Enabled = document.getElementById('top5FilterToggle') ? document.getElementById('top5FilterToggle').checked : true;
+            const effectiveLimit = top5Enabled ? limit : entityList.length;
+            if (entityList.length <= effectiveLimit) return [...entityList];
+
+            return [...entityList].sort((a, b) => {
+                const seriesA = cacheObj[a] && cacheObj[a].rawSeries[metricKey] ? cacheObj[a].rawSeries[metricKey] : [];
+                const seriesB = cacheObj[b] && cacheObj[b].rawSeries[metricKey] ? cacheObj[b].rawSeries[metricKey] : [];
+                
+                const latestA = seriesA.length > 0 ? (seriesA[seriesA.length - 1].val || 0) : 0;
+                const latestB = seriesB.length > 0 ? (seriesB[seriesB.length - 1].val || 0) : 0;
+                
+                return latestB - latestA; // Highest values first
+            }).slice(0, effectiveLimit);
+        }
+
         function updateFilterLists() {
             const appDatalist = document.getElementById('applicationList');
             const hostDatalist = document.getElementById('hostList');
             if (!appDatalist || !hostDatalist) return;
 
             const allApps = getAllKnownApps();
-            const filteredAppsForList = allApps.filter(app => appHasHostMatching(app, currentHostFilter)).sort();
+            let filteredAppsForList = allApps.filter(app => appHasHostMatching(app, currentHostFilter)).sort();
+            filteredAppsForList = limitToTopN(filteredAppsForList, applicationCache, 'InRequests', 5);
 
             appDatalist.innerHTML = '';
             filteredAppsForList.forEach(app => {
@@ -391,7 +409,8 @@
             });
 
             const allHosts = getAllKnownHosts();
-            const filteredHostsForList = allHosts.filter(host => hostHasAppMatching(host, currentFilter)).sort();
+            let filteredHostsForList = allHosts.filter(host => hostHasAppMatching(host, currentFilter)).sort();
+            filteredHostsForList = limitToTopN(filteredHostsForList, hostCache, 'HostCPU', 5);
 
             hostDatalist.innerHTML = '';
             filteredHostsForList.forEach(host => {
@@ -402,11 +421,16 @@
         }
 
         function getMatchingApps() {
-            return getAllKnownApps().filter(app => {
+            const baseMatching = getAllKnownApps().filter(app => {
                 if (!matchesFilter(app, currentFilter)) return false;
                 if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
                 return true;
             });
+            // If explicit text search/input is present for app or host, respect it directly; otherwise apply Top 5 restriction if checked.
+            if (currentFilter || currentHostFilter) {
+                return baseMatching;
+            }
+            return limitToTopN(baseMatching, applicationCache, 'InRequests', 5);
         }
 
         function getMatchingHosts() {
@@ -431,7 +455,11 @@
                 });
             }
 
-            return Array.from(hostsSet);
+            let hostList = Array.from(hostsSet);
+            if (currentFilter || currentHostFilter) {
+                return hostList;
+            }
+            return limitToTopN(hostList, hostCache, 'HostCPU', 5);
         }
 
         function hasHostDataForMatchingApps() {
@@ -443,34 +471,17 @@
             });
         }
 
-        function limitToTopN(entityList, cacheObj, metricKey, limit = 10) {
-            if (entityList.length <= limit) return entityList;
-
-            // Sort entities descending based on their most recent data point value for this metric
-            return entityList.sort((a, b) => {
-                const seriesA = cacheObj[a] && cacheObj[a].rawSeries[metricKey] ? cacheObj[a].rawSeries[metricKey] : [];
-                const seriesB = cacheObj[b] && cacheObj[b].rawSeries[metricKey] ? cacheObj[b].rawSeries[metricKey] : [];
-                
-                const latestA = seriesA.length > 0 ? (seriesA[seriesA.length - 1].val || 0) : 0;
-                const latestB = seriesB.length > 0 ? (seriesB[seriesB.length - 1].val || 0) : 0;
-                
-                return latestB - latestA; // Highest values first
-            }).slice(0, limit);
-        }
-
         function getEntitiesForChart(key) {
             if (isHostMetric(key)) {
                 let hosts = getMatchingHosts();
-                // Limit to top 10 hosts based on their latest metric value
                 return {
-                    entities: limitToTopN(hosts, hostCache, key, 10),
+                    entities: limitToTopN(hosts, hostCache, key, 5),
                     cache: hostCache
                 };
             }
             let apps = getMatchingApps();
-            // Limit to top 10 apps based on their latest metric value
             return {
-                entities: limitToTopN(apps, applicationCache, key, 10),
+                entities: limitToTopN(apps, applicationCache, key, 5),
                 cache: applicationCache
             };
         }
@@ -555,6 +566,13 @@
                 sharedMetricColor = savedColor;
                 document.getElementById('metricColorPicker').value = savedColor;
             }
+
+            const savedTop5 = localStorage.getItem('top5FilterEnabled');
+            if (savedTop5 !== null) {
+                const toggle = document.getElementById('top5FilterToggle');
+                if (toggle) toggle.checked = (savedTop5 === 'true');
+            }
+
             const savedOrder = localStorage.getItem('chartOrder');
             if (savedOrder) {
                 try {
@@ -812,7 +830,7 @@
                     initCharts();
                 }
             }
-        }s
+        }
 
         function toggleMaximize(key) {
             if (maximizedChartKey === key) {
@@ -1025,21 +1043,27 @@
         function resetLayoutPositions() {
             orderedMetrics = [...defaultOrderedMetrics];
             maximizedChartKey = null;
+            const top5Toggle = document.getElementById('top5FilterToggle');
+            if (top5Toggle) top5Toggle.checked = true;
             localStorage.removeItem('maximizedChartKey');
             localStorage.removeItem('chartOrder');
             localStorage.removeItem('verdictWidth');
             localStorage.removeItem('isPanelCollapsed');
+            localStorage.removeItem('top5FilterEnabled');
             isPanelCollapsed = false;
             mainGrid.classList.remove('panel-collapsed');
             const btn = document.getElementById('toggleRightPanelBtn');
             if (btn) btn.innerText = '📋';
             mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px 460px';
             initCharts();
+            updateFilterLists();
         }
 
         function changeFilter() {
             currentFilter = document.getElementById('applicationSearch').value.trim();
             currentHostFilter = document.getElementById('hostSearch').value.trim();
+            const top5Enabled = document.getElementById('top5FilterToggle') ? document.getElementById('top5FilterToggle').checked : true;
+            localStorage.setItem('top5FilterEnabled', top5Enabled);
             selectedTimeLabel = null;
 
             updateFilterLists();

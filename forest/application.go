@@ -1252,7 +1252,7 @@ func (ap *ApplicationProfiler) Fit(stamps []common.Stamp, matrix [][]float64) {
 	}
 }
 
-func (ap *ApplicationProfiler) getLimits(ms float64, col int, val float64) (float64, float64, float64) {
+func (ap *ApplicationProfiler) getLimits(ms float64, col int, val float64, saturation bool) (float64, float64, float64) {
 
 	bucketSize := len(ap.Buckets)
 	if bucketSize > 0 {
@@ -1278,18 +1278,26 @@ func (ap *ApplicationProfiler) getLimits(ms float64, col int, val float64) (floa
 			if lower < 0 {
 				lower = 0
 			}
+			if saturation && upper > 100 {
+				upper = 100
+			}
 			return upper, lower, med
 		}
 	}
 
 	if val != 0 {
 		absVal := math.Abs(val * ap.K)
-		return val + absVal, val - absVal, val
+		upper := val + absVal
+		if saturation && upper > 100 {
+			upper = 100
+		}
+		lower := val - absVal
+		return upper, lower, val
 	}
 	return 1.0, 0.0, 0.5
 }
 
-func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
+func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnomaly, isValid, isSaturation bool) common.CaseLevel {
 
 	if !isValid {
 		return common.CaseLevelUnknown
@@ -1300,7 +1308,7 @@ func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnom
 		return common.CaseLevelUnknown
 	}
 
-	max, min, med := ap.getLimits(ms, col, val)
+	max, min, med := ap.getLimits(ms, col, val, isSaturation)
 
 	if val > max {
 		return common.CaseLevelHigh
@@ -1856,61 +1864,61 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 
 	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
 		val := vectors.inVec[vectors.inReqIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inReqIdx, val)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inReqIdx, val, false)
 		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
 		val := vectors.inVec[vectors.inThruIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inThruIdx, val)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inThruIdx, val, false)
 		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
 		val := vectors.inVec[vectors.inLatIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inLatIdx, val)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inLatIdx, val, false)
 		points.inLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
 		val := vectors.inVec[vectors.inErrIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inErrIdx, val)
+		max, min, med := ae.inProfiler.getLimits(ms, vectors.inErrIdx, val, false)
 		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
 		val := vectors.outVec[vectors.outReqIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outReqIdx, val)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outReqIdx, val, false)
 		points.outRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
 		val := vectors.outVec[vectors.outThruIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outThruIdx, val)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outThruIdx, val, false)
 		points.outThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
 		val := vectors.outVec[vectors.outLatIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outLatIdx, val)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outLatIdx, val, false)
 		points.outLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
 		val := vectors.outVec[vectors.outErrIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outErrIdx, val)
+		max, min, med := ae.outProfiler.getLimits(ms, vectors.outErrIdx, val, false)
 		points.outErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appCPUIdx && vectors.satValid[vectors.appCPUIdx] {
 		val := vectors.satVec[vectors.appCPUIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.appCPUIdx, val)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.appCPUIdx, val, true)
 		points.appCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appMemIdx && vectors.satValid[vectors.appMemIdx] {
 		val := vectors.satVec[vectors.appMemIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.appMemIdx, val)
+		max, min, med := ae.satProfiler.getLimits(ms, vectors.appMemIdx, val, true)
 		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
@@ -1940,22 +1948,22 @@ func (ae *ApplicationEngine) predict(frame *ApplicationFrame) (*ApplicationFrame
 	satAnom := satLabels[0] == 1
 	outAnom := outLabels[0] == 1
 
-	classify := func(profiler *ApplicationProfiler, idx int, vec []float64, valid []bool, anom bool) common.CaseLevel {
-		return profiler.Classify(vectors.minutes, idx, vec[idx], anom, valid[idx])
+	classify := func(profiler *ApplicationProfiler, idx int, vec []float64, valid []bool, anom, satur bool) common.CaseLevel {
+		return profiler.Classify(vectors.minutes, idx, vec[idx], anom, valid[idx], satur)
 	}
 
-	inReqLevel := classify(ae.inProfiler, vectors.inReqIdx, vectors.inVec, vectors.inValid, inAnom)
-	inThruLevel := classify(ae.inProfiler, vectors.inThruIdx, vectors.inVec, vectors.inValid, inAnom)
-	inLatLevel := classify(ae.inProfiler, vectors.inLatIdx, vectors.inVec, vectors.inValid, inAnom)
-	inErrLevel := classify(ae.inProfiler, vectors.inErrIdx, vectors.inVec, vectors.inValid, inAnom)
+	inReqLevel := classify(ae.inProfiler, vectors.inReqIdx, vectors.inVec, vectors.inValid, inAnom, false)
+	inThruLevel := classify(ae.inProfiler, vectors.inThruIdx, vectors.inVec, vectors.inValid, inAnom, false)
+	inLatLevel := classify(ae.inProfiler, vectors.inLatIdx, vectors.inVec, vectors.inValid, inAnom, false)
+	inErrLevel := classify(ae.inProfiler, vectors.inErrIdx, vectors.inVec, vectors.inValid, inAnom, false)
 
-	appCPULevel := classify(ae.satProfiler, vectors.appCPUIdx, vectors.satVec, vectors.satValid, satAnom)
-	appMemLevel := classify(ae.satProfiler, vectors.appMemIdx, vectors.satVec, vectors.satValid, satAnom)
+	appCPULevel := classify(ae.satProfiler, vectors.appCPUIdx, vectors.satVec, vectors.satValid, satAnom, true)
+	appMemLevel := classify(ae.satProfiler, vectors.appMemIdx, vectors.satVec, vectors.satValid, satAnom, true)
 
-	outReqLevel := classify(ae.outProfiler, vectors.outReqIdx, vectors.outVec, vectors.outValid, outAnom)
-	outThruLevel := classify(ae.outProfiler, vectors.outThruIdx, vectors.outVec, vectors.outValid, outAnom)
-	outLatLevel := classify(ae.outProfiler, vectors.outLatIdx, vectors.outVec, vectors.outValid, outAnom)
-	outErrLevel := classify(ae.outProfiler, vectors.outErrIdx, vectors.outVec, vectors.outValid, outAnom)
+	outReqLevel := classify(ae.outProfiler, vectors.outReqIdx, vectors.outVec, vectors.outValid, outAnom, false)
+	outThruLevel := classify(ae.outProfiler, vectors.outThruIdx, vectors.outVec, vectors.outValid, outAnom, false)
+	outLatLevel := classify(ae.outProfiler, vectors.outLatIdx, vectors.outVec, vectors.outValid, outAnom, false)
+	outErrLevel := classify(ae.outProfiler, vectors.outErrIdx, vectors.outVec, vectors.outValid, outAnom, false)
 
 	pattern := &ApplicationCasePattern{
 		inRequests:    inReqLevel,
@@ -2009,88 +2017,122 @@ func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) Applicati
 		return r
 	}
 
-	maxLatency := func(value ApplicationLatencyValue, max ApplicationLatencyValue) ApplicationLatencyValue {
+	sumLatency := func(value ApplicationLatencyValue, sum ApplicationLatencyValue, cnt int) (ApplicationLatencyValue, int) {
 
 		if value != nil {
-			vl := max
 			vn := *value
-			if vl == nil || (vl != nil && vn > *vl) {
-				return &vn
+			if sum != nil {
+				vn = *sum + vn
 			}
+			return &vn, cnt + 1
 		}
-		return max
+		return sum, cnt
 	}
 
-	maxErrors := func(value ApplicationErrorsValue, max ApplicationErrorsValue) ApplicationErrorsValue {
+	avgLatency := func(sum ApplicationLatencyValue, cnt int) ApplicationLatencyValue {
 
-		if value != nil {
-			ve := max
-			vn := *value
-			if ve == nil || (ve != nil && vn > *ve) {
-				return &vn
-			}
+		if sum != nil && cnt > 0 {
+			v := common.Latency(float64(*sum) / float64(cnt))
+			return &v
 		}
-		return max
+		return sum
 	}
 
-	maxAppSaturation := func(value ApplicationSaturationValue, max ApplicationSaturationValue) ApplicationSaturationValue {
+	sumErrors := func(value ApplicationErrorsValue, sum ApplicationErrorsValue, cnt int) (ApplicationErrorsValue, int) {
 
 		if value != nil {
-			vs := max
 			vn := *value
-			if vs == nil || (vs != nil && vn > *vs) {
-				return &vn
+			if sum != nil {
+				vn = *sum + vn
 			}
+			return &vn, cnt + 1
 		}
-		return max
+		return sum, cnt
+	}
+
+	avgErrors := func(sum ApplicationErrorsValue, cnt int) ApplicationErrorsValue {
+
+		if sum != nil && cnt > 0 {
+			v := common.Errors(float64(*sum) / float64(cnt))
+			return &v
+		}
+		return sum
+	}
+
+	sumAppSaturation := func(value ApplicationSaturationValue, sum ApplicationSaturationValue, cnt int) (ApplicationSaturationValue, int) {
+
+		if value != nil {
+			vn := *value
+			if sum != nil {
+				vn = *sum + vn
+			}
+			return &vn, cnt + 1
+		}
+		return sum, cnt
+	}
+
+	avgAppSaturation := func(sum ApplicationSaturationValue, cnt int) ApplicationSaturationValue {
+
+		if sum != nil && cnt > 0 {
+			v := common.Saturation(float64(*sum) / float64(cnt))
+			return &v
+		}
+		return sum
 	}
 
 	sumInRequests := make(ApplicationTrafficValues)
 	cntInRequests := make(map[common.TrafficKind]int)
 	sumInThroughput := make(ApplicationTrafficValues)
 	cntInThroughput := make(map[common.TrafficKind]int)
-	var maxInLatency ApplicationLatencyValue
-	var maxInErrors ApplicationErrorsValue
+	var sumInLatency ApplicationLatencyValue
+	var cntInLatency int
+	var sumInErrors ApplicationErrorsValue
+	var cntInErrors int
 
-	var maxAppCPU ApplicationSaturationValue
-	var maxAppMem ApplicationSaturationValue
+	var sumAppCPU ApplicationSaturationValue
+	var cntAppCPU int
+	var sumAppMem ApplicationSaturationValue
+	var cntAppMem int
 
 	sumOutRequests := make(ApplicationTrafficValues)
 	cntOutRequests := make(map[common.TrafficKind]int)
 	sumOutThroughput := make(ApplicationTrafficValues)
 	cntOutThroughput := make(map[common.TrafficKind]int)
-	var maxOutLatency ApplicationLatencyValue
-	var maxOutErrors ApplicationErrorsValue
+	var sumOutLatency ApplicationLatencyValue
+	var cntOutLatency int
+	var sumOutErrors ApplicationErrorsValue
+	var cntOutErrors int
 
 	for _, f := range frames {
 
 		sumTraffic(f.inRequests, sumInRequests, cntInRequests)
 		sumTraffic(f.inThroughput, sumInThroughput, cntInThroughput)
-		maxInLatency = maxLatency(f.inLatency, maxInLatency)
-		maxInErrors = maxErrors(f.inErrors, maxInErrors)
+		sumInLatency, cntInLatency = sumLatency(f.inLatency, sumInLatency, cntInLatency)
+		sumInErrors, cntInErrors = sumErrors(f.inErrors, sumInErrors, cntInErrors)
 
-		maxAppCPU = maxAppSaturation(f.appCPU, maxAppCPU)
-		maxAppMem = maxAppSaturation(f.appMem, maxAppMem)
+		sumAppCPU, cntAppCPU = sumAppSaturation(f.appCPU, sumAppCPU, cntAppCPU)
+		sumAppMem, cntAppMem = sumAppSaturation(f.appMem, sumAppMem, cntAppMem)
 
 		sumTraffic(f.outRequests, sumOutRequests, cntOutRequests)
 		sumTraffic(f.outThroughput, sumOutThroughput, cntOutThroughput)
-		maxOutLatency = maxLatency(f.outLatency, maxOutLatency)
-		maxOutErrors = maxErrors(f.outErrors, maxOutErrors)
+		sumOutLatency, cntOutLatency = sumLatency(f.outLatency, sumOutLatency, cntOutLatency)
+		sumOutErrors, cntOutErrors = sumErrors(f.outErrors, sumOutErrors, cntOutErrors)
 	}
 
 	return ApplicationFrame{
+
 		inRequests:   avgTraffic(sumInRequests, cntInRequests),
 		inThroughput: avgTraffic(sumInThroughput, cntInThroughput),
-		inLatency:    maxInLatency,
-		inErrors:     maxInErrors,
+		inLatency:    avgLatency(sumInLatency, cntInLatency),
+		inErrors:     avgErrors(sumInErrors, cntInErrors),
 
-		appCPU: maxAppCPU,
-		appMem: maxAppMem,
+		appCPU: avgAppSaturation(sumAppCPU, cntAppCPU),
+		appMem: avgAppSaturation(sumAppMem, cntAppMem),
 
 		outRequests:   avgTraffic(sumOutRequests, cntOutRequests),
 		outThroughput: avgTraffic(sumOutThroughput, cntOutThroughput),
-		outLatency:    maxOutLatency,
-		outErrors:     maxOutErrors,
+		outLatency:    avgLatency(sumOutLatency, cntOutLatency),
+		outErrors:     avgErrors(sumOutErrors, cntOutErrors),
 	}
 }
 
@@ -2131,8 +2173,8 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 	begin := frames[0].Stamp()
 	end := frames[len(frames)-1].Stamp()
 
-	//stamp := begin + (end-begin)/2
-	stamp := begin
+	stamp := begin + (end-begin)/2
+	//stamp := begin
 
 	frame := ae.aggregateFrames(frames)
 

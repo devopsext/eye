@@ -135,7 +135,7 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 
 	af, ok := frame.(common.ModelApplicationFrame)
 	if !ok {
-		h.logger.Debug("%s: Frame %s is not supported", h.Name(), frame.Ident())
+		h.logger.Debug("%s: Frame %s is not supported. Skipped", h.Name(), frame.Ident())
 		return
 	}
 
