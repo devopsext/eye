@@ -140,6 +140,7 @@ var forestModelOptions = model.ForestModelOptions{
 	DetectionMass:       envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
 	DetectionCategories: envGet("FOREST_MODEL_DETECTION_CATEGORIES", "").(string),
 	DetectionImpacts:    envGet("FOREST_MODEL_DETECTION_IMPACTS", "").(string),
+	DetectionScore:      envGet("FOREST_MODEL_DETECTION_SCORE", 5).(int),
 	ApplicationOptions: forest.ApplicationEngineOptions{
 		Path:                  envGet("FOREST_MODEL_APPLICATION_PATH", "").(string),
 		TreesNumber:           envGet("FOREST_MODEL_APPLICATION_TREES_NUMBER", model.ForestModelTreesNumber).(int),
@@ -150,15 +151,17 @@ var forestModelOptions = model.ForestModelOptions{
 		OutRequestsMaxSlots:   envGet("FOREST_MODEL_APPLICATION_OUT_REQUESTS_MAX_SLOTS", 2).(int),
 		OutThroughputMaxSlots: envGet("FOREST_MODEL_APPLICATION_OUT_THROUGHPUT_MAX_SLOTS", 1).(int),
 		RangeMultiplier:       envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", 1.5).(float64),
-		ProfileBucketsKind:    envGet("FOREST_MODEL_APPLICATION_PROFILE_BUCKETS_KIND", forest.ApplicationProfilerBucketsKindHour).(int),
+		ProfileKind:           envGet("FOREST_MODEL_APPLICATION_PROFILE_KIND", "hour").(string),
+		ShiftWeights:          envGet("FOREST_MODEL_APPLICATION_SHIFT_WEIGHTS", "").(string),
 	},
 	HostOptions: forest.HostEngineOptions{
-		Path:               envGet("FOREST_MODEL_HOST_PATH", "").(string),
-		TreesNumber:        envGet("FOREST_MODEL_HOST_TREES_NUMBER", model.ForestModelTreesNumber).(int),
-		SubsampleSize:      envGet("FOREST_MODEL_HOST_SUBSAMPLE_SIZE", model.ForestModelSubsampleSize).(int),
-		OutlierRatio:       envGet("FOREST_MODEL_HOST_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
-		RangeMultiplier:    envGet("FOREST_MODEL_HOST_RANGE_MULTIPLIER", 1.5).(float64),
-		ProfileBucketsKind: envGet("FOREST_MODEL_HOST_PROFILE_BUCKETS_KIND", forest.HostProfilerBucketsKindHour).(int),
+		Path:            envGet("FOREST_MODEL_HOST_PATH", "").(string),
+		TreesNumber:     envGet("FOREST_MODEL_HOST_TREES_NUMBER", model.ForestModelTreesNumber).(int),
+		SubsampleSize:   envGet("FOREST_MODEL_HOST_SUBSAMPLE_SIZE", model.ForestModelSubsampleSize).(int),
+		OutlierRatio:    envGet("FOREST_MODEL_HOST_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
+		RangeMultiplier: envGet("FOREST_MODEL_HOST_RANGE_MULTIPLIER", 1.5).(float64),
+		ProfileKind:     envGet("FOREST_MODEL_HOST_PROFILE_KIND", "hour").(string),
+		ShiftWeights:    envGet("FOREST_MODEL_HOST_SHIFT_WEIGHTS", "").(string),
 	},
 }
 

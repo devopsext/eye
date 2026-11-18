@@ -95,32 +95,20 @@ type HostFeatureStats struct {
 // Lowering K (e.g., 1.0): Tightens the envelope, making the engine more sensitive to smaller deviations.
 // Raising K (e.g., 2.0 - 3.0): Broadens the envelope, reducing alert noise for services with naturally spiky or high-variance diurnal traffic patterns.
 
-// Quartile Profiler Conditioned on 168 Hourly Buckets (7 Days x 24 Hours)
-type HostProfilerBucketsKind = int
-
-const (
-	HostProfilerBucketsKindDay = iota
-	HostProfilerBucketsKindHour
-	HostProfilerBucketsKindHalfHour
-	HostProfilerBucketsKind15Minutes
-	HostProfilerBucketsKind10Minutes
-	HostProfilerBucketsKind5Minutes
-	HostProfilerBucketsKindMinute
-)
-
 type HostProfiler struct {
 	Buckets [][]*HostFeatureStats
 	K       float64
-	Kind    HostProfilerBucketsKind
+	Kind    common.ForestProfilerKind
 }
 
 type HostEngineOptions struct {
-	Path               string
-	TreesNumber        int
-	SubsampleSize      int
-	OutlierRatio       float64
-	RangeMultiplier    float64
-	ProfileBucketsKind int
+	Path            string
+	TreesNumber     int
+	SubsampleSize   int
+	OutlierRatio    float64
+	RangeMultiplier float64
+	ProfileKind     string
+	ShiftWeights    string
 }
 
 type HostEngineFileSaturation struct {
@@ -149,7 +137,8 @@ type HostEngine struct {
 	satForest   *iforest.Forest
 	satProfiler *HostProfiler
 
-	logger sreCommon.Logger
+	logger       sreCommon.Logger
+	shiftWeights []common.ForestShiftWeight
 }
 
 const (
@@ -396,26 +385,26 @@ func NewHostFrame(stamp common.Stamp, signal *common.HostSignal) *HostFrame {
 
 // HostProfiler
 
-func (ap *HostProfiler) TimeWindowKey(t time.Time, kind HostProfilerBucketsKind) (int, float64) {
+func (ap *HostProfiler) TimeWindowKey(t time.Time, kind common.ForestProfilerKind) (int, float64) {
 
 	t = t.UTC()
 	tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
 	tms := float64(t.Weekday())*24*60 + float64(t.Hour())*60 + float64(t.Minute()) + float64(t.Second())/60.0
 	switch kind {
-	case HostProfilerBucketsKindDay:
+	case common.ForestProfilerKindDay:
 		return int(t.Weekday()), float64(int(t.Weekday()) / 1.0)
-	case HostProfilerBucketsKindHour:
+	case common.ForestProfilerKindHour:
 		return tm / 60, tms / 60.0
-	case HostProfilerBucketsKindHalfHour:
+	case common.ForestProfilerKind30Minutes:
 		return tm / 30, tms / 30.0
-	case HostProfilerBucketsKind15Minutes:
+	case common.ForestProfilerKind15Minutes:
 		tm = int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
 		return tm / 15, tms / 15.0
-	case HostProfilerBucketsKind10Minutes:
+	case common.ForestProfilerKind10Minutes:
 		return tm / 10, tms / 10.0
-	case HostProfilerBucketsKind5Minutes:
+	case common.ForestProfilerKind5Minutes:
 		return tm / 5, tms / 5.0
-	case HostProfilerBucketsKindMinute:
+	case common.ForestProfilerKindMinute:
 		return tm, tms
 	}
 	return tm, tms
@@ -553,7 +542,51 @@ func (ap *HostProfiler) getLimits(ms float64, col int, val float64, saturation b
 	return 1.0, 0.0, 0.5
 }
 
-func (ap *HostProfiler) Classify(ms float64, col int, val float64, isAnomaly, isValid bool) common.CaseLevel {
+func (ap *HostProfiler) getLimitsWithShifts(t time.Time, col int, val float64, saturation bool, shiftWeights []common.ForestShiftWeight) (float64, float64, float64) {
+
+	bucketSize := len(ap.Buckets)
+	if len(shiftWeights) == 0 || bucketSize == 0 {
+		_, ms := ap.TimeWindowKey(t, ap.Kind)
+		return ap.getLimits(ms, col, val, saturation)
+	}
+
+	var sumUpper, sumLower, sumMed, totalActiveWeight float64
+
+	for _, sw := range shiftWeights {
+		shiftedTime := t.Add(-sw.Shift)
+		_, ms := ap.TimeWindowKey(shiftedTime, ap.Kind)
+
+		floatIdx := ms
+		idx1 := int(math.Floor(floatIdx)) % bucketSize
+		idx2 := (idx1 + 1) % bucketSize
+
+		// STRICT CHECK: Both adjacent buckets must have valid stats for safe interpolation.
+		// This safely handles early days when 7d or 14d historical windows are completely unpopulated.
+		hasData := len(ap.Buckets[idx1]) > col && ap.Buckets[idx1][col] != nil &&
+			len(ap.Buckets[idx2]) > col && ap.Buckets[idx2][col] != nil
+
+		if hasData {
+			upper, lower, med := ap.getLimits(ms, col, val, saturation)
+
+			sumUpper += upper * sw.Weight
+			sumLower += lower * sw.Weight
+			sumMed += med * sw.Weight
+			totalActiveWeight += sw.Weight
+		}
+		// If 14 days back points to a time before the app existed,
+		// it fails this check, gets skipped safely, and weights re-normalize.
+	}
+
+	// Ultimate fallback if all historical shifts (e.g., 7d, 14d) lack data (e.g. Day 1 of deployment)
+	if totalActiveWeight == 0 {
+		_, ms := ap.TimeWindowKey(t, ap.Kind)
+		return ap.getLimits(ms, col, val, saturation)
+	}
+
+	return sumUpper / totalActiveWeight, sumLower / totalActiveWeight, sumMed / totalActiveWeight
+}
+
+func (ap *HostProfiler) Classify(t time.Time, col int, val float64, isAnomaly, isValid, isSaturation bool, shiftWeights []common.ForestShiftWeight) common.CaseLevel {
 
 	if !isValid {
 		return common.CaseLevelUnknown
@@ -564,7 +597,7 @@ func (ap *HostProfiler) Classify(ms float64, col int, val float64, isAnomaly, is
 		return common.CaseLevelUnknown
 	}
 
-	max, min, med := ap.getLimits(ms, col, val, true)
+	max, min, med := ap.getLimitsWithShifts(t, col, val, isSaturation, shiftWeights)
 
 	if val > max {
 		return common.CaseLevelHigh
@@ -581,23 +614,23 @@ func (ap *HostProfiler) Classify(ms float64, col int, val float64, isAnomaly, is
 	return common.CaseLevelNormal
 }
 
-func NewHostProfiler(k float64, kind HostProfilerBucketsKind) *HostProfiler {
+func NewHostProfiler(k float64, kind common.ForestProfilerKind) *HostProfiler {
 
 	size := 0
 	switch kind {
-	case HostProfilerBucketsKindDay:
+	case common.ForestProfilerKindDay:
 		size = 7
-	case HostProfilerBucketsKindHour:
+	case common.ForestProfilerKindHour:
 		size = 7 * 24
-	case HostProfilerBucketsKindHalfHour:
+	case common.ForestProfilerKind30Minutes:
 		size = 7 * 24 * 2
-	case HostProfilerBucketsKind15Minutes:
+	case common.ForestProfilerKind15Minutes:
 		size = 7 * 24 * 4
-	case HostProfilerBucketsKind10Minutes:
+	case common.ForestProfilerKind10Minutes:
 		size = 7 * 24 * 6
-	case HostProfilerBucketsKind5Minutes:
+	case common.ForestProfilerKind5Minutes:
 		size = 7 * 24 * 12
-	case HostProfilerBucketsKindMinute:
+	case common.ForestProfilerKindMinute:
 		size = 7 * 24 * 60
 	}
 	return &HostProfiler{
@@ -907,17 +940,18 @@ func (ae *HostEngine) Clone() *HostEngine {
 func (ae *HostEngine) extractPoints(vectors HostEngineVectors) HostFramePoints {
 
 	points := HostFramePoints{}
-	ms := vectors.minutes
+	//ms := vectors.minutes
+	t := vectors.time
 
 	if len(vectors.satVec) > vectors.hostCPUIdx && vectors.satValid[vectors.hostCPUIdx] {
 		val := vectors.satVec[vectors.hostCPUIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostCPUIdx, val, true)
+		max, min, med := ae.satProfiler.getLimitsWithShifts(t, vectors.hostCPUIdx, val, true, ae.shiftWeights)
 		points.hostCPU = NewHostFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.hostMemIdx && vectors.satValid[vectors.hostMemIdx] {
 		val := vectors.satVec[vectors.hostMemIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.hostMemIdx, val, true)
+		max, min, med := ae.satProfiler.getLimitsWithShifts(t, vectors.hostMemIdx, val, true, ae.shiftWeights)
 		points.hostMem = NewHostFramePoint(vectors.time, val, min, max, med)
 	}
 	return points
@@ -943,7 +977,7 @@ func (ae *HostEngine) predict(frame *HostFrame) (*HostFramePoints, *HostCasePatt
 	satAnom := satLabels[0] == 1
 
 	classify := func(profiler *HostProfiler, idx int, vec []float64, valid []bool, anom bool) common.CaseLevel {
-		return profiler.Classify(vectors.minutes, idx, vec[idx], anom, valid[idx])
+		return profiler.Classify(vectors.time, idx, vec[idx], anom, valid[idx], true, ae.shiftWeights)
 	}
 
 	hostCPULevel := classify(ae.satProfiler, vectors.hostCPUIdx, vectors.satVec, vectors.satValid, satAnom)
@@ -1012,10 +1046,23 @@ func (ae *HostEngine) Exists(stamp common.Stamp) bool {
 	}
 
 	t := common.StampToTime(stamp)
-	key := ae.weeklyMinuteKey(t)
-	index := slices.Index(ae.minutes, key)
 
-	return index != -1
+	// If no shifts are configured, fall back to checking the exact timestamp
+	if len(ae.shiftWeights) == 0 {
+		key := ae.weeklyMinuteKey(t)
+		return slices.Index(ae.minutes, key) != -1
+	}
+
+	// Check if at least one shifted time bucket exists in recorded minutes
+	for _, sw := range ae.shiftWeights {
+		shiftedTime := t.Add(-sw.Shift)
+		key := ae.weeklyMinuteKey(shiftedTime)
+		if slices.Index(ae.minutes, key) != -1 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (ae *HostEngine) Consolidate(frames HostFrames) *HostFrame {
@@ -1067,6 +1114,16 @@ func (ae *HostEngine) Diagnose(frame *HostFrame, cases *HostCases) (*HostFramePo
 
 func NewHostEngine(name string, hash common.Hash, options *HostEngineOptions, observability *common.Observability) *HostEngine {
 
+	profileKind := common.StringToProfileKind(options.ProfileKind)
+
+	shiftWeights := common.ParseShiftWeights(options.ShiftWeights)
+	if len(shiftWeights) == 0 {
+		shiftWeights = append(shiftWeights, common.ForestShiftWeight{
+			Shift:  7 * 24 * time.Hour,
+			Weight: 1.0,
+		})
+	}
+
 	return &HostEngine{
 
 		logger:  observability.Logs(),
@@ -1075,6 +1132,8 @@ func NewHostEngine(name string, hash common.Hash, options *HostEngineOptions, ob
 		options: options,
 
 		satForest:   iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
-		satProfiler: NewHostProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
+		satProfiler: NewHostProfiler(options.RangeMultiplier, profileKind),
+
+		shiftWeights: shiftWeights,
 	}
 }

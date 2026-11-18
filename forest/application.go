@@ -127,23 +127,10 @@ type ApplicationFeatureStats struct {
 // Lowering K (e.g., 1.0): Tightens the envelope, making the engine more sensitive to smaller deviations.
 // Raising K (e.g., 2.0 - 3.0): Broadens the envelope, reducing alert noise for services with naturally spiky or high-variance diurnal traffic patterns.
 
-// Quartile Profiler Conditioned on 168 Hourly Buckets (7 Days x 24 Hours)
-type ApplicationProfilerBucketsKind = int
-
-const (
-	ApplicationProfilerBucketsKindDay = iota
-	ApplicationProfilerBucketsKindHour
-	ApplicationProfilerBucketsKindHalfHour
-	ApplicationProfilerBucketsKind15Minutes
-	ApplicationProfilerBucketsKind10Minutes
-	ApplicationProfilerBucketsKind5Minutes
-	ApplicationProfilerBucketsKindMinute
-)
-
 type ApplicationProfiler struct {
 	Buckets [][]*ApplicationFeatureStats
 	K       float64
-	Kind    ApplicationProfilerBucketsKind
+	Kind    common.ForestProfilerKind
 }
 
 type ApplicationEngineOptions struct {
@@ -156,7 +143,8 @@ type ApplicationEngineOptions struct {
 	OutRequestsMaxSlots   int
 	OutThroughputMaxSlots int
 	RangeMultiplier       float64
-	ProfileBucketsKind    int
+	ProfileKind           string
+	ShiftWeights          string
 }
 
 type ApplicationEngineFileIncoming struct {
@@ -210,7 +198,8 @@ type ApplicationEngine struct {
 	satProfiler *ApplicationProfiler
 	outProfiler *ApplicationProfiler
 
-	logger sreCommon.Logger
+	shiftWeights []common.ForestShiftWeight
+	logger       sreCommon.Logger
 }
 
 const (
@@ -800,7 +789,7 @@ func NewApplicationCases() *ApplicationCases {
 			outErrors:     common.CaseLevelLow,
 		})
 
-	cases.Add(common.CaseImpactSevere, common.CaseCategoryFailure,
+	cases.Add(common.CaseImpactSevere, common.CaseCategoryOperational,
 		"Unobservable Bottleneck (Telemetry Dropout)",
 		"Severe inbound queueing and outbound collapse while saturation is entirely unknown",
 		ApplicationCasePattern{
@@ -1140,26 +1129,26 @@ func NewApplicationTrafficSlots(maxSlots int) *ApplicationTrafficSlots {
 
 // ApplicationProfiler
 
-func (ap *ApplicationProfiler) TimeWindowKey(t time.Time, kind ApplicationProfilerBucketsKind) (int, float64) {
+func (ap *ApplicationProfiler) TimeWindowKey(t time.Time, kind common.ForestProfilerKind) (int, float64) {
 
 	t = t.UTC()
 	tm := int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
 	tms := float64(t.Weekday())*24*60 + float64(t.Hour())*60 + float64(t.Minute()) + float64(t.Second())/60.0
 	switch kind {
-	case ApplicationProfilerBucketsKindDay:
+	case common.ForestProfilerKindDay:
 		return int(t.Weekday()), float64(int(t.Weekday()) / 1.0)
-	case ApplicationProfilerBucketsKindHour:
+	case common.ForestProfilerKindHour:
 		return tm / 60, tms / 60.0
-	case ApplicationProfilerBucketsKindHalfHour:
+	case common.ForestProfilerKind30Minutes:
 		return tm / 30, tms / 30.0
-	case ApplicationProfilerBucketsKind15Minutes:
+	case common.ForestProfilerKind15Minutes:
 		tm = int(t.Weekday())*24*60 + t.Hour()*60 + t.Minute()
 		return tm / 15, tms / 15.0
-	case ApplicationProfilerBucketsKind10Minutes:
+	case common.ForestProfilerKind10Minutes:
 		return tm / 10, tms / 10.0
-	case ApplicationProfilerBucketsKind5Minutes:
+	case common.ForestProfilerKind5Minutes:
 		return tm / 5, tms / 5.0
-	case ApplicationProfilerBucketsKindMinute:
+	case common.ForestProfilerKindMinute:
 		return tm, tms
 	}
 	return tm, tms
@@ -1297,7 +1286,51 @@ func (ap *ApplicationProfiler) getLimits(ms float64, col int, val float64, satur
 	return 1.0, 0.0, 0.5
 }
 
-func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnomaly, isValid, isSaturation bool) common.CaseLevel {
+func (ap *ApplicationProfiler) getLimitsWithShifts(t time.Time, col int, val float64, saturation bool, shiftWeights []common.ForestShiftWeight) (float64, float64, float64) {
+
+	bucketSize := len(ap.Buckets)
+	if len(shiftWeights) == 0 || bucketSize == 0 {
+		_, ms := ap.TimeWindowKey(t, ap.Kind)
+		return ap.getLimits(ms, col, val, saturation)
+	}
+
+	var sumUpper, sumLower, sumMed, totalActiveWeight float64
+
+	for _, sw := range shiftWeights {
+		shiftedTime := t.Add(-sw.Shift)
+		_, ms := ap.TimeWindowKey(shiftedTime, ap.Kind)
+
+		floatIdx := ms
+		idx1 := int(math.Floor(floatIdx)) % bucketSize
+		idx2 := (idx1 + 1) % bucketSize
+
+		// STRICT CHECK: Both adjacent buckets must have valid stats for safe interpolation.
+		// This safely handles early days when 7d or 14d historical windows are completely unpopulated.
+		hasData := len(ap.Buckets[idx1]) > col && ap.Buckets[idx1][col] != nil &&
+			len(ap.Buckets[idx2]) > col && ap.Buckets[idx2][col] != nil
+
+		if hasData {
+			upper, lower, med := ap.getLimits(ms, col, val, saturation)
+
+			sumUpper += upper * sw.Weight
+			sumLower += lower * sw.Weight
+			sumMed += med * sw.Weight
+			totalActiveWeight += sw.Weight
+		}
+		// If 14 days back points to a time before the app existed,
+		// it fails this check, gets skipped safely, and weights re-normalize.
+	}
+
+	// Ultimate fallback if all historical shifts (e.g., 7d, 14d) lack data (e.g. Day 1 of deployment)
+	if totalActiveWeight == 0 {
+		_, ms := ap.TimeWindowKey(t, ap.Kind)
+		return ap.getLimits(ms, col, val, saturation)
+	}
+
+	return sumUpper / totalActiveWeight, sumLower / totalActiveWeight, sumMed / totalActiveWeight
+}
+
+func (ap *ApplicationProfiler) Classify(t time.Time, col int, val float64, isAnomaly, isValid, isSaturation bool, shiftWeights []common.ForestShiftWeight) common.CaseLevel {
 
 	if !isValid {
 		return common.CaseLevelUnknown
@@ -1308,7 +1341,7 @@ func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnom
 		return common.CaseLevelUnknown
 	}
 
-	max, min, med := ap.getLimits(ms, col, val, isSaturation)
+	max, min, med := ap.getLimitsWithShifts(t, col, val, isSaturation, shiftWeights)
 
 	if val > max {
 		return common.CaseLevelHigh
@@ -1325,23 +1358,23 @@ func (ap *ApplicationProfiler) Classify(ms float64, col int, val float64, isAnom
 	return common.CaseLevelNormal
 }
 
-func NewApplicationProfiler(k float64, kind ApplicationProfilerBucketsKind) *ApplicationProfiler {
+func NewApplicationProfiler(k float64, kind common.ForestProfilerKind) *ApplicationProfiler {
 
 	size := 0
 	switch kind {
-	case ApplicationProfilerBucketsKindDay:
+	case common.ForestProfilerKindDay:
 		size = 7
-	case ApplicationProfilerBucketsKindHour:
+	case common.ForestProfilerKindHour:
 		size = 7 * 24
-	case ApplicationProfilerBucketsKindHalfHour:
+	case common.ForestProfilerKind30Minutes:
 		size = 7 * 24 * 2
-	case ApplicationProfilerBucketsKind15Minutes:
+	case common.ForestProfilerKind15Minutes:
 		size = 7 * 24 * 4
-	case ApplicationProfilerBucketsKind10Minutes:
+	case common.ForestProfilerKind10Minutes:
 		size = 7 * 24 * 6
-	case ApplicationProfilerBucketsKind5Minutes:
+	case common.ForestProfilerKind5Minutes:
 		size = 7 * 24 * 12
-	case ApplicationProfilerBucketsKindMinute:
+	case common.ForestProfilerKindMinute:
 		size = 7 * 24 * 60
 	}
 	return &ApplicationProfiler{
@@ -1860,65 +1893,66 @@ func (ae *ApplicationEngine) extractPoints(vectors ApplicationEngineVectors) App
 
 	points := ApplicationFramePoints{}
 	//b := vectors.bucket
-	ms := vectors.minutes
+	//ms := vectors.minutes
+	t := vectors.time
 
 	if len(vectors.inVec) > vectors.inReqIdx && vectors.inValid[vectors.inReqIdx] {
 		val := vectors.inVec[vectors.inReqIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inReqIdx, val, false)
+		max, min, med := ae.inProfiler.getLimitsWithShifts(t, vectors.inReqIdx, val, false, ae.shiftWeights)
 		points.inRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inThruIdx && vectors.inValid[vectors.inThruIdx] {
 		val := vectors.inVec[vectors.inThruIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inThruIdx, val, false)
+		max, min, med := ae.inProfiler.getLimitsWithShifts(t, vectors.inThruIdx, val, false, ae.shiftWeights)
 		points.inThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inLatIdx && vectors.inValid[vectors.inLatIdx] {
 		val := vectors.inVec[vectors.inLatIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inLatIdx, val, false)
+		max, min, med := ae.inProfiler.getLimitsWithShifts(t, vectors.inLatIdx, val, false, ae.shiftWeights)
 		points.inLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.inVec) > vectors.inErrIdx && vectors.inValid[vectors.inErrIdx] {
 		val := vectors.inVec[vectors.inErrIdx]
-		max, min, med := ae.inProfiler.getLimits(ms, vectors.inErrIdx, val, false)
+		max, min, med := ae.inProfiler.getLimitsWithShifts(t, vectors.inErrIdx, val, false, ae.shiftWeights)
 		points.inErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outReqIdx && vectors.outValid[vectors.outReqIdx] {
 		val := vectors.outVec[vectors.outReqIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outReqIdx, val, false)
+		max, min, med := ae.outProfiler.getLimitsWithShifts(t, vectors.outReqIdx, val, false, ae.shiftWeights)
 		points.outRequests = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outThruIdx && vectors.outValid[vectors.outThruIdx] {
 		val := vectors.outVec[vectors.outThruIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outThruIdx, val, false)
+		max, min, med := ae.outProfiler.getLimitsWithShifts(t, vectors.outThruIdx, val, false, ae.shiftWeights)
 		points.outThroughput = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outLatIdx && vectors.outValid[vectors.outLatIdx] {
 		val := vectors.outVec[vectors.outLatIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outLatIdx, val, false)
+		max, min, med := ae.outProfiler.getLimitsWithShifts(t, vectors.outLatIdx, val, false, ae.shiftWeights)
 		points.outLatency = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.outVec) > vectors.outErrIdx && vectors.outValid[vectors.outErrIdx] {
 		val := vectors.outVec[vectors.outErrIdx]
-		max, min, med := ae.outProfiler.getLimits(ms, vectors.outErrIdx, val, false)
+		max, min, med := ae.outProfiler.getLimitsWithShifts(t, vectors.outErrIdx, val, false, ae.shiftWeights)
 		points.outErrors = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appCPUIdx && vectors.satValid[vectors.appCPUIdx] {
 		val := vectors.satVec[vectors.appCPUIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.appCPUIdx, val, true)
+		max, min, med := ae.satProfiler.getLimitsWithShifts(t, vectors.appCPUIdx, val, true, ae.shiftWeights)
 		points.appCPU = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
 	if len(vectors.satVec) > vectors.appMemIdx && vectors.satValid[vectors.appMemIdx] {
 		val := vectors.satVec[vectors.appMemIdx]
-		max, min, med := ae.satProfiler.getLimits(ms, vectors.appMemIdx, val, true)
+		max, min, med := ae.satProfiler.getLimitsWithShifts(t, vectors.appMemIdx, val, true, ae.shiftWeights)
 		points.appMem = NewApplicationFramePoint(vectors.time, val, min, max, med)
 	}
 
@@ -1949,7 +1983,7 @@ func (ae *ApplicationEngine) predict(frame *ApplicationFrame) (*ApplicationFrame
 	outAnom := outLabels[0] == 1
 
 	classify := func(profiler *ApplicationProfiler, idx int, vec []float64, valid []bool, anom, satur bool) common.CaseLevel {
-		return profiler.Classify(vectors.minutes, idx, vec[idx], anom, valid[idx], satur)
+		return profiler.Classify(vectors.time, idx, vec[idx], anom, valid[idx], satur, ae.shiftWeights)
 	}
 
 	inReqLevel := classify(ae.inProfiler, vectors.inReqIdx, vectors.inVec, vectors.inValid, inAnom, false)
@@ -2153,10 +2187,23 @@ func (ae *ApplicationEngine) Exists(stamp common.Stamp) bool {
 	}
 
 	t := common.StampToTime(stamp)
-	key := ae.weeklyMinuteKey(t)
-	index := slices.Index(ae.minutes, key)
 
-	return index != -1
+	// If no shifts are configured, fall back to checking the exact timestamp
+	if len(ae.shiftWeights) == 0 {
+		key := ae.weeklyMinuteKey(t)
+		return slices.Index(ae.minutes, key) != -1
+	}
+
+	// Check if at least one shifted time bucket exists in recorded minutes
+	for _, sw := range ae.shiftWeights {
+		shiftedTime := t.Add(-sw.Shift)
+		key := ae.weeklyMinuteKey(shiftedTime)
+		if slices.Index(ae.minutes, key) != -1 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationFrame {
@@ -2218,9 +2265,20 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 
 func NewApplicationEngine(name string, hash common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
 
+	profileKind := common.StringToProfileKind(options.ProfileKind)
+
+	shiftWeights := common.ParseShiftWeights(options.ShiftWeights)
+	if len(shiftWeights) == 0 {
+		shiftWeights = append(shiftWeights, common.ForestShiftWeight{
+			Shift:  7 * 24 * time.Hour,
+			Weight: 1.0,
+		})
+	}
+
 	return &ApplicationEngine{
 
-		logger:  observability.Logs(),
+		logger: observability.Logs(),
+
 		name:    name,
 		hash:    hash,
 		options: options,
@@ -2235,8 +2293,10 @@ func NewApplicationEngine(name string, hash common.Hash, options *ApplicationEng
 		satForest: iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
 		outForest: iforest.NewForest(options.TreesNumber, options.SubsampleSize, options.OutlierRatio),
 
-		inProfiler:  NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
-		satProfiler: NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
-		outProfiler: NewApplicationProfiler(options.RangeMultiplier, options.ProfileBucketsKind),
+		inProfiler:  NewApplicationProfiler(options.RangeMultiplier, profileKind),
+		satProfiler: NewApplicationProfiler(options.RangeMultiplier, profileKind),
+		outProfiler: NewApplicationProfiler(options.RangeMultiplier, profileKind),
+
+		shiftWeights: shiftWeights,
 	}
 }

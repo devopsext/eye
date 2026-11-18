@@ -31,6 +31,7 @@ type ForestModelOptions struct {
 	DetectionMass       float64
 	DetectionCategories string
 	DetectionImpacts    string
+	DetectionScore      int
 
 	ApplicationOptions forest.ApplicationEngineOptions
 	HostOptions        forest.HostEngineOptions
@@ -92,6 +93,7 @@ type ForestModel struct {
 	detections *ForestModelDetections
 	categories []common.CaseCategory
 	impacts    []common.CaseImpact
+	minScore   int
 	trains     sync.Map
 	// status
 	detected atomic.Int64
@@ -381,7 +383,7 @@ func (fd *ForestModelDetections) unsafeFind(hash common.Hash, min, max common.St
 			return true
 		}
 
-		if d.deps.Contains(hash) {
+		if d.deps != nil && d.deps.Contains(hash) {
 			found = d
 			return false
 		}
@@ -827,7 +829,8 @@ func (fm *ForestModel) eligibleDetection(d *ForestModelDetection) bool {
 	}
 	category := d.verdict.Category()
 	impact := d.verdict.Impact()
-	return utils.Contains(fm.categories, category) && utils.Contains(fm.impacts, impact)
+	score := d.verdict.Score()
+	return utils.Contains(fm.categories, category) && utils.Contains(fm.impacts, impact) && fm.minScore <= score
 }
 
 func (fm *ForestModel) setOneDetections(d *ForestModelDetection) {
@@ -1223,17 +1226,19 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 			verdict := "none"
 			category := "none"
 			impact := "none"
+			score := "none"
 			if !utils.IsEmpty(v.verdict) {
 				verdict = v.verdict.Name()
 				category = common.CaseCategoryToString(v.verdict.Category())
 				impact = common.CaseImpactToString(v.verdict.Impact())
+				score = fmt.Sprintf("%d", v.verdict.Score())
 			}
 			deps := ""
 			if v.deps != nil {
 				deps = fmt.Sprintf(" (deps %d)", len(v.deps.Items()))
 			}
 			begin := common.StampToTime(v.begin)
-			fm.logger.Debug("%s: Found detection on %s %s%s: %s (%s / %s)", name, begin, n, deps, verdict, category, impact)
+			fm.logger.Debug("%s: Found detection on %s %s%s: %s (%s / %s %s)", name, begin, n, deps, verdict, category, impact, score)
 		}
 	}
 	fm.detected.Store(int64(len(ds)))
@@ -1274,5 +1279,6 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 		categories: categories,
 		impacts:    impacts,
 		issues:     issues,
+		minScore:   options.DetectionScore,
 	}
 }
