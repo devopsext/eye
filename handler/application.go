@@ -325,11 +325,9 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 	}
 
 	type tpl struct {
-		WebsocketPath     string
-		ActivePath        string
-		ListPath          string
-		CaseImpactSevere  string
-		CaseImpactAverage string
+		WebsocketPath string
+		ActivePath    string
+		ListPath      string
 	}
 
 	websocketPath, _ := url.JoinPath(path, HttpApplicationHandlerWebsocketPath)
@@ -337,11 +335,9 @@ func (h *HttpApplicationHandler) handlePage(path string, w http.ResponseWriter) 
 	listPath, _ := url.JoinPath(path, HttpApplicationHandlerListPath)
 
 	return pageTemplate.Execute(w, &tpl{
-		WebsocketPath:     websocketPath,
-		ActivePath:        activePath,
-		ListPath:          listPath,
-		CaseImpactSevere:  common.CaseImpactToString(common.CaseImpactSevere),
-		CaseImpactAverage: common.CaseImpactToString(common.CaseImpactAverage),
+		WebsocketPath: websocketPath,
+		ActivePath:    activePath,
+		ListPath:      listPath,
 	})
 }
 

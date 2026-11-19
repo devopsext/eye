@@ -121,15 +121,16 @@
         select:hover, input:hover, button:hover { opacity: 0.9; }
         input[type="text"]:hover, input[type="text"]:focus { cursor: text; }
         input:focus { border-color: #0284c7; }
-        
-        .grid { display: grid; grid-template-columns: minmax(0, 1fr) 8px 460px; gap: 0; align-items: stretch; flex: 1; min-height: 0; transition: grid-template-columns 0.2s ease; }
+        button.paused-active { background: #f59e0b !important; color: #0f172a !important; border-color: #d97706 !important; font-weight: 600; }
+
+        .grid { display: grid; grid-template-columns: minmax(0, 1fr) 8px 540px; gap: 0; align-items: stretch; flex: 1; min-height: 0; transition: grid-template-columns 0.2s ease; }
         .grid.panel-collapsed { grid-template-columns: minmax(0, 1fr) 0px 0px !important; }
         .grid.panel-collapsed .splitter, .grid.panel-collapsed .verdict-card { display: none !important; }
-        
+
         .charts-wrapper { overflow-y: auto; height: 100%; position: relative; background: rgba(0, 0, 0, 0.15); border-radius: 8px; border: 1px dashed var(--border-color); padding: 15px; }
-        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px; }
-        
-        .card { background: var(--panel-bg); border-radius: 8px; padding: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); min-width: 400px; min-height: 280px; border: 1px solid var(--border-color); display: flex; flex-direction: column; resize: both; overflow: auto; }
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 15px; }
+
+        .card { background: var(--panel-bg); border-radius: 8px; padding: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); min-width: 500px; min-height: 280px; border: 1px solid var(--border-color); display: flex; flex-direction: column; resize: both; overflow: auto; }
         .card.maximized { position: absolute !important; top: 15px !important; left: 15px !important; right: 15px !important; bottom: 15px !important; width: auto !important; height: auto !important; min-width: 0 !important; min-height: 0 !important; z-index: 50; resize: none; grid-column: auto !important; }
 
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 4px; cursor: grab; background: rgba(255, 255, 255, 0.05); padding: 6px 8px; border-radius: 4px; user-select: none; }
@@ -144,29 +145,34 @@
 
         .inline-legend { display: flex; gap: 8px; font-size: 10px; }
         .chart-container { position: relative; width: 100%; flex: 1; min-height: 180px; }
-        
+
         .splitter { background: var(--splitter-bg); cursor: col-resize; width: 8px; height: 100%; border-radius: 4px; transition: background 0.2s; margin: 0 4px; flex-shrink: 0; }
         .splitter:hover, .splitter.dragging { background: var(--splitter-hover); }
 
         .verdict-card { background: var(--panel-bg); border-radius: 8px; padding: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; height: 100%; display: flex; flex-direction: column; border: 1px solid var(--border-color); min-height: 0; }
-        .verdict-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; flex-shrink: 0; }
+        .verdict-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
         .verdict-header h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-color); }
+        .verdict-filters { display: flex; gap: 6px; align-items: center; }
         .table-container { flex: 1; overflow-y: auto; width: 100%; margin-top: 5px; min-height: 0; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
         th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         th { color: #94a3b8; cursor: default; }
         tr:hover { background: var(--table-hover); }
         tr.selected { background: #0284c7 !important; color: #fff; }
-        
-        th:nth-child(1), td:nth-child(1) { width: 75px; }
+
+        th:nth-child(1), td:nth-child(1) { width: 72px; }
         th:nth-child(2), td:nth-child(2) { width: auto; }
-        th:nth-child(3), td:nth-child(3) { width: 100px; }
-        th:nth-child(4), td:nth-child(4) { width: 65px; }
+        th:nth-child(3), td:nth-child(3) { width: 95px; text-align: center; }
+        th:nth-child(4), td:nth-child(4) { width: 90px; text-align: center; }
+        th:nth-child(5), td:nth-child(5) { width: 58px; }
 
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; display: inline-block; }
-        .badge-most { background: #ef4444; color: #fff; }
-        .badge-avg { background: #f59e0b; color: #fff; }
-        .badge-zero { background: #10b981; color: #fff; }
+        .badge-red { background: #ef4444; color: #fff; }
+        .badge-yellow { background: #f59e0b; color: #fff; }
+        .badge-green { background: #10b981; color: #fff; }
+        .text-red { color: #ef4444; }
+        .text-yellow { color:  #f59e0b; }
+        .text-green { color:  #10b981; }
         .score-num { font-family: monospace; font-size: 11px; opacity: 0.85; margin-left: 4px; }
     </style>
 </head>
@@ -197,8 +203,16 @@
 
         <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
 
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; color: #ef4444;">
+            <input type="checkbox" id="highHighlightToggle" checked onchange="toggleHighlightVisibility()"> Upper
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; color: #3b82f6;">
+            <input type="checkbox" id="lowHighlightToggle" checked onchange="toggleHighlightVisibility()"> Lower
+        </label>
+
         <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer;">
-            <input type="checkbox" id="top5FilterToggle" checked onchange="changeFilter()"> Top 5
+            <input type="checkbox" id="top5FilterToggle" checked onchange="changeFilter()"> Top5
         </label>
 
         <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:220px;">
@@ -207,8 +221,10 @@
         <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="margin-right: auto; width:220px;">
         <datalist id="hostList"></datalist>
 
+      
         <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
         <span id="wsStatus" style="font-size:12px; color:#10b981;">● Connected</span>
+        <button id="pauseToggleBtn" onclick="togglePause()">⏸ Pause</button>
         <button id="toggleRightPanelBtn" onclick="toggleRightPanel()" style="background: var(--control-bg); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; cursor: pointer;">📋</button>
     </div>
 
@@ -218,16 +234,18 @@
         </div>
 
         <div class="splitter" id="dragSplitter"></div>
-        
+
         <div class="verdict-card">
             <div class="verdict-header">
                 <h3>Verdicts</h3>
-                <select id="impactFilterSelect" onchange="rebuildVerdictTable()" style="padding: 3px 6px; font-size: 11px;">
-                    <option value="all" selected>All Impacts</option>
-                    <option value="severe">Severe</option>
-                    <option value="average">Average</option>
-                    <option value="zero">Zero / Normal</option>
-                </select>
+                <div class="verdict-filters">
+                    <select id="categoryFilterSelect" onchange="handleVerdictFilterChange()" style="padding: 3px 6px; font-size: 11px;">
+                        <option value="all" selected>All Categories</option>
+                    </select>
+                    <select id="impactFilterSelect" onchange="handleVerdictFilterChange()" style="padding: 3px 6px; font-size: 11px;">
+                        <option value="all" selected>All Impacts</option>
+                    </select>
+                </div>
             </div>
             <div class="table-container">
                 <table>
@@ -235,6 +253,7 @@
                         <tr>
                             <th>Time</th>
                             <th>Application</th>
+                            <th>Category</th>
                             <th>Impact</th>
                             <th>Score</th>
                         </tr>
@@ -254,15 +273,30 @@
         let sharedMetricColor = document.getElementById('metricColorPicker').value;
         const charts = {};
         let ws = null;
-        
+        let isPaused = false;
+
         const applicationCache = {};
         const hostCache = {};
         let availableApplications = [];
         let selectedTimeLabel = null;
         let hoveredIndex = null;
+        let showHighHighlight = true;
+        let showLowHighlight = true;
         const appColorMap = {};
 
         let debounceTimer = null;
+
+        function toggleHighlightVisibility() {
+            const highEl = document.getElementById('highHighlightToggle');
+            const lowEl = document.getElementById('lowHighlightToggle');
+            showHighHighlight = highEl ? highEl.checked : true;
+            showLowHighlight = lowEl ? lowEl.checked : true;
+            localStorage.setItem('showHighHighlight', showHighHighlight);
+            localStorage.setItem('showLowHighlight', showLowHighlight);
+            for (const key in charts) {
+                if (charts[key]) charts[key].update('none');
+            }
+        }
 
         function handleSearchInput() {
             clearTimeout(debounceTimer);
@@ -271,12 +305,55 @@
             }, 1000);
         }
 
+        function updateConnectionStatusUI() {
+            const wsStatus = document.getElementById('wsStatus');
+            const pauseBtn = document.getElementById('pauseToggleBtn');
+
+            if (pauseBtn) {
+                if (isPaused) {
+                    pauseBtn.innerText = '▶ Resume';
+                    pauseBtn.classList.add('paused-active');
+                } else {
+                    pauseBtn.innerText = '⏸ Pause';
+                    pauseBtn.classList.remove('paused-active');
+                }
+            }
+
+            if (wsStatus) {
+                if (isPaused) {
+                    wsStatus.innerText = '⏸ Paused';
+                    wsStatus.style.color = '#f59e0b';
+                } else if (ws && ws.readyState === WebSocket.OPEN) {
+                    wsStatus.innerText = '● Connected';
+                    wsStatus.style.color = '#10b981';
+                } else {
+                    wsStatus.innerText = '○ Disconnected';
+                    wsStatus.style.color = '#ef4444';
+                }
+            }
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            updateConnectionStatusUI();
+
+            if (isPaused) {
+                if (ws) {
+                    ws.close();
+                    ws = null;
+                }
+            } else {
+                fetchApplications();
+                connectWS();
+            }
+        }
+
         const defaultOrderedMetrics = [
-            "InRequests", "OutRequests", 
+            "InRequests", "OutRequests",
             "InLatency", "OutLatency",
             "InErrors", "OutErrors",
             "InThroughput", "OutThroughput",
-            "ApplicationCPU", "ApplicationMemory", 
+            "ApplicationCPU", "ApplicationMemory",
             "HostCPU", "HostMemory",
         ];
 
@@ -328,6 +405,78 @@
             }
         }
 
+        function getActiveVerdictFilters() {
+            const catEl = document.getElementById('categoryFilterSelect');
+            const impEl = document.getElementById('impactFilterSelect');
+            return {
+                category: catEl ? (catEl.value || 'all') : 'all',
+                impact: impEl ? (impEl.value || 'all') : 'all'
+            };
+        }
+
+        function isVerdictFilterActive() {
+            const { category, impact } = getActiveVerdictFilters();
+            return category !== 'all' || impact !== 'all';
+        }
+
+        function getVerdictWindowCutoff(appList) {
+            const totalWindowSec = parseInt(document.getElementById('timeframeSelect').value) || 60;
+            const windowMs = totalWindowSec * 1000;
+            let latestTime = 0;
+
+            appList.forEach(app => {
+                const appObj = applicationCache[app];
+                if (!appObj) return;
+                if (appObj.verdicts) {
+                    appObj.verdicts.forEach(v => {
+                        const t = new Date(v.fullTimestamp || v.time).getTime();
+                        if (!isNaN(t) && t > latestTime) latestTime = t;
+                    });
+                }
+                if (appObj.rawSeries) {
+                    Object.values(appObj.rawSeries).forEach(series => {
+                        series.forEach(pt => {
+                            const t = new Date(pt.fullTimestamp || pt.time).getTime();
+                            if (!isNaN(t) && t > latestTime) latestTime = t;
+                        });
+                    });
+                }
+            });
+
+            if (latestTime === 0) {
+                latestTime = Date.now();
+            }
+            return latestTime - windowMs;
+        }
+
+        function verdictMatchesCategoryAndImpact(verdictObj, categoryFilterVal, impactFilterVal) {
+            if (!verdictObj || !verdictObj.verdict) return false;
+            const category = (verdictObj.verdict.category !== undefined && verdictObj.verdict.category !== null)
+                ? String(verdictObj.verdict.category).trim() : '';
+            const impact = (verdictObj.verdict.impact !== undefined && verdictObj.verdict.impact !== null)
+                ? String(verdictObj.verdict.impact).trim() : '';
+
+            const matchesCategory = (categoryFilterVal === 'all' || category === categoryFilterVal);
+            const matchesImpact = (impactFilterVal === 'all' || impact === impactFilterVal);
+            return matchesCategory && matchesImpact;
+        }
+
+        function appMatchesVerdictFilters(app, cutoffTime) {
+            const { category, impact } = getActiveVerdictFilters();
+            if (category === 'all' && impact === 'all') return true;
+
+            const appObj = applicationCache[app];
+            if (!appObj || !Array.isArray(appObj.verdicts) || appObj.verdicts.length === 0) {
+                return false;
+            }
+
+            return appObj.verdicts.some(v => {
+                const verdictTime = new Date(v.fullTimestamp || v.time).getTime();
+                if (!isNaN(verdictTime) && verdictTime < cutoffTime) return false;
+                return verdictMatchesCategoryAndImpact(v, category, impact);
+            });
+        }
+
         function getAllKnownApps() {
             const appsSet = new Set(Object.keys(applicationCache));
             availableApplications.forEach(a => appsSet.add(a));
@@ -360,18 +509,28 @@
             return false;
         }
 
-        function hostHasAppMatching(host, appFilterVal) {
-            if (!appFilterVal) return true;
+        function hostHasEligibleApp(host, appFilterVal, cutoffTime) {
+            const verdictActive = isVerdictFilterActive();
+            const matchedApps = new Set();
+
             const hObj = hostCache[host];
-            if (hObj && hObj.apps && hObj.apps.size > 0) {
-                for (const app of hObj.apps) {
-                    if (matchesFilter(app, appFilterVal)) return true;
-                }
+            if (hObj && hObj.apps) {
+                hObj.apps.forEach(app => matchedApps.add(app));
             }
             for (const [app, appObj] of Object.entries(applicationCache)) {
-                if (appObj && appObj.hosts && appObj.hosts.has(host) && matchesFilter(app, appFilterVal)) {
-                    return true;
+                if (appObj && appObj.hosts && appObj.hosts.has(host)) {
+                    matchedApps.add(app);
                 }
+            }
+
+            if (matchedApps.size === 0) {
+                return !appFilterVal && !verdictActive;
+            }
+
+            for (const app of matchedApps) {
+                if (appFilterVal && !matchesFilter(app, appFilterVal)) continue;
+                if (verdictActive && !appMatchesVerdictFilters(app, cutoffTime)) continue;
+                return true;
             }
             return false;
         }
@@ -384,11 +543,11 @@
             return [...entityList].sort((a, b) => {
                 const seriesA = cacheObj[a] && cacheObj[a].rawSeries[metricKey] ? cacheObj[a].rawSeries[metricKey] : [];
                 const seriesB = cacheObj[b] && cacheObj[b].rawSeries[metricKey] ? cacheObj[b].rawSeries[metricKey] : [];
-                
+
                 const latestA = seriesA.length > 0 ? (seriesA[seriesA.length - 1].val || 0) : 0;
                 const latestB = seriesB.length > 0 ? (seriesB[seriesB.length - 1].val || 0) : 0;
-                
-                return latestB - latestA; // Highest values first
+
+                return latestB - latestA;
             }).slice(0, effectiveLimit);
         }
 
@@ -398,7 +557,12 @@
             if (!appDatalist || !hostDatalist) return;
 
             const allApps = getAllKnownApps();
-            let filteredAppsForList = allApps.filter(app => appHasHostMatching(app, currentHostFilter)).sort();
+            const cutoffTime = getVerdictWindowCutoff(allApps);
+
+            let filteredAppsForList = allApps.filter(app =>
+                appHasHostMatching(app, currentHostFilter) &&
+                appMatchesVerdictFilters(app, cutoffTime)
+            ).sort();
             filteredAppsForList = limitToTopN(filteredAppsForList, applicationCache, 'InRequests', 5);
 
             appDatalist.innerHTML = '';
@@ -409,7 +573,9 @@
             });
 
             const allHosts = getAllKnownHosts();
-            let filteredHostsForList = allHosts.filter(host => hostHasAppMatching(host, currentFilter)).sort();
+            let filteredHostsForList = allHosts.filter(host =>
+                hostHasEligibleApp(host, currentFilter, cutoffTime)
+            ).sort();
             filteredHostsForList = limitToTopN(filteredHostsForList, hostCache, 'HostCPU', 5);
 
             hostDatalist.innerHTML = '';
@@ -420,14 +586,20 @@
             });
         }
 
-        function getMatchingApps() {
-            const baseMatching = getAllKnownApps().filter(app => {
+        function getBaseMatchingApps() {
+            const allApps = getAllKnownApps();
+            const cutoffTime = getVerdictWindowCutoff(allApps);
+            return allApps.filter(app => {
                 if (!matchesFilter(app, currentFilter)) return false;
                 if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
+                if (!appMatchesVerdictFilters(app, cutoffTime)) return false;
                 return true;
             });
-            // If explicit text search/input is present for app or host, respect it directly; otherwise apply Top 5 restriction if checked.
-            if (currentFilter || currentHostFilter) {
+        }
+
+        function getMatchingApps() {
+            const baseMatching = getBaseMatchingApps();
+            if (currentFilter || currentHostFilter || isVerdictFilterActive()) {
                 return baseMatching;
             }
             return limitToTopN(baseMatching, applicationCache, 'InRequests', 5);
@@ -447,7 +619,7 @@
                 }
             });
 
-            if (hostsSet.size === 0 && !currentFilter) {
+            if (hostsSet.size === 0 && !currentFilter && !isVerdictFilterActive()) {
                 Object.keys(hostCache).forEach(h => {
                     if (matchesFilter(h, currentHostFilter)) {
                         hostsSet.add(h);
@@ -456,7 +628,7 @@
             }
 
             let hostList = Array.from(hostsSet);
-            if (currentFilter || currentHostFilter) {
+            if (currentFilter || currentHostFilter || isVerdictFilterActive()) {
                 return hostList;
             }
             return limitToTopN(hostList, hostCache, 'HostCPU', 5);
@@ -498,9 +670,12 @@
         }
 
         async function fetchApplications() {
+            if (isPaused) return;
             try {
                 const res = await fetch('{{.ListPath}}');
+                if (isPaused) return;
                 const data = await res.json();
+                if (isPaused) return;
                 if (data && data.applications) {
                     availableApplications = Object.keys(data.applications);
                     availableApplications.forEach(key => {
@@ -517,7 +692,9 @@
                 }
 
                 const activeRes = await fetch('{{.ActivePath}}');
+                if (isPaused) return;
                 const activeData = await activeRes.json();
+                if (isPaused) return;
                 if (activeData) {
                     if (activeData.application && !currentFilter) {
                         currentFilter = activeData.application;
@@ -573,6 +750,20 @@
                 if (toggle) toggle.checked = (savedTop5 === 'true');
             }
 
+            const savedHighHighlight = localStorage.getItem('showHighHighlight');
+            if (savedHighHighlight !== null) {
+                showHighHighlight = (savedHighHighlight === 'true');
+                const highEl = document.getElementById('highHighlightToggle');
+                if (highEl) highEl.checked = showHighHighlight;
+            }
+
+            const savedLowHighlight = localStorage.getItem('showLowHighlight');
+            if (savedLowHighlight !== null) {
+                showLowHighlight = (savedLowHighlight === 'true');
+                const lowEl = document.getElementById('lowHighlightToggle');
+                if (lowEl) lowEl.checked = showLowHighlight;
+            }
+
             const savedOrder = localStorage.getItem('chartOrder');
             if (savedOrder) {
                 try {
@@ -608,7 +799,7 @@
             if (!isDragging) return;
             const gridRect = mainGrid.getBoundingClientRect();
             const newVerdictWidth = gridRect.right - e.clientX - 8;
-            const minWidth = 280;
+            const minWidth = 320;
             const maxWidth = gridRect.width - 500;
             if (newVerdictWidth >= minWidth && newVerdictWidth <= maxWidth) {
                 mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px ' + newVerdictWidth + 'px';
@@ -646,17 +837,17 @@
                 if (!dataset) return;
 
                 ctx.save();
-                
+
                 const metricKey = chart.canvas.id.replace('chart_', '');
                 const { entities } = getEntitiesForChart(metricKey);
                 const multiMode = entities.length > 1;
 
                 let violationTypes = [];
                 const numEntities = multiMode ? entities.length : 1;
-                const upDataset = multiMode ? chart.data.datasets[numEntities] : chart.data.datasets[1];
-                const loDataset = multiMode ? chart.data.datasets[numEntities + 1] : chart.data.datasets[2];
+                const upDataset = chart.data.datasets.find(ds => ds.label === 'Upper');
+                const loDataset = chart.data.datasets.find(ds => ds.label === 'Lower');
 
-                if (upDataset && loDataset && chart.data.labels.length > 0) {
+                if (upDataset && loDataset && chart.data.labels.length > 0 && (showHighHighlight || showLowHighlight)) {
                     for (let i = 0; i < chart.data.labels.length; i++) {
                         let hasHigh = false;
                         let hasLow = false;
@@ -666,12 +857,12 @@
                             const up = upDataset.data[i];
                             const lo = loDataset.data[i];
                             if (val !== null && val !== undefined) {
-                                if (up !== null && val > up) hasHigh = true;
-                                if (lo !== null && val < lo) hasLow = true;
+                                if (up !== null && up !== undefined && val > up) hasHigh = true;
+                                if (lo !== null && lo !== undefined && val < lo) hasLow = true;
                             }
                         }
-                        if (hasHigh) violationTypes.push('high');
-                        else if (hasLow) violationTypes.push('low');
+                        if (hasHigh && showHighHighlight) violationTypes.push('high');
+                        else if (hasLow && showLowHighlight) violationTypes.push('low');
                         else violationTypes.push(null);
                     }
                 }
@@ -861,20 +1052,27 @@
                     });
                 });
                 datasets.push(
-                    { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                    { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Upper', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Lower', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                     { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
                 );
             } else {
                 const singleLabel = (entities.length === 1) ? entities[0] : cfg.label;
                 datasets = [
                     { label: singleLabel, data: [], borderColor: sharedMetricColor, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
-                    { label: 'Upper Limit', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
-                    { label: 'Lower Limit', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Upper', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
+                    { label: 'Lower', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                     { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
                 ];
             }
             return datasets;
+        }
+
+        function formatBoundaryValue(val) {
+            if (val === null || val === undefined || val === '' || Number.isNaN(Number(val))) {
+                return 'N/A';
+            }
+            return Number(val).toFixed(2);
         }
 
         function initCharts() {
@@ -903,7 +1101,7 @@
             if (maximizedChartKey) {
                 container.style.gridTemplateColumns = '1fr';
             } else {
-                container.style.gridTemplateColumns = 'repeat(auto-fit, minmax(400px, 1fr))';
+                container.style.gridTemplateColumns = 'repeat(auto-fit, minmax(500px, 1fr))';
             }
 
             keysToRender.forEach(key => {
@@ -928,7 +1126,7 @@
                     '</div>' +
                 '</div>' +
                 '<div class="chart-container"><canvas id="chart_' + key + '"></canvas></div>';
-                
+
                 const header = card.querySelector('.card-header');
                 header.addEventListener('dragstart', handleDragStart);
                 header.addEventListener('dragenter', handleDragEnter);
@@ -945,12 +1143,12 @@
                 charts[key] = new Chart(ctx, {
                     type: 'line',
                     data: { labels: [], datasets: datasets },
-                    options: { 
+                    options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        scales: { 
-                            y: { beginAtZero: true, grid: { color: 'rgba(100, 116, 139, 0.2)' }, grace: '15%' }, 
-                            x: { grid: { color: 'rgba(100, 116, 139, 0.2)' } } 
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: 'rgba(100, 116, 139, 0.2)' }, grace: '15%' },
+                            x: { grid: { color: 'rgba(100, 116, 139, 0.2)' } }
                         },
                         interaction: {
                             mode: 'index',
@@ -971,18 +1169,49 @@
                             tooltip: {
                                 mode: 'index',
                                 intersect: false,
-                                itemSort: function(a, b, data) {
+                                filter: function() {
+                                    return true;
+                                },
+                                itemSort: function(a, b) {
+                                    const boundaryOrder = { 'Upper': -3, 'Median': -2, 'Lower': -1 };
+                                    const aRank = boundaryOrder[a.dataset.label] ?? 0;
+                                    const bRank = boundaryOrder[b.dataset.label] ?? 0;
+                                    if (aRank !== bRank) return aRank - bRank;
                                     return (b.parsed.y || 0) - (a.parsed.y || 0);
                                 },
                                 callbacks: {
-                                    title: function(context) { return context[0].label; },
+                                    title: function(context) {
+                                        return (context && context.length > 0) ? context[0].label : '';
+                                    },
                                     label: function(context) {
-                                        let label = ' ' + context.dataset.label + ': ';
-                                        if (context.parsed.y !== null) label += context.parsed.y.toFixed(2);
-                                        return label;
+                                        const labelName = context.dataset.label || '';
+                                        const val = context.parsed ? context.parsed.y : null;
+                                        if (val === null || val === undefined || Number.isNaN(Number(val))) {
+                                            return ' ' + labelName + ': N/A';
+                                        }
+                                        return ' ' + labelName + ': ' + Number(val).toFixed(2);
                                     },
                                     afterBody: function(context) {
-                                        return '';
+                                        const chartInstance = context && context.length > 0 ? context[0].chart : null;
+                                        const dataIndex = context && context.length > 0 ? context[0].dataIndex : null;
+                                        const presentLabels = new Set((context || []).map(item => item.dataset && item.dataset.label));
+                                        const boundaries = ['Upper', 'Lower', 'Median'];
+                                        const lines = [];
+
+                                        boundaries.forEach(bName => {
+                                            if (!presentLabels.has(bName)) {
+                                                let fallbackVal = null;
+                                                if (chartInstance && dataIndex !== null && dataIndex !== undefined) {
+                                                    const ds = chartInstance.data.datasets.find(d => d.label === bName);
+                                                    if (ds && Array.isArray(ds.data)) {
+                                                        fallbackVal = ds.data[dataIndex];
+                                                    }
+                                                }
+                                                lines.push(' ' + bName + ': ' + formatBoundaryValue(fallbackVal));
+                                            }
+                                        });
+
+                                        return lines;
                                     }
                                 }
                             },
@@ -999,8 +1228,8 @@
                                     },
                                     onZoom: ({chart}) => syncZoom(chart)
                                 },
-                                pan: { 
-                                    enabled: true, 
+                                pan: {
+                                    enabled: true,
                                     mode: 'x',
                                     onPan: ({chart}) => syncZoom(chart)
                                 }
@@ -1013,7 +1242,7 @@
         }
 
         function resetZoomAll() {
-            for (const key in charts) { 
+            for (const key in charts) {
                 if (charts[key]) {
                     charts[key].resetZoom();
                     delete charts[key].options.scales.x.min;
@@ -1045,18 +1274,37 @@
             maximizedChartKey = null;
             const top5Toggle = document.getElementById('top5FilterToggle');
             if (top5Toggle) top5Toggle.checked = true;
+            const highToggle = document.getElementById('highHighlightToggle');
+            if (highToggle) highToggle.checked = true;
+            const lowToggle = document.getElementById('lowHighlightToggle');
+            if (lowToggle) lowToggle.checked = true;
+            showHighHighlight = true;
+            showLowHighlight = true;
+            const catSelect = document.getElementById('categoryFilterSelect');
+            if (catSelect) catSelect.value = 'all';
+            const impSelect = document.getElementById('impactFilterSelect');
+            if (impSelect) impSelect.value = 'all';
+
             localStorage.removeItem('maximizedChartKey');
             localStorage.removeItem('chartOrder');
             localStorage.removeItem('verdictWidth');
             localStorage.removeItem('isPanelCollapsed');
             localStorage.removeItem('top5FilterEnabled');
+            localStorage.removeItem('showHighHighlight');
+            localStorage.removeItem('showLowHighlight');
             isPanelCollapsed = false;
             mainGrid.classList.remove('panel-collapsed');
             const btn = document.getElementById('toggleRightPanelBtn');
             if (btn) btn.innerText = '📋';
-            mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px 460px';
-            initCharts();
+            mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px 540px';
             updateFilterLists();
+            refreshAllViews();
+        }
+
+        function handleVerdictFilterChange() {
+            selectedTimeLabel = null;
+            updateFilterLists();
+            refreshAllViews();
         }
 
         function changeFilter() {
@@ -1068,7 +1316,7 @@
 
             updateFilterLists();
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (!isPaused && ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                     type: "filter",
                     application: currentFilter,
@@ -1087,59 +1335,80 @@
             initCharts();
         }
 
+        function updateVerdictFilterOptions(appsForOptions) {
+            const catSelect = document.getElementById('categoryFilterSelect');
+            const impSelect = document.getElementById('impactFilterSelect');
+
+            const currentCat = catSelect ? (catSelect.value || 'all') : 'all';
+            const currentImp = impSelect ? (impSelect.value || 'all') : 'all';
+
+            const categoriesSet = new Set();
+            const impactsSet = new Set();
+
+            appsForOptions.forEach(app => {
+                if (applicationCache[app] && applicationCache[app].verdicts) {
+                    applicationCache[app].verdicts.forEach(v => {
+                        if (!v.verdict) return;
+                        const cat = (v.verdict.category !== undefined && v.verdict.category !== null) ? String(v.verdict.category).trim() : '';
+                        if (cat) categoriesSet.add(cat);
+
+                        const imp = (v.verdict.impact !== undefined && v.verdict.impact !== null) ? String(v.verdict.impact).trim() : '';
+                        if (imp) impactsSet.add(imp);
+                    });
+                }
+            });
+
+            if (currentCat !== 'all') categoriesSet.add(currentCat);
+            if (currentImp !== 'all') impactsSet.add(currentImp);
+
+            if (catSelect) {
+                const sortedCats = Array.from(categoriesSet).sort((a, b) => a.localeCompare(b));
+                catSelect.innerHTML = '<option value="all">All Categories</option>';
+                sortedCats.forEach(cat => {
+                    const opt = document.createElement('option');
+                    opt.value = cat;
+                    opt.textContent = cat;
+                    catSelect.appendChild(opt);
+                });
+                catSelect.value = currentCat;
+            }
+
+            if (impSelect) {
+                const sortedImps = Array.from(impactsSet).sort((a, b) => a.localeCompare(b));
+                impSelect.innerHTML = '<option value="all">All Impacts</option>';
+                sortedImps.forEach(imp => {
+                    const opt = document.createElement('option');
+                    opt.value = imp;
+                    opt.textContent = imp;
+                    impSelect.appendChild(opt);
+                });
+                impSelect.value = currentImp;
+            }
+        }
+
         function rebuildVerdictTable() {
             const tbody = document.getElementById('verdictTableBody');
             tbody.innerHTML = "";
 
+            const textAndHostMatchedApps = getAllKnownApps().filter(app => {
+                if (!matchesFilter(app, currentFilter)) return false;
+                if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
+                return true;
+            });
+            updateVerdictFilterOptions(textAndHostMatchedApps);
+
             const matchingApps = getMatchingApps();
             const allVerdicts = [];
 
-            const totalWindowSec = parseInt(document.getElementById('timeframeSelect').value) || 60;
-            const windowMs = totalWindowSec * 1000;
-            const impactFilterVal = document.getElementById('impactFilterSelect') ? document.getElementById('impactFilterSelect').value : 'all';
-
-            let latestTime = 0;
-            matchingApps.forEach(app => {
-                if (applicationCache[app]) {
-                    if (applicationCache[app].verdicts) {
-                        applicationCache[app].verdicts.forEach(v => {
-                            const t = new Date(v.fullTimestamp || v.time).getTime();
-                            if (!isNaN(t) && t > latestTime) latestTime = t;
-                        });
-                    }
-                    if (applicationCache[app].rawSeries) {
-                        Object.values(applicationCache[app].rawSeries).forEach(series => {
-                            series.forEach(pt => {
-                                const t = new Date(pt.fullTimestamp || pt.time).getTime();
-                                if (!isNaN(t) && t > latestTime) latestTime = t;
-                            });
-                        });
-                    }
-                }
-            });
-
-            if (latestTime === 0) {
-                latestTime = Date.now();
-            }
-
-            const cutoffTime = latestTime - windowMs;
+            const cutoffTime = getVerdictWindowCutoff(matchingApps);
+            const { category: categoryFilterVal, impact: impactFilterVal } = getActiveVerdictFilters();
 
             matchingApps.forEach(app => {
                 if (applicationCache[app] && applicationCache[app].verdicts) {
                     applicationCache[app].verdicts.forEach(v => {
                         const verdictTime = new Date(v.fullTimestamp || v.time).getTime();
                         if (isNaN(verdictTime) || verdictTime >= cutoffTime) {
-                            const impact = v.verdict.impact;
-                            let matchesImpact = true;
-                            if (impactFilterVal === 'severe') {
-                                matchesImpact = (impact === '{{.CaseImpactSevere}}');
-                            } else if (impactFilterVal === 'average') {
-                                matchesImpact = (impact === '{{.CaseImpactAverage}}');
-                            } else if (impactFilterVal === 'zero') {
-                                matchesImpact = (impact !== '{{.CaseImpactSevere}}' && impact !== '{{.CaseImpactAverage}}');
-                            }
-
-                            if (matchesImpact) {
+                            if (verdictMatchesCategoryAndImpact(v, categoryFilterVal, impactFilterVal)) {
                                 allVerdicts.push({ app, ...v });
                             }
                         }
@@ -1152,27 +1421,35 @@
             allVerdicts.forEach(v => {
                 const timeLabel = v.time;
                 const vv = v.verdict;
-                let badgeClass = 'badge-zero';
-                if (vv.impact === '{{.CaseImpactSevere}}') badgeClass = 'badge-most';
-                else if (vv.impact === '{{.CaseImpactAverage}}') badgeClass = 'badge-avg';
+                const categoryText = vv.category || '-';
+                const impactText = vv.impact || '-';
+
+                let badgeImpactClass = 'text-green';
+                if (vv.impact === 'severe') badgeImpactClass = 'text-red';
+                else if (vv.impact === 'average') badgeImpactClass = 'text-yellow';
+
+                let badgeCategoryClass = 'badge-green';
+                if (vv.category === 'failure') badgeCategoryClass = 'badge-red';
+                else if (vv.category === 'operational') badgeCategoryClass = 'badge-yellow';
 
                 const largeHint = '• Application: ' + v.app + '\n' +
+                                  '• Category: ' + vv.category + '\n' +
                                   '• Impact: ' + vv.impact + '\n' +
                                   '• Score: ' + vv.score + '\n' +
-                                  '• Category: ' + vv.category + '\n' +
                                   '• Event Name: ' + vv.name + '\n' +
                                   '• Description:  ' + vv.description + '\n';
 
                 const row = document.createElement('tr');
                 row.setAttribute('data-time', timeLabel);
                 if (timeLabel === selectedTimeLabel) row.className = 'selected';
-                
+
                 row.title = largeHint;
                 row.innerHTML = '<td>' + timeLabel + '</td>' +
                     '<td><strong>' + v.app + '</strong></td>' +
-                    '<td><span class="badge ' + badgeClass + '">' + vv.impact + '</span></td>' +
+                    '<td><span class="badge ' + badgeCategoryClass + '">' + categoryText + '</span></td>' +
+                    '<td><span class="badge ' + badgeImpactClass + '">' + impactText + '</span></td>' +
                     '<td>' + vv.score + '</td>';
-                
+
                 row.onclick = function() { selectVerdict(timeLabel, row); };
                 tbody.appendChild(row);
             });
@@ -1181,8 +1458,32 @@
         function changeTimeframe() {
             const totalWindowSec = parseInt(document.getElementById('timeframeSelect').value);
             maxDataPoints = Math.max(10, Math.floor(totalWindowSec / updateFreqSec));
-            for (const key in charts) { redrawChart(key); }
-            rebuildVerdictTable();
+            updateFilterLists();
+            if (isVerdictFilterActive()) {
+                refreshAllViews();
+            } else {
+                for (const key in charts) { redrawChart(key); }
+                rebuildVerdictTable();
+            }
+        }
+
+        function applyBoundaryDatasets(c, maxUp, minLo, avgMe) {
+            const upDataset = c.data.datasets.find(ds => ds.label === 'Upper');
+            const loDataset = c.data.datasets.find(ds => ds.label === 'Lower');
+            const meDataset = c.data.datasets.find(ds => ds.label === 'Median');
+
+            if (upDataset) {
+                upDataset.hidden = false;
+                upDataset.data = maxUp;
+            }
+            if (loDataset) {
+                loDataset.hidden = false;
+                loDataset.data = minLo;
+            }
+            if (meDataset) {
+                meDataset.hidden = false;
+                meDataset.data = avgMe;
+            }
         }
 
         function redrawChart(key) {
@@ -1238,9 +1539,18 @@
                         const series = (cache[entityName] && cache[entityName].rawSeries[key]) ? cache[entityName].rawSeries[key] : [];
                         const pt = series.find(p => p.time === tLabel);
                         if (pt) {
-                            if (pt.up !== undefined && pt.up !== null) { mUp = Math.max(mUp, pt.up); hasUp = true; }
-                            if (pt.lo !== undefined && pt.lo !== null) { mLo = Math.min(mLo, pt.lo); hasLo = true; }
-                            if (pt.me !== undefined && pt.me !== null) { meSum += pt.me; count++; }
+                            if (pt.up !== undefined && pt.up !== null && Number.isFinite(Number(pt.up))) {
+                                mUp = Math.max(mUp, Number(pt.up));
+                                hasUp = true;
+                            }
+                            if (pt.lo !== undefined && pt.lo !== null && Number.isFinite(Number(pt.lo))) {
+                                mLo = Math.min(mLo, Number(pt.lo));
+                                hasLo = true;
+                            }
+                            if (pt.me !== undefined && pt.me !== null && Number.isFinite(Number(pt.me))) {
+                                meSum += Number(pt.me);
+                                count++;
+                            }
                         }
                     });
                     maxUp.push(hasUp ? mUp : null);
@@ -1248,13 +1558,7 @@
                     avgMe.push(count > 0 ? meSum / count : null);
                 });
 
-                const upDataset = c.data.datasets[entities.length];
-                const loDataset = c.data.datasets[entities.length + 1];
-                const meDataset = c.data.datasets[entities.length + 2];
-
-                if (upDataset) upDataset.data = maxUp;
-                if (loDataset) loDataset.data = minLo;
-                if (meDataset) meDataset.data = avgMe;
+                applyBoundaryDatasets(c, maxUp, minLo, avgMe);
 
             } else if (entities.length === 1) {
                 const entityKey = entities[0];
@@ -1271,9 +1575,12 @@
                 c.data.labels = trimmed.map(pt => pt.time);
                 c.data.datasets[0].label = entityKey;
                 c.data.datasets[0].data = trimmed.map(pt => pt.val);
-                if (c.data.datasets[1]) c.data.datasets[1].data = trimmed.map(pt => pt.up);
-                if (c.data.datasets[2]) c.data.datasets[2].data = trimmed.map(pt => pt.lo);
-                if (c.data.datasets[3]) c.data.datasets[3].data = trimmed.map(pt => pt.me);
+
+                const upArr = trimmed.map(pt => (pt.up !== undefined && pt.up !== null && Number.isFinite(Number(pt.up))) ? Number(pt.up) : null);
+                const loArr = trimmed.map(pt => (pt.lo !== undefined && pt.lo !== null && Number.isFinite(Number(pt.lo))) ? Number(pt.lo) : null);
+                const meArr = trimmed.map(pt => (pt.me !== undefined && pt.me !== null && Number.isFinite(Number(pt.me))) ? Number(pt.me) : null);
+
+                applyBoundaryDatasets(c, upArr, loArr, meArr);
 
                 c.data.datasets[0]._violationTypes = trimmed.map(pt => {
                     if (pt.val > pt.up) return 'high';
@@ -1382,24 +1689,31 @@
         }
 
         function connectWS() {
+            if (isPaused) return;
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
+
             const loc = window.location;
             const wsProtocol = loc.protocol === 'https:' ? 'wss://' : 'ws://';
-            ws = new WebSocket(wsProtocol + loc.host + '{{.WebsocketPath}}');
+            const socket = new WebSocket(wsProtocol + loc.host + '{{.WebsocketPath}}');
+            ws = socket;
 
-            ws.onopen = function() {
-                const wsStatus = document.getElementById('wsStatus');
-                if (wsStatus) {
-                    wsStatus.innerText = '● Connected';
-                    wsStatus.style.color = '#10b981';
+            socket.onopen = function() {
+                if (isPaused || ws !== socket) {
+                    socket.close();
+                    return;
                 }
-                ws.send(JSON.stringify({
+                updateConnectionStatusUI();
+                socket.send(JSON.stringify({
                     type: 'filter',
                     application: currentFilter,
                     host: currentHostFilter
                 }));
             };
 
-            ws.onmessage = function(event) {
+            socket.onmessage = function(event) {
+                if (isPaused || ws !== socket) return;
                 const v = JSON.parse(event.data);
 
                 if (v.model) {
@@ -1409,6 +1723,8 @@
                 const appIdent = v.ident;
                 if (!appIdent) return;
 
+                const prevMatchingApps = new Set(getMatchingApps());
+
                 addApplication(appIdent);
                 const timeLabel = new Date(v.timestamp).toLocaleTimeString();
 
@@ -1417,7 +1733,7 @@
                         if (!applicationCache[appIdent].rawSeries[point.metric]) {
                             applicationCache[appIdent].rawSeries[point.metric] = [];
                         }
-                        
+
                         const series = applicationCache[appIdent].rawSeries[point.metric];
                         const existingIndex = series.findIndex(pt => pt.time === timeLabel);
                         const pointData = {
@@ -1466,10 +1782,6 @@
                     }
                 }
 
-                if (topologyChanged) {
-                    updateFilterLists();
-                }
-
                 if (v.verdict) {
                     if (!applicationCache[appIdent].verdicts) {
                         applicationCache[appIdent].verdicts = [];
@@ -1492,6 +1804,19 @@
                 }
 
                 const matchingApps = getMatchingApps();
+                const matchingSetChanged =
+                    matchingApps.length !== prevMatchingApps.size ||
+                    matchingApps.some(a => !prevMatchingApps.has(a));
+
+                if (topologyChanged || matchingSetChanged || v.verdict) {
+                    updateFilterLists();
+                }
+
+                if (matchingSetChanged) {
+                    refreshAllViews();
+                    return;
+                }
+
                 if (matchingApps.includes(appIdent)) {
                     const showHostCharts = hasHostDataForMatchingApps();
                     const needsHostCardInit = showHostCharts &&
@@ -1517,17 +1842,22 @@
                     if (v.verdict) {
                         rebuildVerdictTable();
                     }
+                } else if (v.verdict) {
+                    rebuildVerdictTable();
                 }
             };
 
-            ws.onclose = function() { 
-                const wsStatus = document.getElementById('wsStatus');
-                if (wsStatus) {
-                    wsStatus.innerText = '○ Disconnected';
-                    wsStatus.style.color = '#ef4444';
+            socket.onclose = function() {
+                if (ws === socket) {
+                    ws = null;
                 }
+                if (isPaused) {
+                    updateConnectionStatusUI();
+                    return;
+                }
+                updateConnectionStatusUI();
                 setModel(null);
-                setTimeout(connectWS, 3000); 
+                setTimeout(connectWS, 3000);
             };
         }
     </script>

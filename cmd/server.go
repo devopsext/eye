@@ -142,17 +142,17 @@ var forestModelOptions = model.ForestModelOptions{
 	DetectionImpacts:    envGet("FOREST_MODEL_DETECTION_IMPACTS", "").(string),
 	DetectionScore:      envGet("FOREST_MODEL_DETECTION_SCORE", 5).(int),
 	ApplicationOptions: forest.ApplicationEngineOptions{
-		Path:                  envGet("FOREST_MODEL_APPLICATION_PATH", "").(string),
-		TreesNumber:           envGet("FOREST_MODEL_APPLICATION_TREES_NUMBER", model.ForestModelTreesNumber).(int),
-		SubsampleSize:         envGet("FOREST_MODEL_APPLICATION_SUBSAMPLE_SIZE", model.ForestModelSubsampleSize).(int),
-		OutlierRatio:          envGet("FOREST_MODEL_APPLICATION_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
-		InRequestsMaxSlots:    envGet("FOREST_MODEL_APPLICATION_IN_REQUESTS_MAX_SLOTS", 2).(int),
-		InThroughputMaxSlots:  envGet("FOREST_MODEL_APPLICATION_IN_THROUGHPUT_MAX_SLOTS", 1).(int),
-		OutRequestsMaxSlots:   envGet("FOREST_MODEL_APPLICATION_OUT_REQUESTS_MAX_SLOTS", 2).(int),
-		OutThroughputMaxSlots: envGet("FOREST_MODEL_APPLICATION_OUT_THROUGHPUT_MAX_SLOTS", 1).(int),
-		RangeMultiplier:       envGet("FOREST_MODEL_APPLICATION_RANGE_MULTIPLIER", 1.5).(float64),
-		ProfileKind:           envGet("FOREST_MODEL_APPLICATION_PROFILE_KIND", "hour").(string),
-		ShiftWeights:          envGet("FOREST_MODEL_APPLICATION_SHIFT_WEIGHTS", "").(string),
+		Path:                  envGet("FOREST_MODEL_APP_PATH", "").(string),
+		TreesNumber:           envGet("FOREST_MODEL_APP_TREES_NUMBER", model.ForestModelTreesNumber).(int),
+		SubsampleSize:         envGet("FOREST_MODEL_APP_SUBSAMPLE_SIZE", model.ForestModelSubsampleSize).(int),
+		OutlierRatio:          envGet("FOREST_MODEL_APP_OUTLIER_RATIO", model.ForestModelOutlierRatio).(float64),
+		InRequestsMaxSlots:    envGet("FOREST_MODEL_APP_IN_REQUESTS_MAX_SLOTS", 2).(int),
+		InThroughputMaxSlots:  envGet("FOREST_MODEL_APP_IN_THROUGHPUT_MAX_SLOTS", 1).(int),
+		OutRequestsMaxSlots:   envGet("FOREST_MODEL_APP_OUT_REQUESTS_MAX_SLOTS", 2).(int),
+		OutThroughputMaxSlots: envGet("FOREST_MODEL_APP_OUT_THROUGHPUT_MAX_SLOTS", 1).(int),
+		RangeMultiplier:       envGet("FOREST_MODEL_APP_RANGE_MULTIPLIER", 1.5).(float64),
+		ProfileKind:           envGet("FOREST_MODEL_APP_PROFILE_KIND", "hour").(string),
+		ShiftWeights:          envGet("FOREST_MODEL_APP_SHIFT_WEIGHTS", "").(string),
 	},
 	HostOptions: forest.HostEngineOptions{
 		Path:            envGet("FOREST_MODEL_HOST_PATH", "").(string),
@@ -181,9 +181,9 @@ var httpHealthHandlerOptions = handler.HttpHealthHandlerOptions{
 }
 
 var httpApplicationHandlerOptions = handler.HttpApplicationHandlerOptions{
-	Path:   envGet("HTTP_APPLICATION_PATH", "/app,/app/").(string),
-	Page:   envStringExpand("HTTP_APPLICATION_PAGE", ""),
-	Idents: envStringExpand("HTTP_APPLICATION_IDENTS", ""),
+	Path:   envGet("HTTP_APP_PATH", "/app,/app/").(string),
+	Page:   envStringExpand("HTTP_APP_PAGE", ""),
+	Idents: envStringExpand("HTTP_APP_IDENTS", ""),
 }
 
 var httpInspectHandlerOptions = handler.HttpInspectHandlerOptions{

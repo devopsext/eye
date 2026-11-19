@@ -424,7 +424,7 @@ func (fd *ForestModelDetections) AddOrUpdate(hash common.Hash, min, max common.S
 			d.end = d.begin
 			d.begin = old
 		}
-		if deps != nil {
+		if deps != nil && d.deps != nil {
 			for h, child := range deps.Items() {
 				d.deps.AddOrUpdate(h, child)
 			}
