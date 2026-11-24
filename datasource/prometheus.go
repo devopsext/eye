@@ -49,19 +49,19 @@ type PrometheusSeries = map[common.Stamp][]PrometheusSeriesValue
 type PrometheusSignalOptions struct {
 
 	// app related
-	AppQuery                 string
-	AppSignalCommonLabels    string
-	AppSignalInTrafficQuery  string
-	AppSignalInErrorsQuery   string
-	AppSignalInLatencyQuery  string
-	AppSignalOutTrafficQuery string
-	AppSignalOutErrorsQuery  string
-	AppSignalOutLatencyQuery string
-	AppSignalSaturationQuery string
+	AppQuery           string
+	AppCommonLabels    string
+	AppInTrafficQuery  string
+	AppInErrorsQuery   string
+	AppInLatencyQuery  string
+	AppOutTrafficQuery string
+	AppOutErrorsQuery  string
+	AppOutLatencyQuery string
+	AppSaturationQuery string
 	// host relates
-	HostQuery                 string
-	HostSignalCommonLabels    string
-	HostSignalSaturationQuery string
+	HostQuery           string
+	HostCommonLabels    string
+	HostSaturationQuery string
 }
 
 type PrometheusOptions struct {
@@ -1383,12 +1383,12 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 
 	p.info("Gathering signals (%s / %s) span=%s...", from, to, span)
 
-	appLabels := utils.MapGetKeyValuesEx(p.signalOptions.AppSignalCommonLabels, ";", "=")
+	appLabels := utils.MapGetKeyValuesEx(p.signalOptions.AppCommonLabels, ";", "=")
 
 	queries := make(map[common.SignalKind]string)
-	queries[common.SignalTraffic] = p.signalOptions.AppSignalInTrafficQuery
-	queries[common.SignalErrors] = p.signalOptions.AppSignalInErrorsQuery
-	queries[common.SignalLatency] = p.signalOptions.AppSignalInLatencyQuery
+	queries[common.SignalTraffic] = p.signalOptions.AppInTrafficQuery
+	queries[common.SignalErrors] = p.signalOptions.AppInErrorsQuery
+	queries[common.SignalLatency] = p.signalOptions.AppInLatencyQuery
 
 	series, err := p.gatherSignalsBySpan("apps incoming", data, queries, appLabels, from, to, span)
 	if err != nil {
@@ -1414,10 +1414,10 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 		})
 
 	queries = make(map[common.SignalKind]string)
-	queries[common.SignalTraffic] = p.signalOptions.AppSignalOutTrafficQuery
-	queries[common.SignalErrors] = p.signalOptions.AppSignalOutErrorsQuery
-	queries[common.SignalLatency] = p.signalOptions.AppSignalOutLatencyQuery
-	queries[common.SignalSaturation] = p.signalOptions.AppSignalSaturationQuery
+	queries[common.SignalTraffic] = p.signalOptions.AppOutTrafficQuery
+	queries[common.SignalErrors] = p.signalOptions.AppOutErrorsQuery
+	queries[common.SignalLatency] = p.signalOptions.AppOutLatencyQuery
+	queries[common.SignalSaturation] = p.signalOptions.AppSaturationQuery
 
 	series, err = p.gatherSignalsBySpan("apps outgoing & saturation", data, queries, appLabels, from, to, span)
 	if err != nil {
@@ -1444,10 +1444,10 @@ func (p *Prometheus) gatherSpans(data *PrometheusData, from, to time.Time, span 
 			}
 		})
 
-	hostLabels := utils.MapGetKeyValuesEx(p.signalOptions.HostSignalCommonLabels, ";", "=")
+	hostLabels := utils.MapGetKeyValuesEx(p.signalOptions.HostCommonLabels, ";", "=")
 
 	queries = make(map[common.SignalKind]string)
-	queries[common.SignalSaturation] = p.signalOptions.HostSignalSaturationQuery
+	queries[common.SignalSaturation] = p.signalOptions.HostSaturationQuery
 
 	series, err = p.gatherSignalsBySpan("hosts", data, queries, hostLabels, from, to, span)
 	if err != nil {

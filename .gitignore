@@ -32,4 +32,5 @@ heap.pprof
 .slack.tpl
 .generate
 .test
+.query
 prometheus.yml

@@ -468,15 +468,25 @@ func (fm *ForestModel) findHashes(names *common.Names, filter []string) []common
 			continue
 		}
 
-		hashes := names.FindByRegex(name)
-		if len(hashes) == 0 {
-			continue
-		}
-		for _, h := range hashes {
-			if utils.Contains(r, h) {
+		hash := names.FindByName(name)
+		if hash == common.Hash(0) {
+
+			hashes := names.FindByRegex(name)
+			if len(hashes) == 0 {
 				continue
 			}
-			r = append(r, h)
+			for _, h := range hashes {
+				if utils.Contains(r, h) {
+					continue
+				}
+				r = append(r, h)
+			}
+
+		} else {
+			if utils.Contains(r, hash) {
+				continue
+			}
+			r = append(r, hash)
 		}
 	}
 	return r
@@ -1216,11 +1226,11 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 		return als, err
 	}
 
-	ds := fm.detections.Items()
-	if len(ds) > 0 {
+	detected := fm.detections.Items()
+	if len(detected) > 0 {
 
 		names := data.Names()
-		for k, v := range ds {
+		for k, v := range detected {
 
 			n := names.FindByHash(k)
 			verdict := "none"
@@ -1241,8 +1251,10 @@ func (fm *ForestModel) Detect(data common.DataSourceData, onFrame common.ModelOn
 			fm.logger.Debug("%s: Found detection on %s %s%s: %s (%s / %s %s)", name, begin, n, deps, verdict, category, impact, score)
 		}
 	}
-	fm.detected.Store(int64(len(ds)))
-	fm.logger.Info("%s: Detecting finished found=%d in %s", name, fm.detections.Size(), time.Since(when))
+	detectLen := len(detected)
+	engineLen := fm.engines.Len()
+	fm.detected.Store(int64(detectLen))
+	fm.logger.Info("%s: Detecting finished detected=%d trained=%d in %s", name, detectLen, engineLen, time.Since(when))
 	return fm.detections.anomalies(), nil
 }
 

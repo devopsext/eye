@@ -30,23 +30,6 @@ var slackOptions = notifier.SlackOptions{
 	Concurrency: envGet("SLACK_CONCURRENCY", 5).(int),
 }
 
-var promSignalOptions = datasource.PrometheusSignalOptions{
-
-	AppQuery:                 envFileContentExpand("PROMETHEUS_APP_QUERY", ""),
-	AppSignalCommonLabels:    envStringExpand("PROMETHEUS_APP_SIGNAL_COMMON_LABELS", ""),
-	AppSignalInTrafficQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_TRAFFIC_QUERY", ""),
-	AppSignalInErrorsQuery:   envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_ERRORS_QUERY", ""),
-	AppSignalInLatencyQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_IN_LATENCY_QUERY", ""),
-	AppSignalOutTrafficQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_TRAFFIC_QUERY", ""),
-	AppSignalOutErrorsQuery:  envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_ERRORS_QUERY", ""),
-	AppSignalOutLatencyQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_OUT_LATENCY_QUERY", ""),
-	AppSignalSaturationQuery: envFileContentExpand("PROMETHEUS_APP_SIGNAL_SATURATION_QUERY", ""),
-
-	HostQuery:                 envFileContentExpand("PROMETHEUS_HOST_QUERY", ""),
-	HostSignalCommonLabels:    envStringExpand("PROMETHEUS_HOST_SIGNAL_COMMON_LABELS", ""),
-	HostSignalSaturationQuery: envFileContentExpand("PROMETHEUS_HOST_SIGNAL_SATURATION_QUERY", ""),
-}
-
 var promIssuesOptions = datasource.PrometheusIssuesOptions{
 	Name:     envGet("PROMETHEUS_ISSUES_NAME", "Issues").(string),
 	Schedule: envGet("PROMETHEUS_ISSUES_SCHEDULE", "").(string),
@@ -70,6 +53,23 @@ var promIssuesOptions = datasource.PrometheusIssuesOptions{
 	Preload:    envGet("PROMETHEUS_ISSUES_PRELOAD", false).(bool),
 }
 
+var promLongSignalOptions = datasource.PrometheusSignalOptions{
+
+	AppQuery:           envFileContentExpand("PROMETHEUS_LONG_APP_QUERY", ""),
+	AppCommonLabels:    envStringExpand("PROMETHEUS_LONG_APP_COMMON_LABELS", ""),
+	AppInTrafficQuery:  envFileContentExpand("PROMETHEUS_LONG_APP_IN_TRAFFIC_QUERY", ""),
+	AppInErrorsQuery:   envFileContentExpand("PROMETHEUS_LONG_APP_IN_ERRORS_QUERY", ""),
+	AppInLatencyQuery:  envFileContentExpand("PROMETHEUS_LONG_APP_IN_LATENCY_QUERY", ""),
+	AppOutTrafficQuery: envFileContentExpand("PROMETHEUS_LONG_APP_OUT_TRAFFIC_QUERY", ""),
+	AppOutErrorsQuery:  envFileContentExpand("PROMETHEUS_LONG_APP_OUT_ERRORS_QUERY", ""),
+	AppOutLatencyQuery: envFileContentExpand("PROMETHEUS_LONG_APP_OUT_LATENCY_QUERY", ""),
+	AppSaturationQuery: envFileContentExpand("PROMETHEUS_LONG_APP_SATURATION_QUERY", ""),
+
+	HostQuery:           envFileContentExpand("PROMETHEUS_LONG_HOST_QUERY", ""),
+	HostCommonLabels:    envStringExpand("PROMETHEUS_LONG_HOST_COMMON_LABELS", ""),
+	HostSaturationQuery: envFileContentExpand("PROMETHEUS_LONG_HOST_SATURATION_QUERY", ""),
+}
+
 var promLongOptions = datasource.PrometheusOptions{
 
 	Name:     envGet("PROMETHEUS_LONG_NAME", "Longterm").(string),
@@ -91,6 +91,23 @@ var promLongOptions = datasource.PrometheusOptions{
 	TimeFormat:  envGet("PROMETHEUS_LONG_TIME_FORMAT", time.DateTime).(string),
 	State:       envGet("PROMETHEUS_LONG_STATE", "").(string),
 	Interval:    envGet("PROMETHEUS_LONG_INTERVAL", "").(string),
+}
+
+var promShortSignalOptions = datasource.PrometheusSignalOptions{
+
+	AppQuery:           envFileContentExpand("PROMETHEUS_SHORT_APP_QUERY", ""),
+	AppCommonLabels:    envStringExpand("PROMETHEUS_SHORT_APP_COMMON_LABELS", ""),
+	AppInTrafficQuery:  envFileContentExpand("PROMETHEUS_SHORT_APP_IN_TRAFFIC_QUERY", ""),
+	AppInErrorsQuery:   envFileContentExpand("PROMETHEUS_SHORT_APP_IN_ERRORS_QUERY", ""),
+	AppInLatencyQuery:  envFileContentExpand("PROMETHEUS_SHORT_APP_IN_LATENCY_QUERY", ""),
+	AppOutTrafficQuery: envFileContentExpand("PROMETHEUS_SHORT_APP_OUT_TRAFFIC_QUERY", ""),
+	AppOutErrorsQuery:  envFileContentExpand("PROMETHEUS_SHORT_APP_OUT_ERRORS_QUERY", ""),
+	AppOutLatencyQuery: envFileContentExpand("PROMETHEUS_SHORT_APP_OUT_LATENCY_QUERY", ""),
+	AppSaturationQuery: envFileContentExpand("PROMETHEUS_SHORT_APP_SATURATION_QUERY", ""),
+
+	HostQuery:           envFileContentExpand("PROMETHEUS_SHORT_HOST_QUERY", ""),
+	HostCommonLabels:    envStringExpand("PROMETHEUS_SHORT_HOST_COMMON_LABELS", ""),
+	HostSaturationQuery: envFileContentExpand("PROMETHEUS_SHORT_HOST_SATURATION_QUERY", ""),
 }
 
 var promShortOptions = datasource.PrometheusOptions{
@@ -224,8 +241,8 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 
 			datasources := common.NewDataSources()
 			datasources.Add(issues)
-			datasources.Add(datasource.NewPrometheus(promLongOptions, promSignalOptions, obs, models.Train, generators.SetData))
-			datasources.Add(datasource.NewPrometheus(promShortOptions, promSignalOptions, obs, models.Detect))
+			datasources.Add(datasource.NewPrometheus(promLongOptions, promLongSignalOptions, obs, models.Train, generators.SetData))
+			datasources.Add(datasource.NewPrometheus(promShortOptions, promShortSignalOptions, obs, models.Detect))
 
 			schedules := common.NewSchedules()
 			schedules.AddDatasources(datasources)
@@ -261,19 +278,19 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&httpApplicationHandlerOptions.Page, "http-application-page", httpApplicationHandlerOptions.Page, "Http application handler page")
 	flags.StringVar(&httpInspectHandlerOptions.Path, "http-inspect-path", httpInspectHandlerOptions.Path, "Http inspect handler path")
 
-	// Prometheus signals
-	flags.StringVar(&promSignalOptions.AppQuery, "prometheus-app-query", promSignalOptions.AppQuery, "Prometheus app query")
-	flags.StringVar(&promSignalOptions.AppSignalCommonLabels, "prometheus-app-signal-common-labels", promSignalOptions.AppSignalCommonLabels, "Prometheus app common labels")
-	flags.StringVar(&promSignalOptions.AppSignalInTrafficQuery, "prometheus-app-signal-in-traffic-query", promSignalOptions.AppSignalInTrafficQuery, "Prometheus app incoming traffic query")
-	flags.StringVar(&promSignalOptions.AppSignalInErrorsQuery, "prometheus-app-signal-in-errors-query", promSignalOptions.AppSignalInErrorsQuery, "Prometheus app incoming errors query")
-	flags.StringVar(&promSignalOptions.AppSignalInLatencyQuery, "prometheus-app-signal-in-latency-query", promSignalOptions.AppSignalInLatencyQuery, "Prometheus app incoming latency query")
-	flags.StringVar(&promSignalOptions.AppSignalOutTrafficQuery, "prometheus-app-signal-out-traffic-query", promSignalOptions.AppSignalOutTrafficQuery, "Prometheus app outgoing traffic query")
-	flags.StringVar(&promSignalOptions.AppSignalOutErrorsQuery, "prometheus-app-signal-out-errors-query", promSignalOptions.AppSignalOutErrorsQuery, "Prometheus app outgoing errors query")
-	flags.StringVar(&promSignalOptions.AppSignalOutLatencyQuery, "prometheus-app-signal-out-latency-query", promSignalOptions.AppSignalOutLatencyQuery, "Prometheus app outgoing latency query")
-	flags.StringVar(&promSignalOptions.AppSignalSaturationQuery, "prometheus-app-signal-saturation-query", promSignalOptions.AppSignalSaturationQuery, "Prometheus app saturation query")
-	flags.StringVar(&promSignalOptions.HostQuery, "prometheus-host-query", promSignalOptions.HostQuery, "Prometheus host query")
-	flags.StringVar(&promSignalOptions.HostSignalCommonLabels, "prometheus-host-signal-common-labels", promSignalOptions.HostSignalCommonLabels, "Prometheus host common labels")
-	flags.StringVar(&promSignalOptions.HostSignalSaturationQuery, "prometheus-host-signal-saturation-query", promSignalOptions.HostSignalSaturationQuery, "Prometheus host saturation query")
+	// Prometheus long signals
+	flags.StringVar(&promLongSignalOptions.AppQuery, "prometheus-long-app-query", promLongSignalOptions.AppQuery, "Prometheus long app query")
+	flags.StringVar(&promLongSignalOptions.AppCommonLabels, "prometheus-long-app-common-labels", promLongSignalOptions.AppCommonLabels, "Prometheus long app common labels")
+	flags.StringVar(&promLongSignalOptions.AppInTrafficQuery, "prometheus-long-app-in-traffic-query", promLongSignalOptions.AppInTrafficQuery, "Prometheus long app incoming traffic query")
+	flags.StringVar(&promLongSignalOptions.AppInErrorsQuery, "prometheus-long-app-in-errors-query", promLongSignalOptions.AppInErrorsQuery, "Prometheus long app incoming errors query")
+	flags.StringVar(&promLongSignalOptions.AppInLatencyQuery, "prometheus-long-app-in-latency-query", promLongSignalOptions.AppInLatencyQuery, "Prometheus long app incoming latency query")
+	flags.StringVar(&promLongSignalOptions.AppOutTrafficQuery, "prometheus-long-app-out-traffic-query", promLongSignalOptions.AppOutTrafficQuery, "Prometheus long app outgoing traffic query")
+	flags.StringVar(&promLongSignalOptions.AppOutErrorsQuery, "prometheus-long-app-out-errors-query", promLongSignalOptions.AppOutErrorsQuery, "Prometheus long app outgoing errors query")
+	flags.StringVar(&promLongSignalOptions.AppOutLatencyQuery, "prometheus-long-app-out-latency-query", promLongSignalOptions.AppOutLatencyQuery, "Prometheus long app outgoing latency query")
+	flags.StringVar(&promLongSignalOptions.AppSaturationQuery, "prometheus-long-app-saturation-query", promLongSignalOptions.AppSaturationQuery, "Prometheus long app saturation query")
+	flags.StringVar(&promLongSignalOptions.HostQuery, "prometheus-long-host-query", promLongSignalOptions.HostQuery, "Prometheus long host query")
+	flags.StringVar(&promLongSignalOptions.HostCommonLabels, "prometheus-long-host-common-labels", promLongSignalOptions.HostCommonLabels, "Prometheus long host common labels")
+	flags.StringVar(&promLongSignalOptions.HostSaturationQuery, "prometheus-long-host-saturation-query", promLongSignalOptions.HostSaturationQuery, "Prometheus long host saturation query")
 	// Prometheus long term
 	flags.StringVar(&promLongOptions.Name, "prometheus-long-name", promLongOptions.Name, "Prometheus long term name")
 	flags.StringVar(&promLongOptions.Prometheus.URL, "prometheus-long-url", promLongOptions.Prometheus.URL, "Prometheus long term url")
@@ -291,6 +308,19 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.IntVar(&promLongOptions.Concurrency, "prometheus-long-concurrency", promLongOptions.Concurrency, "Prometheus long term concurrency")
 	flags.StringVar(&promLongOptions.TimeFormat, "prometheus-long-time-format", promLongOptions.TimeFormat, "Prometheus long term log time format")
 	flags.StringVar(&promLongOptions.State, "prometheus-long-state", promLongOptions.State, "Prometheus long term state")
+	// Prometheus short signals
+	flags.StringVar(&promShortSignalOptions.AppQuery, "prometheus-short-app-query", promShortSignalOptions.AppQuery, "Prometheus short app query")
+	flags.StringVar(&promShortSignalOptions.AppCommonLabels, "prometheus-short-app-common-labels", promShortSignalOptions.AppCommonLabels, "Prometheus short app common labels")
+	flags.StringVar(&promShortSignalOptions.AppInTrafficQuery, "prometheus-short-app-in-traffic-query", promShortSignalOptions.AppInTrafficQuery, "Prometheus short app incoming traffic query")
+	flags.StringVar(&promShortSignalOptions.AppInErrorsQuery, "prometheus-short-app-in-errors-query", promShortSignalOptions.AppInErrorsQuery, "Prometheus short app incoming errors query")
+	flags.StringVar(&promShortSignalOptions.AppInLatencyQuery, "prometheus-short-app-in-latency-query", promShortSignalOptions.AppInLatencyQuery, "Prometheus short app incoming latency query")
+	flags.StringVar(&promShortSignalOptions.AppOutTrafficQuery, "prometheus-short-app-out-traffic-query", promShortSignalOptions.AppOutTrafficQuery, "Prometheus short app outgoing traffic query")
+	flags.StringVar(&promShortSignalOptions.AppOutErrorsQuery, "prometheus-short-app-out-errors-query", promShortSignalOptions.AppOutErrorsQuery, "Prometheus short app outgoing errors query")
+	flags.StringVar(&promShortSignalOptions.AppOutLatencyQuery, "prometheus-short-app-out-latency-query", promShortSignalOptions.AppOutLatencyQuery, "Prometheus short app outgoing latency query")
+	flags.StringVar(&promShortSignalOptions.AppSaturationQuery, "prometheus-short-app-saturation-query", promShortSignalOptions.AppSaturationQuery, "Prometheus short app saturation query")
+	flags.StringVar(&promShortSignalOptions.HostQuery, "prometheus-short-host-query", promShortSignalOptions.HostQuery, "Prometheus short host query")
+	flags.StringVar(&promShortSignalOptions.HostCommonLabels, "prometheus-short-host-common-labels", promShortSignalOptions.HostCommonLabels, "Prometheus short host common labels")
+	flags.StringVar(&promShortSignalOptions.HostSaturationQuery, "prometheus-short-host-saturation-query", promShortSignalOptions.HostSaturationQuery, "Prometheus short host saturation query")
 	// Prometheus short term
 	flags.StringVar(&promShortOptions.Name, "prometheus-short-name", promShortOptions.Name, "Prometheus short term name")
 	flags.StringVar(&promShortOptions.Prometheus.URL, "prometheus-short-url", promShortOptions.Prometheus.URL, "Prometheus short term url")
