@@ -152,6 +152,7 @@ var forestModelOptions = model.ForestModelOptions{
 	Enabled:             envGet("FOREST_MODEL_ENABLED", false).(bool),
 	Concurrency:         envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
 	Filter:              strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
+	Dimensions:          strings.Split(envStringExpand("FOREST_MODEL_DIMENSIONS", ""), ","),
 	EngineTTL:           envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
 	DetectionTTL:        envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
 	DetectionMass:       envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
@@ -344,6 +345,7 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	// Forest model
 	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
 	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")
+	flags.StringSliceVar(&forestModelOptions.Dimensions, "forest-model-dimensions", forestModelOptions.Dimensions, "Forest model dimensions")
 	flags.StringVar(&forestModelOptions.EngineTTL, "forest-model-engine-ttl", forestModelOptions.EngineTTL, "Forest model engine ttl")
 	flags.StringVar(&forestModelOptions.DetectionTTL, "forest-model-detection-ttl", forestModelOptions.DetectionTTL, "Forest model detection ttl")
 	flags.Float64Var(&forestModelOptions.DetectionMass, "forest-model-detection-mass", forestModelOptions.DetectionMass, "Forest model detection mass threshold")

@@ -665,7 +665,7 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 		if utils.IsEmpty(name) {
 			continue
 		}
-		nameOn := dr.Labels[common.HostOn]
+		nameOn := dr.Labels[common.HostServer]
 		findOn := !utils.IsEmpty(nameOn)
 
 		for _, v := range dr.Values {
@@ -685,7 +685,7 @@ func (p *Prometheus) loadHosts(data *PrometheusData, q string, from, to time.Tim
 
 					lbs := maps.Clone(hostLbs)
 					lbs[common.HostName] = nameOn
-					delete(lbs, common.HostOn)
+					delete(lbs, common.HostServer)
 
 					// delete all key apart from name
 					for k := range maps.Keys(hostLbs) {

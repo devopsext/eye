@@ -24,6 +24,7 @@ type ForestModelOptions struct {
 	Enabled     bool
 	Concurrency int
 	Filter      []string // filter by apps and hosts
+	Dimensions  []string
 
 	EngineTTL string
 
@@ -518,7 +519,7 @@ func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
 
 			as := signal.AsApplicationSignal()
 			if as != nil {
-				frame := forest.NewApplicationFrame(stamp, as)
+				frame := forest.NewApplicationFrame(stamp, as, "some")
 				if frame != nil && frame.Valid() {
 					appFrames[hash] = append(appFrames[hash], frame)
 				}

@@ -80,9 +80,10 @@ type ApplicationFramePoints struct {
 
 type ApplicationFrame struct {
 	//
-	name  string
-	hash  common.Hash
-	hosts []common.Hash
+	name      string
+	dimension string
+	hash      common.Hash
+	hosts     []common.Hash
 	//
 	stamp common.Stamp
 	begin common.Stamp
@@ -967,7 +968,7 @@ func (af *ApplicationFrame) Name() string {
 	return af.name
 }
 
-func NewApplicationFrame(stamp common.Stamp, signal *common.ApplicationSignal) *ApplicationFrame {
+func NewApplicationFrame(stamp common.Stamp, signal *common.ApplicationSignal, dimension string) *ApplicationFrame {
 
 	r := &ApplicationFrame{
 		//

@@ -24,8 +24,11 @@ const (
 )
 
 const (
-	HostName = "name"
-	HostOn   = "server"
+	HostName    = "host"
+	HostServer  = "server"
+	HostRack    = "rack"
+	HostCluster = "cluster"
+	HostSite    = "site"
 )
 
 type Hash = uint32
@@ -53,7 +56,7 @@ type Hosts struct {
 }
 
 const (
-	ApplicationName = "name"
+	ApplicationName = "application"
 )
 
 type Application struct {
