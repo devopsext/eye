@@ -933,6 +933,15 @@ func (h *Host) Labels(attributes *Attributes) Labels {
 	return lbs
 }
 
+func (h *Host) LabelValue(attributes *Attributes, label string) string {
+
+	lbs := h.Labels(attributes)
+	if lbs == nil {
+		return ""
+	}
+	return lbs[label]
+}
+
 func (h *Host) Name(names *Names) string {
 
 	lbs := names
@@ -1398,15 +1407,19 @@ func (as *ApplicationSignal) Backends() []Hash {
 	return Unique(hashes)
 }
 
-func (as *ApplicationSignal) traffic(callback func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic) map[TrafficKind]*Traffic {
+func (as *ApplicationSignal) traffic(hosts []Hash, callback func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic) map[TrafficKind]*Traffic {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	values := make(map[TrafficKind][]Traffic)
-	for _, ahs := range as.hostSignals {
+	for hash, ahs := range as.hostSignals {
 
 		if ahs == nil {
+			continue
+		}
+
+		if len(hosts) > 0 && !utils.Contains(hosts, hash) {
 			continue
 		}
 
@@ -1437,43 +1450,47 @@ func (as *ApplicationSignal) traffic(callback func(ahs *ApplicationHostSignals) 
 	return r
 }
 
-func (as *ApplicationSignal) IncomingRequests() map[TrafficKind]*Traffic {
+func (as *ApplicationSignal) IncomingRequests(hosts []Hash) map[TrafficKind]*Traffic {
 
-	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+	return as.traffic(hosts, func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
 		return ahs.IncomingTraffic.RequestsAvg()
 	})
 }
 
-func (as *ApplicationSignal) OutgoingRequests() map[TrafficKind]*Traffic {
+func (as *ApplicationSignal) OutgoingRequests(hosts []Hash) map[TrafficKind]*Traffic {
 
-	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+	return as.traffic(hosts, func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
 		return ahs.OutgoingTraffic.RequestsAvg()
 	})
 }
 
-func (as *ApplicationSignal) IncomingThroughput() map[TrafficKind]*Traffic {
+func (as *ApplicationSignal) IncomingThroughput(hosts []Hash) map[TrafficKind]*Traffic {
 
-	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+	return as.traffic(hosts, func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
 		return ahs.IncomingTraffic.ThroughputAvg()
 	})
 }
 
-func (as *ApplicationSignal) OutgoingThroughput() map[TrafficKind]*Traffic {
+func (as *ApplicationSignal) OutgoingThroughput(hosts []Hash) map[TrafficKind]*Traffic {
 
-	return as.traffic(func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
+	return as.traffic(hosts, func(ahs *ApplicationHostSignals) map[TrafficKind]*Traffic {
 		return ahs.OutgoingTraffic.ThroughputAvg()
 	})
 }
 
-func (as *ApplicationSignal) latency(callback func(ahs *ApplicationHostSignals) *Latency) *Latency {
+func (as *ApplicationSignal) latency(hosts []Hash, callback func(ahs *ApplicationHostSignals) *Latency) *Latency {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	values := []Latency{}
-	for _, ahs := range as.hostSignals {
+	for hash, ahs := range as.hostSignals {
 
 		if ahs == nil {
+			continue
+		}
+
+		if len(hosts) > 0 && !utils.Contains(hosts, hash) {
 			continue
 		}
 
@@ -1490,29 +1507,33 @@ func (as *ApplicationSignal) latency(callback func(ahs *ApplicationHostSignals) 
 	return &avg
 }
 
-func (as *ApplicationSignal) IncomingLatency() *Latency {
+func (as *ApplicationSignal) IncomingLatency(hosts []Hash) *Latency {
 
-	return as.latency(func(ahs *ApplicationHostSignals) *Latency {
+	return as.latency(hosts, func(ahs *ApplicationHostSignals) *Latency {
 		return ahs.IncomingLatency.Avg()
 	})
 }
 
-func (as *ApplicationSignal) OutgoingLatency() *Latency {
+func (as *ApplicationSignal) OutgoingLatency(hosts []Hash) *Latency {
 
-	return as.latency(func(ahs *ApplicationHostSignals) *Latency {
+	return as.latency(hosts, func(ahs *ApplicationHostSignals) *Latency {
 		return ahs.OutgoingLatency.Avg()
 	})
 }
 
-func (as *ApplicationSignal) errors(callback func(ahs *ApplicationHostSignals) *Errors) *Errors {
+func (as *ApplicationSignal) errors(hosts []Hash, callback func(ahs *ApplicationHostSignals) *Errors) *Errors {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	values := []Errors{}
-	for _, ahs := range as.hostSignals {
+	for hash, ahs := range as.hostSignals {
 
 		if ahs == nil {
+			continue
+		}
+
+		if len(hosts) > 0 && !utils.Contains(hosts, hash) {
 			continue
 		}
 
@@ -1529,29 +1550,33 @@ func (as *ApplicationSignal) errors(callback func(ahs *ApplicationHostSignals) *
 	return &sum
 }
 
-func (as *ApplicationSignal) IncomingErrors() *Errors {
+func (as *ApplicationSignal) IncomingErrors(hosts []Hash) *Errors {
 
-	return as.errors(func(ahs *ApplicationHostSignals) *Errors {
+	return as.errors(hosts, func(ahs *ApplicationHostSignals) *Errors {
 		return ahs.IncomingErrors.Sum()
 	})
 }
 
-func (as *ApplicationSignal) OutgoingErrors() *Errors {
+func (as *ApplicationSignal) OutgoingErrors(hosts []Hash) *Errors {
 
-	return as.errors(func(ahs *ApplicationHostSignals) *Errors {
+	return as.errors(hosts, func(ahs *ApplicationHostSignals) *Errors {
 		return ahs.OutgoingErrors.Sum()
 	})
 }
 
-func (as *ApplicationSignal) saturation(callback func(ahs *ApplicationHostSignals) *Saturation) *Saturation {
+func (as *ApplicationSignal) saturation(hosts []Hash, callback func(ahs *ApplicationHostSignals) *Saturation) *Saturation {
 
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	values := []Errors{}
-	for _, ahs := range as.hostSignals {
+	for hash, ahs := range as.hostSignals {
 
 		if ahs == nil {
+			continue
+		}
+
+		if len(hosts) > 0 && !utils.Contains(hosts, hash) {
 			continue
 		}
 
@@ -1568,16 +1593,16 @@ func (as *ApplicationSignal) saturation(callback func(ahs *ApplicationHostSignal
 	return &max
 }
 
-func (as *ApplicationSignal) SaturationCPU() *Saturation {
+func (as *ApplicationSignal) SaturationCPU(hosts []Hash) *Saturation {
 
-	return as.saturation(func(ahs *ApplicationHostSignals) *Saturation {
+	return as.saturation(hosts, func(ahs *ApplicationHostSignals) *Saturation {
 		return ahs.Saturation.CPUMax()
 	})
 }
 
-func (as *ApplicationSignal) SaturationMemory() *Saturation {
+func (as *ApplicationSignal) SaturationMemory(hosts []Hash) *Saturation {
 
-	return as.saturation(func(ahs *ApplicationHostSignals) *Saturation {
+	return as.saturation(hosts, func(ahs *ApplicationHostSignals) *Saturation {
 		return ahs.Saturation.MemoryMax()
 	})
 }

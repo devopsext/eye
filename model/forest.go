@@ -104,6 +104,7 @@ const (
 	ForestModelTreesNumber   = 100
 	ForestModelSubsampleSize = 256
 	ForestModelOutlierRatio  = 0.01
+	ForestModelDimensionAll  = "all"
 )
 
 type ForestModelFileData struct {
@@ -494,15 +495,104 @@ func (fm *ForestModel) findHashes(names *common.Names, filter []string) []common
 }
 
 func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
-	appFrames map[common.Hash]forest.ApplicationFrames, hostFrames map[common.Hash]forest.HostFrames,
+	appFrames map[string]map[string]map[common.Hash][]*forest.ApplicationFrame, hostFrames map[common.Hash]forest.HostFrames,
 	skipIssues bool) {
 
+	names := data.Names()
+	hosts := data.Hosts()
+	attributes := data.Attributes()
 	measurements := data.Measurements()
 	filterExists := len(filter) > 0
 
 	var issues common.DataSourceIssues
 	if !skipIssues {
 		issues = fm.issues.Reduce(filter, data.Names(), data.Limits())
+	}
+
+	addHostFrame := func(name string, hash common.Hash, stamp common.Stamp, hs *common.HostSignal) {
+
+		frame := forest.NewHostFrame(name, stamp, hs)
+		if frame != nil && frame.Valid() {
+			hostFrames[hash] = append(hostFrames[hash], frame)
+		}
+	}
+
+	addAppFrame := func(name string, hash common.Hash, stamp common.Stamp, as *common.ApplicationSignal, kind, dimension string, hosts []common.Hash) {
+
+		frame := forest.NewApplicationFrame(name, stamp, as, kind, dimension, hosts)
+		if frame != nil && frame.Valid() {
+
+			dims, ok := appFrames[kind]
+			if !ok {
+				dims = make(map[string]map[common.Hash][]*forest.ApplicationFrame)
+				frames := make(map[common.Hash][]*forest.ApplicationFrame)
+				frames[hash] = []*forest.ApplicationFrame{frame}
+				dims[dimension] = frames
+			} else {
+				frames, ok := dims[dimension]
+				if !ok {
+					frames = make(map[common.Hash][]*forest.ApplicationFrame)
+					frames[hash] = []*forest.ApplicationFrame{frame}
+				} else {
+					arr, ok := frames[hash]
+					if !ok {
+						arr = []*forest.ApplicationFrame{}
+					}
+					arr = append(arr, frame)
+					frames[hash] = arr
+				}
+				dims[dimension] = frames
+			}
+			appFrames[kind] = dims
+		}
+	}
+
+	hostsByDimension := func(stamp common.Stamp, hashes []common.Hash, dimension string) map[string][]common.Hash {
+
+		m := make(map[string][]common.Hash)
+
+		for _, hash := range hashes {
+
+			host := hosts.Find(stamp, hash)
+			if host == nil {
+				continue
+			}
+
+			value := host.LabelValue(attributes, dimension)
+			if utils.IsEmpty(value) {
+				continue
+			}
+
+			arr, ok := m[value]
+			if !ok {
+				arr = []common.Hash{}
+			}
+			if !utils.Contains(arr, hash) {
+				arr = append(arr, hash)
+			}
+			m[value] = arr
+		}
+		return m
+	}
+
+	processAppSignal := func(name string, hash common.Hash, stamp common.Stamp, as *common.ApplicationSignal) {
+
+		hashes := as.Hosts()
+
+		if len(fm.options.Dimensions) == 0 {
+			addAppFrame(name, hash, stamp, as, ForestModelDimensionAll, "", hashes)
+			return
+		}
+
+		for _, kind := range fm.options.Dimensions {
+			if utils.IsEmpty(kind) {
+				continue
+			}
+			m := hostsByDimension(stamp, hashes, kind)
+			for dim, hsts := range m {
+				addAppFrame(name, hash, stamp, as, kind, dim, hsts)
+			}
+		}
 	}
 
 	for hash, signals := range measurements.Items() {
@@ -517,56 +607,50 @@ func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
 				continue
 			}
 
-			as := signal.AsApplicationSignal()
-			if as != nil {
-				frame := forest.NewApplicationFrame(stamp, as, "some")
-				if frame != nil && frame.Valid() {
-					appFrames[hash] = append(appFrames[hash], frame)
-				}
-			}
-
 			hs := signal.AsHostSignal()
 			if hs != nil {
-				frame := forest.NewHostFrame(stamp, hs)
-				if frame != nil && frame.Valid() {
-					hostFrames[hash] = append(hostFrames[hash], frame)
-				}
+				name := names.FindByHash(hash)
+				addHostFrame(name, hash, stamp, hs)
+			}
+
+			as := signal.AsApplicationSignal()
+			if as != nil {
+				name := names.FindByHash(hash)
+				processAppSignal(name, hash, stamp, as)
 			}
 		}
 	}
 }
 
-func (fm *ForestModel) appTrain(data common.DataSourceData, hash common.Hash, frames forest.ApplicationFrames) error {
+func (fm *ForestModel) appTrain(data common.DataSourceData, ident string, hash common.Hash, frames []*forest.ApplicationFrame) error {
 
-	name := data.Names().FindByHash(hash)
-	engine := forest.NewApplicationEngine(name, hash, &fm.options.ApplicationOptions, fm.observability)
+	engine := forest.NewApplicationEngine(ident, hash, &fm.options.ApplicationOptions, fm.observability)
 	err := engine.LoadData()
 	if err != nil {
-		fm.logger.Error("%s: App load data %s (%d) error: %s", fm.Name(), name, hash, err)
+		fm.logger.Error("%s: App load data %s (%d) error: %s", fm.Name(), ident, hash, err)
 		return err
 	}
 	err = engine.Train(frames, data.Limits())
 	if err != nil {
-		fm.logger.Error("%s: App train %s (%d) error: %s", fm.Name(), name, hash, err)
+		fm.logger.Error("%s: App train %s (%d) error: %s", fm.Name(), ident, hash, err)
 		return err
 	}
 	err = engine.Save()
 	if err != nil {
-		fm.logger.Error("%s: App save %s (%d) error: %s", fm.Name(), name, hash, err)
+		fm.logger.Error("%s: App save %s (%d) error: %s", fm.Name(), ident, hash, err)
 		return err
 	}
 	fm.trains.Delete(hash)
 	if engine.Ready() {
 		fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
 	} else {
-		fm.logger.Debug("%s: App not ready %s (%d)", fm.Name(), name, hash)
+		fm.logger.Debug("%s: App not ready %s (%d)", fm.Name(), ident, hash)
 	}
 	return nil
 }
 
-func (fm *ForestModel) hostTrain(data common.DataSourceData, hash common.Hash, frames forest.HostFrames) error {
+func (fm *ForestModel) hostTrain(data common.DataSourceData, name string, hash common.Hash, frames forest.HostFrames) error {
 
-	name := data.Names().FindByHash(hash)
 	engine := forest.NewHostEngine(name, hash, &fm.options.HostOptions, fm.observability)
 	err := engine.LoadData()
 	if err != nil {
@@ -598,7 +682,7 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 
 	names := data.Names()
 	hashes := fm.findHashes(data.Names(), fm.options.Filter)
-	appFrames := make(map[common.Hash]forest.ApplicationFrames)
+	appFrames := make(map[string]map[string]map[common.Hash][]*forest.ApplicationFrame)
 	hostFrames := make(map[common.Hash]forest.HostFrames)
 
 	fm.prepare(data, hashes, appFrames, hostFrames, false)
@@ -618,17 +702,16 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 		gr.Go(func() error {
 
 			name := names.FindByHash(hash)
-			fm.logger.Debug("%s: Host training %s (%d)", fm.Name(), name, hash)
 
 			// check existence
 			if _, exists := fm.trains.LoadOrStore(hash, true); exists {
-				fm.logger.Debug("%s: Host training found %s (%d). Skipped", fm.Name(), name, hash)
+				fm.logger.Debug("%s: Host training exists %s (%d). Skipped", fm.Name(), name, hash)
 				return nil
 			}
 
 			when := time.Now()
 
-			err := fm.hostTrain(data, hash, frames)
+			err := fm.hostTrain(data, name, hash, frames)
 			if err != nil {
 				errs <- err
 			}
@@ -638,28 +721,33 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 	}
 
 	// run apps engine
-	for hash, frames := range appFrames {
+	for kind, dims := range appFrames {
+		for dim, hashes := range dims {
+			for hash, frames := range hashes {
 
-		gr.Go(func() error {
+				gr.Go(func() error {
 
-			name := names.FindByHash(hash)
-			fm.logger.Debug("%s: App training %s (%d)", fm.Name(), name, hash)
+					name := names.FindByHash(hash)
+					ident := fmt.Sprintf("%s/%s/%s", kind, dim, name)
+					hash := common.String2Hash32(ident)
 
-			// check existence
-			if _, exists := fm.trains.LoadOrStore(hash, true); exists {
-				fm.logger.Debug("%s: App training found %s (%d). Skipped", fm.Name(), name, hash)
-				return nil
+					// check existence
+					if _, exists := fm.trains.LoadOrStore(hash, true); exists {
+						fm.logger.Debug("%s: App training exists %s (%d). Skipped", fm.Name(), ident, hash)
+						return nil
+					}
+
+					when := time.Now()
+
+					err := fm.appTrain(data, ident, hash, frames)
+					if err != nil {
+						errs <- err
+					}
+					fm.logger.Debug("%s: App training %s (%d) spent %s", fm.Name(), ident, hash, time.Since(when))
+					return nil
+				})
 			}
-
-			when := time.Now()
-
-			err := fm.appTrain(data, hash, frames)
-			if err != nil {
-				errs <- err
-			}
-			fm.logger.Debug("%s: App training %s (%d) spent %s", fm.Name(), name, hash, time.Since(when))
-			return nil
-		})
+		}
 	}
 
 	gr.Wait()
@@ -976,7 +1064,7 @@ func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, 
 	return verdictFrame, nil
 }
 
-func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, appFrames forest.ApplicationFrames, verdictFrames *sync.Map) (*ForestModelApplicationFrame, error) {
+func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, appFrames []*forest.ApplicationFrame, verdictFrames *sync.Map) (*ForestModelApplicationFrame, error) {
 
 	name := data.Names().FindByHash(hash)
 
@@ -1058,7 +1146,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 	names := data.Names()
 
 	hashes := fm.findHashes(data.Names(), fm.options.Filter)
-	appFrames := make(map[common.Hash]forest.ApplicationFrames)
+	appFrames := make(map[string]map[string]map[common.Hash][]*forest.ApplicationFrame)
 	hostFrames := make(map[common.Hash]forest.HostFrames)
 
 	fm.prepare(data, hashes, appFrames, hostFrames, true)
@@ -1108,37 +1196,78 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 	gr.Wait()
 
 	// run apps engine
-	for hash, frames := range appFrames {
+	for kind, dims := range appFrames {
+		for dim, hashes := range dims {
+			for hash, frames := range hashes {
 
-		gr.Go(func() error {
+				gr.Go(func() error {
 
-			name := names.FindByHash(hash)
-			fm.logger.Debug("%s: App detecting %s (%d)", fm.Name(), name, hash)
+					name := names.FindByHash(hash)
+					ident := fmt.Sprintf("%s/%s/%s", kind, dim, name)
+					hash := common.String2Hash32(ident)
 
-			// check existence
-			if _, ok := fm.trains.Load(hash); ok {
-				fm.logger.Debug("%s: App training found %s (%d). Skipped", fm.Name(), name, hash)
-				return nil
+					fm.logger.Debug("%s: App detecting %s (%d)", fm.Name(), ident, hash)
+
+					// check existence
+					if _, ok := fm.trains.Load(hash); ok {
+						fm.logger.Debug("%s: App training found %s (%d). Skipped", fm.Name(), ident, hash)
+						return nil
+					}
+
+					when := time.Now()
+
+					verdictFrame, err := fm.appDetect(data, hash, frames, verdictFrames)
+					if err != nil {
+						errs <- err
+						return nil
+					}
+
+					if verdictFrame != nil {
+						verdictFrames.Store(hash, verdictFrame)
+						if onFrame != nil && verdictFrame.points != nil {
+							go onFrame(verdictFrame)
+						}
+					}
+					fm.logger.Debug("%s: App detecting %s (%d) spent %s", fm.Name(), ident, hash, time.Since(when))
+					return nil
+				})
 			}
-
-			when := time.Now()
-
-			verdictFrame, err := fm.appDetect(data, hash, frames, verdictFrames)
-			if err != nil {
-				errs <- err
-				return nil
-			}
-
-			if verdictFrame != nil {
-				verdictFrames.Store(hash, verdictFrame)
-				if onFrame != nil && verdictFrame.points != nil {
-					go onFrame(verdictFrame)
-				}
-			}
-			fm.logger.Debug("%s: App detecting %s (%d) spent %s", fm.Name(), name, hash, time.Since(when))
-			return nil
-		})
+		}
 	}
+	/*
+		// run apps engine
+		for hash, frames := range appFrames {
+
+			gr.Go(func() error {
+
+				name := names.FindByHash(hash)
+				fm.logger.Debug("%s: App detecting %s (%d)", fm.Name(), name, hash)
+
+				// check existence
+				if _, ok := fm.trains.Load(hash); ok {
+					fm.logger.Debug("%s: App training found %s (%d). Skipped", fm.Name(), name, hash)
+					return nil
+				}
+
+				when := time.Now()
+
+				verdictFrame, err := fm.appDetect(data, hash, frames, verdictFrames)
+				if err != nil {
+					errs <- err
+					return nil
+				}
+
+				if verdictFrame != nil {
+					verdictFrames.Store(hash, verdictFrame)
+					if onFrame != nil && verdictFrame.points != nil {
+						go onFrame(verdictFrame)
+					}
+				}
+				fm.logger.Debug("%s: App detecting %s (%d) spent %s", fm.Name(), name, hash, time.Since(when))
+				return nil
+			})
+		}
+	*/
 
 	gr.Wait()
 	close(errs)
@@ -1278,6 +1407,9 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 	if len(impacts) == 0 {
 		impacts = common.AllCaseImpacts()
 	}
+
+	options.Filter = common.RemoveEmptyStrings(options.Filter)
+	options.Dimensions = common.RemoveEmptyStrings(options.Dimensions)
 
 	return &ForestModel{
 		options:       options,

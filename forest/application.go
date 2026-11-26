@@ -55,8 +55,6 @@ type ApplicationLatencyValue *common.Latency
 type ApplicationErrorsValue *common.Errors
 type ApplicationSaturationValue *common.Saturation
 
-type ApplicationFrames []*ApplicationFrame
-
 type ApplicationFramePoint struct {
 	timestamp time.Time
 	value     float64
@@ -80,9 +78,11 @@ type ApplicationFramePoints struct {
 
 type ApplicationFrame struct {
 	//
-	name      string
+	name string
+	hash common.Hash
+	//
+	kind      string
 	dimension string
-	hash      common.Hash
 	hosts     []common.Hash
 	//
 	stamp common.Stamp
@@ -165,7 +165,7 @@ type ApplicationEngineFileSaturation struct {
 }
 
 type ApplicationEngineFileV001 struct {
-	Name       string
+	Ident      string
 	Hash       common.Hash
 	Stamps     []common.Stamp
 	Minutes    []int
@@ -175,7 +175,7 @@ type ApplicationEngineFileV001 struct {
 }
 
 type ApplicationEngine struct {
-	name    string
+	ident   string
 	hash    common.Hash
 	options *ApplicationEngineOptions
 
@@ -968,29 +968,32 @@ func (af *ApplicationFrame) Name() string {
 	return af.name
 }
 
-func NewApplicationFrame(stamp common.Stamp, signal *common.ApplicationSignal, dimension string) *ApplicationFrame {
+func NewApplicationFrame(name string, stamp common.Stamp, signal *common.ApplicationSignal, kind, dimension string, hosts []common.Hash) *ApplicationFrame {
 
 	r := &ApplicationFrame{
 		//
-		hash:  signal.Hash(),
-		hosts: signal.Hosts(),
+		name:      name,
+		hash:      signal.Hash(),
+		kind:      kind,
+		dimension: dimension,
+		hosts:     hosts,
 		//
 		stamp: stamp,
 		begin: stamp,
 		end:   stamp,
 		//
-		inRequests:   signal.IncomingRequests(),
-		inThroughput: signal.IncomingThroughput(),
-		inLatency:    signal.IncomingLatency(),
-		inErrors:     signal.IncomingErrors(),
+		inRequests:   signal.IncomingRequests(hosts),
+		inThroughput: signal.IncomingThroughput(hosts),
+		inLatency:    signal.IncomingLatency(hosts),
+		inErrors:     signal.IncomingErrors(hosts),
 		//
-		appCPU: signal.SaturationCPU(),
-		appMem: signal.SaturationMemory(),
+		appCPU: signal.SaturationCPU(hosts),
+		appMem: signal.SaturationMemory(hosts),
 		//
-		outRequests:   signal.OutgoingRequests(),
-		outThroughput: signal.OutgoingThroughput(),
-		outLatency:    signal.OutgoingLatency(),
-		outErrors:     signal.OutgoingErrors(),
+		outRequests:   signal.OutgoingRequests(hosts),
+		outThroughput: signal.OutgoingThroughput(hosts),
+		outLatency:    signal.OutgoingLatency(hosts),
+		outErrors:     signal.OutgoingErrors(hosts),
 	}
 	return r
 }
@@ -1642,7 +1645,7 @@ func (ae *ApplicationEngine) splitTimesData(from, first, last common.Stamp) (tL,
 	return tL, tR, inL, satL, outL, inR, satR, outR
 }
 
-func (ae *ApplicationEngine) Train(frames ApplicationFrames, limits common.DataSourceDataLimits) error {
+func (ae *ApplicationEngine) Train(frames []*ApplicationFrame, limits common.DataSourceDataLimits) error {
 
 	if len(frames) == 0 {
 		return nil
@@ -1763,7 +1766,7 @@ func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, kinds []Applicatio
 		return err
 	}
 
-	ae.name = engineFile.Name
+	ae.ident = engineFile.Ident
 	ae.hash = engineFile.Hash
 	ae.stamps = engineFile.Stamps
 	ae.minutes = engineFile.Minutes
@@ -1802,8 +1805,7 @@ func (ae *ApplicationEngine) decodeV001(decoder *gob.Decoder, kinds []Applicatio
 
 func (ae *ApplicationEngine) load(kinds []ApplicationEngineFileLoadKind) error {
 
-	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.name))
-
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.ident))
 	if !utils.FileExists(fpath) {
 		return nil
 	}
@@ -1840,12 +1842,12 @@ func (ae *ApplicationEngine) LoadForest() error {
 
 func (ae *ApplicationEngine) Save() error {
 
-	optPath := ae.options.Path
-	if !utils.DirExists(optPath) {
-		os.MkdirAll(optPath, os.ModePerm)
-	}
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.ident))
 
-	fpath := filepath.Join(optPath, fmt.Sprintf("%s.data", ae.name))
+	dpath := filepath.Dir(fpath)
+	if !utils.DirExists(dpath) {
+		os.MkdirAll(dpath, os.ModePerm)
+	}
 
 	f, err := os.Create(fpath)
 	if err != nil {
@@ -1863,7 +1865,7 @@ func (ae *ApplicationEngine) Save() error {
 	}
 
 	engineFile := ApplicationEngineFileV001{
-		Name:    ae.name,
+		Ident:   ae.ident,
 		Hash:    ae.hash,
 		Stamps:  ae.stamps,
 		Minutes: ae.minutes,
@@ -2015,7 +2017,7 @@ func (ae *ApplicationEngine) predict(frame *ApplicationFrame) (*ApplicationFrame
 	return &points, pattern
 }
 
-func (ae *ApplicationEngine) aggregateFrames(frames ApplicationFrames) ApplicationFrame {
+func (ae *ApplicationEngine) aggregateFrames(frames []*ApplicationFrame) ApplicationFrame {
 
 	sumTraffic := func(values, sum ApplicationTrafficValues, count map[common.TrafficKind]int) {
 
@@ -2207,7 +2209,7 @@ func (ae *ApplicationEngine) Exists(stamp common.Stamp) bool {
 	return false
 }
 
-func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationFrame {
+func (ae *ApplicationEngine) Consolidate(frames []*ApplicationFrame) *ApplicationFrame {
 
 	if len(frames) == 0 {
 		return nil
@@ -2226,7 +2228,7 @@ func (ae *ApplicationEngine) Consolidate(frames ApplicationFrames) *ApplicationF
 
 	frame := ae.aggregateFrames(frames)
 
-	frame.name = ae.name
+	//frame.ident = ae.name
 	frame.hash = ae.hash
 
 	// consolidate hosts
@@ -2264,7 +2266,7 @@ func (ae *ApplicationEngine) Diagnose(frame *ApplicationFrame, cases *Applicatio
 	return points, verdict
 }
 
-func NewApplicationEngine(name string, hash common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
+func NewApplicationEngine(ident string, hash common.Hash, options *ApplicationEngineOptions, observability *common.Observability) *ApplicationEngine {
 
 	profileKind := common.StringToProfileKind(options.ProfileKind)
 
@@ -2280,7 +2282,7 @@ func NewApplicationEngine(name string, hash common.Hash, options *ApplicationEng
 
 		logger: observability.Logs(),
 
-		name:    name,
+		ident:   ident,
 		hash:    hash,
 		options: options,
 

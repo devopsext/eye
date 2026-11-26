@@ -118,7 +118,7 @@ type HostEngineFileSaturation struct {
 }
 
 type HostEngineFileV001 struct {
-	Name       string
+	Ident      string
 	Hash       common.Hash
 	Stamps     []common.Stamp
 	Minutes    []int
@@ -126,7 +126,7 @@ type HostEngineFileV001 struct {
 }
 
 type HostEngine struct {
-	name    string
+	ident   string
 	hash    common.Hash
 	options *HostEngineOptions
 
@@ -368,9 +368,10 @@ func (af *HostFrame) Name() string {
 	return af.name
 }
 
-func NewHostFrame(stamp common.Stamp, signal *common.HostSignal) *HostFrame {
+func NewHostFrame(name string, stamp common.Stamp, signal *common.HostSignal) *HostFrame {
 
 	r := &HostFrame{
+		name: name,
 		hash: signal.Hash(),
 		//
 		stamp: stamp,
@@ -832,7 +833,7 @@ func (ae *HostEngine) decodeV001(decoder *gob.Decoder, kinds []HostEngineFileLoa
 		return err
 	}
 
-	ae.name = engineFile.Name
+	ae.ident = engineFile.Ident
 	ae.hash = engineFile.Hash
 	ae.stamps = engineFile.Stamps
 	ae.minutes = engineFile.Minutes
@@ -856,8 +857,7 @@ func (ae *HostEngine) decodeV001(decoder *gob.Decoder, kinds []HostEngineFileLoa
 
 func (ae *HostEngine) load(kinds []HostEngineFileLoadKind) error {
 
-	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.name))
-
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.ident))
 	if !utils.FileExists(fpath) {
 		return nil
 	}
@@ -894,12 +894,12 @@ func (ae *HostEngine) LoadForest() error {
 
 func (ae *HostEngine) Save() error {
 
-	optPath := ae.options.Path
-	if !utils.DirExists(optPath) {
-		os.MkdirAll(optPath, os.ModePerm)
-	}
+	fpath := filepath.Join(ae.options.Path, fmt.Sprintf("%s.data", ae.ident))
 
-	fpath := filepath.Join(optPath, fmt.Sprintf("%s.data", ae.name))
+	dpath := filepath.Dir(fpath)
+	if !utils.DirExists(dpath) {
+		os.MkdirAll(dpath, os.ModePerm)
+	}
 
 	f, err := os.Create(fpath)
 	if err != nil {
@@ -917,7 +917,7 @@ func (ae *HostEngine) Save() error {
 	}
 
 	engineFile := HostEngineFileV001{
-		Name:    ae.name,
+		Ident:   ae.ident,
 		Hash:    ae.hash,
 		Stamps:  ae.stamps,
 		Minutes: ae.minutes,
@@ -933,7 +933,7 @@ func (ae *HostEngine) Save() error {
 func (ae *HostEngine) Clone() *HostEngine {
 
 	return &HostEngine{
-		name: ae.name,
+		ident: ae.ident,
 	}
 }
 
@@ -1084,7 +1084,7 @@ func (ae *HostEngine) Consolidate(frames HostFrames) *HostFrame {
 
 	frame := ae.aggregateFrames(frames)
 
-	frame.name = ae.name
+	//frame.name = ae.name
 	frame.hash = ae.hash
 	frame.stamp = stamp
 	frame.begin = begin
@@ -1112,7 +1112,7 @@ func (ae *HostEngine) Diagnose(frame *HostFrame, cases *HostCases) (*HostFramePo
 	return points, verdict
 }
 
-func NewHostEngine(name string, hash common.Hash, options *HostEngineOptions, observability *common.Observability) *HostEngine {
+func NewHostEngine(ident string, hash common.Hash, options *HostEngineOptions, observability *common.Observability) *HostEngine {
 
 	profileKind := common.StringToProfileKind(options.ProfileKind)
 
@@ -1127,7 +1127,7 @@ func NewHostEngine(name string, hash common.Hash, options *HostEngineOptions, ob
 	return &HostEngine{
 
 		logger:  observability.Logs(),
-		name:    name,
+		ident:   ident,
 		hash:    hash,
 		options: options,
 
