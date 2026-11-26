@@ -50,6 +50,7 @@ type ForestModelData struct {
 
 type ForestModelHostFrame struct {
 	hash    common.Hash
+	ident   string
 	frame   *forest.HostFrame
 	points  *forest.HostFramePoints
 	verdict *forest.HostCaseVerdict
@@ -57,6 +58,7 @@ type ForestModelHostFrame struct {
 
 type ForestModelApplicationFrame struct {
 	hash    common.Hash
+	ident   string
 	frame   *forest.ApplicationFrame
 	points  *forest.ApplicationFramePoints
 	hosts   []*ForestModelHostFrame
@@ -65,6 +67,7 @@ type ForestModelApplicationFrame struct {
 
 type ForestModelDetection struct {
 	hash    common.Hash
+	ident   string
 	verdict common.ModelVerdict
 	begin   common.Stamp
 	end     common.Stamp
@@ -142,12 +145,33 @@ func (af *ForestModelApplicationFrame) Timestamp() time.Time {
 	return common.StampToTime(af.frame.Stamp())
 }
 
-func (af *ForestModelApplicationFrame) Ident() string {
+func (af *ForestModelApplicationFrame) Hash() common.Hash {
+	return af.hash
+}
 
+func (af *ForestModelApplicationFrame) Ident() string {
+	return af.ident
+}
+
+func (af *ForestModelApplicationFrame) Name() string {
 	if af.frame == nil {
 		return ""
 	}
 	return af.frame.Name()
+}
+
+func (af *ForestModelApplicationFrame) Kind() string {
+	if af.frame == nil {
+		return ""
+	}
+	return af.frame.Kind()
+}
+
+func (af *ForestModelApplicationFrame) Dimension() string {
+	if af.frame == nil {
+		return ""
+	}
+	return af.frame.Dimension()
 }
 
 func (af *ForestModelApplicationFrame) Verdict() common.ModelVerdict {
@@ -256,6 +280,14 @@ func (hf *ForestModelHostFrame) IsEmpty() bool {
 	return hf.points.IsEmpty()
 }
 
+func (hf *ForestModelHostFrame) Hash() common.Hash {
+	return hf.hash
+}
+
+func (hf *ForestModelHostFrame) Ident() string {
+	return hf.ident
+}
+
 func (hf *ForestModelHostFrame) Timestamp() time.Time {
 	if hf.frame == nil {
 		return time.Now()
@@ -263,8 +295,7 @@ func (hf *ForestModelHostFrame) Timestamp() time.Time {
 	return common.StampToTime(hf.frame.Stamp())
 }
 
-func (hf *ForestModelHostFrame) Ident() string {
-
+func (hf *ForestModelHostFrame) Name() string {
 	if hf.frame == nil {
 		return ""
 	}
@@ -649,29 +680,29 @@ func (fm *ForestModel) appTrain(data common.DataSourceData, ident string, hash c
 	return nil
 }
 
-func (fm *ForestModel) hostTrain(data common.DataSourceData, name string, hash common.Hash, frames forest.HostFrames) error {
+func (fm *ForestModel) hostTrain(data common.DataSourceData, ident string, hash common.Hash, frames forest.HostFrames) error {
 
-	engine := forest.NewHostEngine(name, hash, &fm.options.HostOptions, fm.observability)
+	engine := forest.NewHostEngine(ident, hash, &fm.options.HostOptions, fm.observability)
 	err := engine.LoadData()
 	if err != nil {
-		fm.logger.Error("%s: Host load data %s (%d) error: %s", fm.Name(), name, hash, err)
+		fm.logger.Error("%s: Host load data %s (%d) error: %s", fm.Name(), ident, hash, err)
 		return err
 	}
 	err = engine.Train(frames, data.Limits())
 	if err != nil {
-		fm.logger.Error("%s: Host train %s (%d) error: %s", fm.Name(), name, hash, err)
+		fm.logger.Error("%s: Host train %s (%d) error: %s", fm.Name(), ident, hash, err)
 		return err
 	}
 	err = engine.Save()
 	if err != nil {
-		fm.logger.Error("%s: Host save %s (%d) error: %s", fm.Name(), name, hash, err)
+		fm.logger.Error("%s: Host save %s (%d) error: %s", fm.Name(), ident, hash, err)
 		return err
 	}
 	fm.trains.Delete(hash)
 	if engine.Ready() {
 		fm.engines.Set(hash, engine, ttlcache.DefaultTTL)
 	} else {
-		fm.logger.Debug("%s: Host not ready %s (%d)", fm.Name(), name, hash)
+		fm.logger.Debug("%s: Host not ready %s (%d)", fm.Name(), ident, hash)
 	}
 	return nil
 }
@@ -1004,9 +1035,7 @@ func (fm *ForestModel) setManyDetections(eligible, found []*ForestModelDetection
 	}
 }
 
-func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, frames forest.HostFrames) (*ForestModelHostFrame, error) {
-
-	name := data.Names().FindByHash(hash)
+func (fm *ForestModel) hostDetect(ident string, hash common.Hash, frames forest.HostFrames) (*ForestModelHostFrame, error) {
 
 	var engine *forest.HostEngine
 
@@ -1023,8 +1052,8 @@ func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, 
 	}
 
 	if engine == nil {
-		fm.logger.Debug("%s: Host engine not found %s (%d). Initializing...", fm.Name(), name, hash)
-		engine = forest.NewHostEngine(name, hash, &fm.options.HostOptions, fm.observability)
+		fm.logger.Debug("%s: Host engine not found %s (%d). Initializing...", fm.Name(), ident, hash)
+		engine = forest.NewHostEngine(ident, hash, &fm.options.HostOptions, fm.observability)
 		err := engine.LoadForest()
 		if err != nil {
 			return nil, err
@@ -1040,13 +1069,13 @@ func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, 
 	}
 
 	if !engine.Ready() {
-		fm.logger.Debug("%s: Host not ready %s (%d)", fm.Name(), name, hash)
+		fm.logger.Debug("%s: Host not ready %s (%d)", fm.Name(), ident, hash)
 		return nil, nil
 	}
 
 	stamp := hostFrame.Stamp()
 	if !engine.Exists(stamp) {
-		fm.logger.Debug("%s: Host doesn't exist %s (%d) on %v", fm.Name(), name, hash, common.StampToTime(stamp))
+		fm.logger.Debug("%s: Host doesn't exist %s (%d) on %v", fm.Name(), ident, hash, common.StampToTime(stamp))
 		return nil, nil
 	}
 
@@ -1057,6 +1086,7 @@ func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, 
 
 	verdictFrame := &ForestModelHostFrame{
 		hash:    hash,
+		ident:   ident,
 		frame:   hostFrame,
 		verdict: hostVerdict,
 		points:  hostPoints,
@@ -1064,9 +1094,7 @@ func (fm *ForestModel) hostDetect(data common.DataSourceData, hash common.Hash, 
 	return verdictFrame, nil
 }
 
-func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, appFrames []*forest.ApplicationFrame, verdictFrames *sync.Map) (*ForestModelApplicationFrame, error) {
-
-	name := data.Names().FindByHash(hash)
+func (fm *ForestModel) appDetect(ident string, hash common.Hash, appFrames []*forest.ApplicationFrame, verdictFrames *sync.Map) (*ForestModelApplicationFrame, error) {
 
 	var engine *forest.ApplicationEngine
 
@@ -1083,8 +1111,8 @@ func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, a
 	}
 
 	if engine == nil {
-		fm.logger.Debug("%s: App engine not found %s (%d). Initializing...", fm.Name(), name, hash)
-		engine = forest.NewApplicationEngine(name, hash, &fm.options.ApplicationOptions, fm.observability)
+		fm.logger.Debug("%s: App engine not found %s (%d). Initializing...", fm.Name(), ident, hash)
+		engine = forest.NewApplicationEngine(ident, hash, &fm.options.ApplicationOptions, fm.observability)
 		err := engine.LoadForest()
 		if err != nil {
 			return nil, err
@@ -1100,13 +1128,13 @@ func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, a
 	}
 
 	if !engine.Ready() {
-		fm.logger.Debug("%s: App not ready %s (%d)", fm.Name(), name, hash)
+		fm.logger.Debug("%s: App not ready %s (%d)", fm.Name(), ident, hash)
 		return nil, nil
 	}
 
 	stamp := appFrame.Stamp()
 	if !engine.Exists(stamp) {
-		fm.logger.Debug("%s: App doesn't exist %s (%d) on %v", fm.Name(), name, hash, common.StampToTime(stamp))
+		fm.logger.Debug("%s: App doesn't exist %s (%d) on %v", fm.Name(), ident, hash, common.StampToTime(stamp))
 		return nil, nil
 	}
 
@@ -1117,6 +1145,7 @@ func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, a
 
 	verdictFrame := &ForestModelApplicationFrame{
 		hash:    hash,
+		ident:   ident,
 		frame:   appFrame,
 		verdict: appVerdict,
 		points:  appPoints,
@@ -1139,7 +1168,6 @@ func (fm *ForestModel) appDetect(data common.DataSourceData, hash common.Hash, a
 // 1. get applications which are out of normality
 // 2. get hosts which are out of normality
 // 3. match application and hosts
-// 4.
 
 func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOnFrame) error {
 
@@ -1167,6 +1195,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 		gr.Go(func() error {
 
 			name := names.FindByHash(hash)
+
 			fm.logger.Debug("%s: Host detecting %s (%d)", fm.Name(), name, hash)
 
 			// check existence
@@ -1177,7 +1206,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 
 			when := time.Now()
 
-			verdictFrame, err := fm.hostDetect(data, hash, frames)
+			verdictFrame, err := fm.hostDetect(name, hash, frames)
 			if err != nil {
 				errs <- err
 				return nil
@@ -1216,7 +1245,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 
 					when := time.Now()
 
-					verdictFrame, err := fm.appDetect(data, hash, frames, verdictFrames)
+					verdictFrame, err := fm.appDetect(ident, hash, frames, verdictFrames)
 					if err != nil {
 						errs <- err
 						return nil

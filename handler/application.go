@@ -48,7 +48,10 @@ type HttpApplicationHandlerDataModel struct {
 }
 
 type HttpApplicationHandlerData struct {
+	Name      string                                       `json:"name"`
 	Ident     string                                       `json:"ident"`
+	Kind      string                                       `json:"kind"`
+	Dimension string                                       `json:"dimension"`
 	Timestamp time.Time                                    `json:"timestamp"`
 	Points    []HttpApplicationHandlerDataPoint            `json:"points"`
 	Verdict   *HttpApplicationHandlerDataVerdict           `json:"verdict"`
@@ -57,7 +60,9 @@ type HttpApplicationHandlerData struct {
 }
 
 type HttpApplicationInfo struct {
-	Application string `json:"application"`
+	Name      string `json:"application"`
+	Kind      string `json:"kind"`
+	Dimension string `json:"dimension"`
 }
 
 type HttpApplicationHandler struct {
@@ -133,14 +138,14 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		return
 	}
 
-	af, ok := frame.(common.ModelApplicationFrame)
-	if !ok {
-		h.logger.Debug("%s: Frame %s is not supported. Skipped", h.Name(), frame.Ident())
+	ident := frame.Ident()
+	if utils.IsEmpty(ident) {
 		return
 	}
 
-	ident := af.Ident()
-	if utils.IsEmpty(ident) {
+	af, ok := frame.(common.ModelApplicationFrame)
+	if !ok {
+		h.logger.Debug("%s: Frame %s is not supported. Skipped", h.Name(), ident)
 		return
 	}
 
@@ -155,7 +160,9 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		info = &HttpApplicationInfo{}
 	}
 
-	info.Application = af.Ident()
+	info.Name = af.Name()
+	info.Kind = af.Kind()
+	info.Dimension = af.Dimension()
 	h.identMap[ident] = info
 
 	// check active
@@ -250,6 +257,9 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	}
 
 	data := HttpApplicationHandlerData{
+		Name:      af.Name(),
+		Kind:      af.Kind(),
+		Dimension: af.Dimension(),
 		Ident:     ident,
 		Timestamp: af.Timestamp(),
 		Points:    points,
@@ -261,8 +271,8 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		data.Hosts = make(map[string][]HttpApplicationHandlerDataPoint)
 		for _, h := range hosts {
 
-			ident := h.Ident()
-			dataHostPoints, ok := data.Hosts[ident]
+			name := h.Name()
+			dataHostPoints, ok := data.Hosts[name]
 			if !ok {
 				dataHostPoints = []HttpApplicationHandlerDataPoint{}
 			}
@@ -277,7 +287,7 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 			if !utils.IsEmpty(hostMem) {
 				dataHostPoints = append(dataHostPoints, NewHttpApplicationHandlerDataPoint(ts, "HostMemory", hostMem.Value(), hostMem.Min(), hostMem.Max(), hostMem.Median()))
 			}
-			data.Hosts[ident] = dataHostPoints
+			data.Hosts[name] = dataHostPoints
 		}
 	}
 	h.datachannel <- data

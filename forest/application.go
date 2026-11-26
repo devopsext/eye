@@ -968,6 +968,14 @@ func (af *ApplicationFrame) Name() string {
 	return af.name
 }
 
+func (af *ApplicationFrame) Kind() string {
+	return af.kind
+}
+
+func (af *ApplicationFrame) Dimension() string {
+	return af.dimension
+}
+
 func NewApplicationFrame(name string, stamp common.Stamp, signal *common.ApplicationSignal, kind, dimension string, hosts []common.Hash) *ApplicationFrame {
 
 	r := &ApplicationFrame{
@@ -2220,16 +2228,20 @@ func (ae *ApplicationEngine) Consolidate(frames []*ApplicationFrame) *Applicatio
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
-	begin := frames[0].Stamp()
-	end := frames[len(frames)-1].Stamp()
+	first := frames[0]
+	last := frames[len(frames)-1]
+
+	begin := first.Stamp()
+	end := last.Stamp()
 
 	stamp := begin + (end-begin)/2
-	//stamp := begin
 
 	frame := ae.aggregateFrames(frames)
 
-	//frame.ident = ae.name
-	frame.hash = ae.hash
+	frame.name = first.name
+	frame.hash = first.hash
+	frame.kind = first.kind
+	frame.dimension = first.dimension
 
 	// consolidate hosts
 	hosts := []common.Hash{}

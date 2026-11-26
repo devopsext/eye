@@ -26,39 +26,6 @@
             --splitter-bg: #333333;
             --splitter-hover: #00f0ff;
         }
-        body.theme-crimson {
-            background: linear-gradient(135deg, #FF1E1E 0%, #8B0000 100%) !important;
-            --bg-color: transparent;
-            --panel-bg: rgba(90, 0, 0, 0.85);
-            --text-color: #FFD700;
-            --border-color: #B22222;
-            --control-bg: rgba(139, 0, 0, 0.6);
-            --table-hover: rgba(139, 0, 0, 0.4);
-            --splitter-bg: #B22222;
-            --splitter-hover: #FFD700;
-        }
-        body.theme-cyberpunk {
-            background: linear-gradient(135deg, #FF007F 0%, #2A0845 100%) !important;
-            --bg-color: transparent;
-            --panel-bg: rgba(26, 5, 46, 0.85);
-            --text-color: #39FF14;
-            --border-color: #4A0E4E;
-            --control-bg: rgba(58, 12, 85, 0.6);
-            --table-hover: rgba(58, 12, 85, 0.4);
-            --splitter-bg: #FF007F;
-            --splitter-hover: #39FF14;
-        }
-        body.theme-emerald {
-            background: linear-gradient(135deg, #2C6B56 0%, #0F382B 100%) !important;
-            --bg-color: transparent;
-            --panel-bg: rgba(27, 77, 62, 0.85);
-            --text-color: #E6A15C;
-            --border-color: #2C6B56;
-            --control-bg: rgba(15, 56, 43, 0.6);
-            --table-hover: rgba(15, 56, 43, 0.4);
-            --splitter-bg: #2C6B56;
-            --splitter-hover: #E6A15C;
-        }
         body.theme-solar {
             background: linear-gradient(135deg, #FFCC00 0%, #FF6600 50%, #CC3300 100%) !important;
             --bg-color: transparent;
@@ -92,17 +59,6 @@
             --splitter-bg: #4338ca;
             --splitter-hover: #a78bfa;
         }
-        body.theme-synthwave {
-            background: linear-gradient(135deg, #2b0938 0%, #0d1b2a 55%, #1b062e 100%) !important;
-            --bg-color: transparent;
-            --panel-bg: rgba(34, 12, 53, 0.85);
-            --text-color: #00f5d4;
-            --border-color: #f72585;
-            --control-bg: rgba(114, 9, 183, 0.45);
-            --table-hover: rgba(247, 37, 133, 0.25);
-            --splitter-bg: #f72585;
-            --splitter-hover: #00f5d4;
-        }
         body.theme-monokai {
             --bg-color: #1e1f1c;
             --panel-bg: #272822;
@@ -116,7 +72,7 @@
 
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 15px; box-sizing: border-box; transition: background 0.3s, color 0.3s; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         * { box-sizing: border-box; }
-        .controls { background: var(--panel-bg); padding: 10px 15px; border-radius: 8px; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--border-color); flex-shrink: 0; }
+        .controls { background: var(--panel-bg); padding: 10px 15px; border-radius: 8px; margin-bottom: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--border-color); flex-shrink: 0; }
         select, input, button { background: var(--control-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; outline: none; font-size: 13px; cursor: pointer; }
         select:hover, input:hover, button:hover { opacity: 0.9; }
         input[type="text"]:hover, input[type="text"]:focus { cursor: text; }
@@ -139,11 +95,13 @@
         .card.drag-over { border-top: 3px solid #0284c7; }
 
         .card-header h4 { margin: 0; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-        .header-actions { display: flex; gap: 6px; align-items: center; }
+        .header-actions { display: flex; gap: 8px; align-items: center; }
         .maximize-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 2px 6px; font-size: 11px; border-radius: 4px; cursor: pointer; }
         .maximize-btn:hover { background: var(--control-bg); }
 
-        .inline-legend { display: flex; gap: 8px; font-size: 10px; }
+        .inline-legend { display: flex; gap: 8px; font-size: 11px; align-items: center; }
+        .inline-legend label { display: flex; align-items: center; gap: 3px; cursor: pointer; margin: 0; font-weight: 500; }
+        .inline-legend input[type="checkbox"] { margin: 0; padding: 0; cursor: pointer; width: 13px; height: 13px; }
         .chart-container { position: relative; width: 100%; flex: 1; min-height: 180px; }
 
         .splitter { background: var(--splitter-bg); cursor: col-resize; width: 8px; height: 100%; border-radius: 4px; transition: background 0.2s; margin: 0 4px; flex-shrink: 0; }
@@ -160,11 +118,72 @@
         tr:hover { background: var(--table-hover); }
         tr.selected { background: #0284c7 !important; color: #fff; }
 
-        th:nth-child(1), td:nth-child(1) { width: 72px; }
-        th:nth-child(2), td:nth-child(2) { width: auto; }
-        th:nth-child(3), td:nth-child(3) { width: 95px; text-align: center; }
-        th:nth-child(4), td:nth-child(4) { width: 90px; text-align: center; }
-        th:nth-child(5), td:nth-child(5) { width: 58px; }
+        .table-container th:nth-child(1), .table-container td:nth-child(1) { width: 72px; }
+        .table-container th:nth-child(2), .table-container td:nth-child(2) { width: auto; }
+        .table-container th:nth-child(3), .table-container td:nth-child(3) { width: 95px; text-align: center; }
+        .table-container th:nth-child(4), .table-container td:nth-child(4) { width: 90px; text-align: center; }
+        .table-container th:nth-child(5), .table-container td:nth-child(5) { width: 58px; }
+
+        .verdict-details-panel {
+            margin-top: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.22);
+            display: none;
+            flex-direction: column;
+            max-height: 45%;
+            min-height: 110px;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .verdict-details-panel.visible {
+            display: flex;
+        }
+        .verdict-details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.06);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .verdict-details-close {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 1px 6px;
+            font-size: 11px;
+            border-radius: 4px;
+            cursor: pointer;
+            line-height: 1.3;
+        }
+        .verdict-details-close:hover {
+            background: var(--control-bg);
+        }
+        .verdict-details-body {
+            padding: 8px 10px;
+            overflow-y: auto;
+            font-size: 12px;
+            display: grid;
+            grid-template-columns: max-content minmax(0, 1fr);
+            gap: 6px 12px;
+            align-items: baseline;
+        }
+        .verdict-detail-key {
+            font-weight: 600;
+            opacity: 0.78;
+            white-space: nowrap;
+            text-transform: capitalize;
+        }
+        .verdict-detail-val {
+            word-break: break-word;
+            white-space: pre-wrap;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 11.5px;
+        }
 
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; display: inline-block; }
         .badge-red { background: #ef4444; color: #fff; }
@@ -178,9 +197,16 @@
 </head>
 <body>
     <div class="controls">
-        <button onclick="resetLayoutPositions();resetZoomAll();">Reset</button>
+        <button onclick="resetLayoutPositions();resetZoomAll();">R</button>
 
-        <label for="timeframeSelect"><strong>Frame:</strong></label>
+        <select id="themeSelect" onchange="changeTheme()">
+            <option value="midnight">Midnight</option>
+            <option value="nordic">Nordic</option>
+            <option value="monokai">Monokai</option>
+            <option value="obsidian">Obsidian</option>
+            <option value="solar" selected>Solar</option>
+        </select>
+
         <select id="timeframeSelect" onchange="changeTimeframe()">
             <option value="60" selected>1 Min</option>
             <option value="180">3 Min</option>
@@ -188,43 +214,27 @@
             <option value="600">10 Min</option>
         </select>
 
-        <label for="themeSelect"><strong>Theme:</strong></label>
-        <select id="themeSelect" onchange="changeTheme()">
-            <option value="midnight">Midnight</option>
-            <option value="nordic">Nordic</option>
-            <option value="crimson">Crimson</option>
-            <option value="cyberpunk">Cyberpunk</option>
-            <option value="emerald">Emerald</option>
-            <option value="solar" selected>Solar</option>
-            <option value="obsidian">Obsidian</option>
-            <option value="synthwave">Synthwave</option>
-            <option value="monokai">Monokai</option>
+        <select id="kindSelect" onchange="handleKindChange()" style="width:100px;">
+            <option value="all" selected>All Kinds</option>
         </select>
 
-        <input type="color" id="metricColorPicker" value="#f8f838" onchange="updateMetricColor(this.value)" style="width:36px; height:30px; padding:0; border:none; cursor:pointer; background:transparent;">
+        <select id="dimensionSelect" onchange="handleDimensionChange()" style="width:200px;">
+            <option value="all" selected>All Dimensions</option>
+        </select>
 
-        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; color: #ef4444;">
-            <input type="checkbox" id="highHighlightToggle" checked onchange="toggleHighlightVisibility()"> Upper
-        </label>
-
-        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; color: #3b82f6;">
-            <input type="checkbox" id="lowHighlightToggle" checked onchange="toggleHighlightVisibility()"> Lower
-        </label>
-
-        <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer;">
-            <input type="checkbox" id="top5FilterToggle" checked onchange="changeFilter()"> Top5
-        </label>
-
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:220px;">
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:300px;">
         <datalist id="applicationList"></datalist>
 
-        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="margin-right: auto; width:220px;">
+        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:240px;">
         <datalist id="hostList"></datalist>
 
+        <label style="font-size: 13px; cursor: pointer; margin-right: auto; ">
+            <input type="checkbox" id="top5FilterToggle" checked onchange="changeFilter()">Top
+        </label>
       
         <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
         <span id="wsStatus" style="font-size:12px; color:#10b981;">● Connected</span>
-        <button id="pauseToggleBtn" onclick="togglePause()">⏸ Pause</button>
+        <button id="pauseToggleBtn" onclick="togglePause()">⏸</button>
         <button id="toggleRightPanelBtn" onclick="toggleRightPanel()" style="background: var(--control-bg); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; cursor: pointer;">📋</button>
     </div>
 
@@ -262,39 +272,359 @@
                     </tbody>
                 </table>
             </div>
+            <div class="verdict-details-panel" id="verdictDetailsPanel">
+                <div class="verdict-details-header">
+                    <span id="verdictDetailsTitle">Verdict Details</span>
+                    <button type="button" class="verdict-details-close" onclick="hideVerdictDetails()" title="Close details">✕</button>
+                </div>
+                <div class="verdict-details-body" id="verdictDetailsBody"></div>
+            </div>
         </div>
     </div>
 
     <script>
+        const DEFAULT_SERIES_COLOR = '#f83838';
+
+        let currentKindFilter = 'all';
+        let currentDimensionFilter = 'all';
         let currentFilter = document.getElementById('applicationSearch').value.trim();
         let currentHostFilter = document.getElementById('hostSearch').value.trim();
         let updateFreqSec = 3;
         let maxDataPoints = Math.floor(180 / updateFreqSec);
-        let sharedMetricColor = document.getElementById('metricColorPicker').value;
         const charts = {};
         let ws = null;
         let isPaused = false;
 
         const applicationCache = {};
         const hostCache = {};
+        // kindName -> Set of dimension values
+        const kindDimensionsMap = {};
+        // dimensionValue -> { kinds: Set, apps: Set, hosts: Set }
+        const dimensionEntitiesMap = {};
         let availableApplications = [];
         let selectedTimeLabel = null;
+        let selectedVerdictRecord = null;
         let hoveredIndex = null;
-        let showHighHighlight = true;
-        let showLowHighlight = true;
+        let chartHighlightStates = {};
         const appColorMap = {};
 
         let debounceTimer = null;
 
-        function toggleHighlightVisibility() {
-            const highEl = document.getElementById('highHighlightToggle');
-            const lowEl = document.getElementById('lowHighlightToggle');
-            showHighHighlight = highEl ? highEl.checked : true;
-            showLowHighlight = lowEl ? lowEl.checked : true;
-            localStorage.setItem('showHighHighlight', showHighHighlight);
-            localStorage.setItem('showLowHighlight', showLowHighlight);
-            for (const key in charts) {
-                if (charts[key]) charts[key].update('none');
+        function getVerdictRecordKey(v) {
+            if (!v) return '';
+            const app = v.app || '';
+            const ts = v.fullTimestamp || v.time || '';
+            const name = (v.verdict && v.verdict.name) ? v.verdict.name : '';
+            return app + '::' + ts + '::' + name;
+        }
+
+        function formatVerdictFieldValue(val) {
+            if (val === null || val === undefined || val === '') return '-';
+            if (typeof val === 'object') {
+                try {
+                    return JSON.stringify(val, null, 2);
+                } catch (e) {
+                    return String(val);
+                }
+            }
+            return String(val);
+        }
+
+        function renderVerdictDetails(verdictEntry) {
+            const panel = document.getElementById('verdictDetailsPanel');
+            const body = document.getElementById('verdictDetailsBody');
+            const title = document.getElementById('verdictDetailsTitle');
+            if (!panel || !body) return;
+
+            if (!verdictEntry || !verdictEntry.verdict) {
+                panel.classList.remove('visible');
+                body.innerHTML = '';
+                return;
+            }
+
+            const vv = verdictEntry.verdict;
+            if (title) {
+                title.textContent = (verdictEntry.app || 'Unknown');
+            }
+
+            const fields = [
+                { key: 'Time', value: verdictEntry.time }
+            ];
+
+            if (verdictEntry.fullTimestamp && String(verdictEntry.fullTimestamp) !== String(verdictEntry.time)) {
+                fields.push({ key: 'Timestamp', value: verdictEntry.fullTimestamp });
+            }
+
+            const preferredOrder = ['name', 'description', 'category', 'impact', 'score'];
+            const seenKeys = new Set();
+
+            preferredOrder.forEach(k => {
+                if (Object.prototype.hasOwnProperty.call(vv, k)) {
+                    fields.push({ key: k, value: vv[k] });
+                    seenKeys.add(k);
+                }
+            });
+
+            Object.keys(vv).forEach(k => {
+                if (!seenKeys.has(k)) {
+                    fields.push({ key: k, value: vv[k] });
+                }
+            });
+
+            body.innerHTML = '';
+            fields.forEach(item => {
+                const keyEl = document.createElement('div');
+                keyEl.className = 'verdict-detail-key';
+                keyEl.textContent = item.key + ':';
+
+                const valEl = document.createElement('div');
+                valEl.className = 'verdict-detail-val';
+                valEl.textContent = formatVerdictFieldValue(item.value);
+
+                body.appendChild(keyEl);
+                body.appendChild(valEl);
+            });
+
+            panel.classList.add('visible');
+        }
+
+        function hideVerdictDetails() {
+            selectedTimeLabel = null;
+            selectedVerdictRecord = null;
+            document.querySelectorAll('#verdictTableBody tr').forEach(tr => tr.classList.remove('selected'));
+            renderVerdictDetails(null);
+            for (const key in charts) { redrawChart(key); }
+        }
+
+        function ensureDimensionEntry(dimVal) {
+            if (!dimensionEntitiesMap[dimVal]) {
+                dimensionEntitiesMap[dimVal] = {
+                    kinds: new Set(),
+                    apps: new Set(),
+                    hosts: new Set()
+                };
+            }
+            return dimensionEntitiesMap[dimVal];
+        }
+
+        function registerKindAndDimension(kindName, dimValues, appIdent, hostIdent) {
+            const cleanKind = (kindName !== undefined && kindName !== null) ? String(kindName).trim() : '';
+            const dims = Array.isArray(dimValues)
+                ? dimValues.map(d => (d !== undefined && d !== null) ? String(d).trim() : '').filter(Boolean)
+                : ((dimValues !== undefined && dimValues !== null && String(dimValues).trim() !== '')
+                    ? [String(dimValues).trim()]
+                    : []);
+
+            if (cleanKind && !kindDimensionsMap[cleanKind]) {
+                kindDimensionsMap[cleanKind] = new Set();
+            }
+
+            dims.forEach(d => {
+                if (cleanKind) {
+                    kindDimensionsMap[cleanKind].add(d);
+                }
+                const dimEntry = ensureDimensionEntry(d);
+                if (cleanKind) dimEntry.kinds.add(cleanKind);
+                if (appIdent) dimEntry.apps.add(appIdent);
+                if (hostIdent) dimEntry.hosts.add(hostIdent);
+            });
+        }
+
+        function ingestKindDimensionPayload(payload, appIdent, hostIdent) {
+            if (!payload || typeof payload !== 'object') return false;
+            const prevKinds = Object.keys(kindDimensionsMap).sort().join('|');
+            const prevDims = Object.keys(dimensionEntitiesMap).sort().join('|');
+
+            // Case 1: payload.kind is a string or object
+            if (payload.kind !== undefined && payload.kind !== null) {
+                if (typeof payload.kind === 'string') {
+                    const dimVal = payload.dimension ?? payload.value ?? null;
+                    registerKindAndDimension(payload.kind, dimVal, appIdent, hostIdent);
+                } else if (typeof payload.kind === 'object' && !Array.isArray(payload.kind)) {
+                    const kName = payload.kind.name ?? payload.kind.kind ?? payload.kind.key ?? '';
+                    const dimVals = payload.kind.values ?? payload.kind.dimensions ?? payload.kind.dimension ?? payload.dimension ?? payload.value ?? null;
+                    registerKindAndDimension(kName, dimVals, appIdent, hostIdent);
+                } else if (Array.isArray(payload.kind)) {
+                    payload.kind.forEach(item => {
+                        if (typeof item === 'string') {
+                            registerKindAndDimension(item, payload.dimension ?? payload.value ?? null, appIdent, hostIdent);
+                        } else if (item && typeof item === 'object') {
+                            const kName = item.name ?? item.kind ?? item.key ?? '';
+                            const dimVals = item.values ?? item.dimensions ?? item.dimension ?? item.value ?? null;
+                            registerKindAndDimension(kName, dimVals, appIdent, hostIdent);
+                        }
+                    });
+                }
+            }
+
+            // Case 2: payload.kinds (array or map/object of kindName -> dimension values)
+            if (payload.kinds) {
+                if (Array.isArray(payload.kinds)) {
+                    payload.kinds.forEach(item => {
+                        if (typeof item === 'string') {
+                            registerKindAndDimension(item, payload.dimension ?? null, appIdent, hostIdent);
+                        } else if (item && typeof item === 'object') {
+                            const kName = item.name ?? item.kind ?? item.key ?? '';
+                            const dimVals = item.values ?? item.dimensions ?? item.dimension ?? item.value ?? null;
+                            registerKindAndDimension(kName, dimVals, appIdent, hostIdent);
+                        }
+                    });
+                } else if (typeof payload.kinds === 'object') {
+                    Object.entries(payload.kinds).forEach(([kName, dimVals]) => {
+                        registerKindAndDimension(kName, dimVals, appIdent, hostIdent);
+                    });
+                }
+            }
+
+            // Case 3: standalone dimension(s) when kind is omitted
+            if (!payload.kind && !payload.kinds && (payload.dimension !== undefined || payload.dimensions !== undefined)) {
+                const rawDims = payload.dimensions !== undefined ? payload.dimensions : payload.dimension;
+                registerKindAndDimension('', rawDims, appIdent, hostIdent);
+            }
+
+            const nextKinds = Object.keys(kindDimensionsMap).sort().join('|');
+            const nextDims = Object.keys(dimensionEntitiesMap).sort().join('|');
+            return prevKinds !== nextKinds || prevDims !== nextDims;
+        }
+
+        function updateKindAndDimensionComboboxes() {
+            const kindSelect = document.getElementById('kindSelect');
+            const dimSelect = document.getElementById('dimensionSelect');
+            if (!kindSelect || !dimSelect) return;
+
+            const sortedKinds = Object.keys(kindDimensionsMap).sort((a, b) => a.localeCompare(b));
+            if (currentKindFilter !== 'all' && !kindDimensionsMap[currentKindFilter]) {
+                currentKindFilter = 'all';
+            }
+
+            kindSelect.innerHTML = '<option value="all">All Kinds</option>';
+            sortedKinds.forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = k;
+                kindSelect.appendChild(opt);
+            });
+            kindSelect.value = currentKindFilter;
+
+            const availableDimsSet = new Set();
+            if (currentKindFilter === 'all') {
+                Object.values(kindDimensionsMap).forEach(dimSet => {
+                    dimSet.forEach(d => availableDimsSet.add(d));
+                });
+                Object.keys(dimensionEntitiesMap).forEach(d => availableDimsSet.add(d));
+            } else if (kindDimensionsMap[currentKindFilter]) {
+                kindDimensionsMap[currentKindFilter].forEach(d => availableDimsSet.add(d));
+            }
+
+            if (currentDimensionFilter !== 'all' && !availableDimsSet.has(currentDimensionFilter)) {
+                currentDimensionFilter = 'all';
+            }
+
+            const sortedDims = Array.from(availableDimsSet).sort((a, b) => a.localeCompare(b));
+            dimSelect.innerHTML = '<option value="all">All Dimensions</option>';
+            sortedDims.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = d;
+                dimSelect.appendChild(opt);
+            });
+            dimSelect.value = currentDimensionFilter;
+        }
+
+        function handleKindChange() {
+            currentKindFilter = document.getElementById('kindSelect').value || 'all';
+            updateKindAndDimensionComboboxes();
+            changeFilter();
+        }
+
+        function handleDimensionChange() {
+            currentDimensionFilter = document.getElementById('dimensionSelect').value || 'all';
+            changeFilter();
+        }
+
+        function appMatchesDimensionAndKind(app) {
+            if (currentDimensionFilter !== 'all') {
+                const dimEntry = dimensionEntitiesMap[currentDimensionFilter];
+                if (!dimEntry) return false;
+                if (dimEntry.apps.size > 0) {
+                    return dimEntry.apps.has(app);
+                }
+                return false;
+            }
+            if (currentKindFilter !== 'all') {
+                const dimsForKind = kindDimensionsMap[currentKindFilter];
+                if (!dimsForKind || dimsForKind.size === 0) return true;
+                let hasAnyMappedAppForKind = false;
+                for (const d of dimsForKind) {
+                    const dimEntry = dimensionEntitiesMap[d];
+                    if (dimEntry && dimEntry.apps.size > 0) {
+                        hasAnyMappedAppForKind = true;
+                        if (dimEntry.apps.has(app)) return true;
+                    }
+                }
+                return !hasAnyMappedAppForKind;
+            }
+            return true;
+        }
+
+        function hostMatchesDimensionAndKind(host) {
+            if (currentDimensionFilter !== 'all') {
+                const dimEntry = dimensionEntitiesMap[currentDimensionFilter];
+                if (!dimEntry) return false;
+                if (dimEntry.hosts.size > 0) {
+                    return dimEntry.hosts.has(host);
+                }
+                if (dimEntry.apps.size > 0) {
+                    for (const app of dimEntry.apps) {
+                        if (applicationCache[app] && applicationCache[app].hosts && applicationCache[app].hosts.has(host)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+            if (currentKindFilter !== 'all') {
+                const dimsForKind = kindDimensionsMap[currentKindFilter];
+                if (!dimsForKind || dimsForKind.size === 0) return true;
+                let hasAnyMappedHostForKind = false;
+                for (const d of dimsForKind) {
+                    const dimEntry = dimensionEntitiesMap[d];
+                    if (dimEntry) {
+                        if (dimEntry.hosts.size > 0) {
+                            hasAnyMappedHostForKind = true;
+                            if (dimEntry.hosts.has(host)) return true;
+                        } else if (dimEntry.apps.size > 0) {
+                            for (const app of dimEntry.apps) {
+                                if (applicationCache[app] && applicationCache[app].hosts && applicationCache[app].hosts.has(host)) {
+                                    hasAnyMappedHostForKind = true;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                return !hasAnyMappedHostForKind;
+            }
+            return true;
+        }
+
+        function getChartHighlightState(metricKey) {
+            if (!chartHighlightStates[metricKey]) {
+                chartHighlightStates[metricKey] = { high: true, low: true };
+            }
+            return chartHighlightStates[metricKey];
+        }
+
+        function saveChartHighlightStates() {
+            localStorage.setItem('chartHighlightStates', JSON.stringify(chartHighlightStates));
+        }
+
+        function toggleChartHighlight(metricKey, type, isChecked) {
+            const state = getChartHighlightState(metricKey);
+            state[type] = isChecked;
+            saveChartHighlightStates();
+            if (charts[metricKey]) {
+                charts[metricKey].update('none');
             }
         }
 
@@ -311,10 +641,10 @@
 
             if (pauseBtn) {
                 if (isPaused) {
-                    pauseBtn.innerText = '▶ Resume';
+                    pauseBtn.innerText = '▶';
                     pauseBtn.classList.add('paused-active');
                 } else {
-                    pauseBtn.innerText = '⏸ Pause';
+                    pauseBtn.innerText = '⏸';
                     pauseBtn.classList.remove('paused-active');
                 }
             }
@@ -379,11 +709,11 @@
             return Boolean(metricsConfig[key] && metricsConfig[key].isHost);
         }
 
-        function ensureAppCache(app) {
-            if (!applicationCache[app]) {
-                applicationCache[app] = { rawSeries: {}, verdicts: [], hosts: new Set() };
-            } else if (!applicationCache[app].hosts) {
-                applicationCache[app].hosts = new Set();
+        function ensureAppCache(ident) {
+            if (!applicationCache[ident]) {
+                applicationCache[ident] = { rawSeries: {}, verdicts: [], hosts: new Set() };
+            } else if (!applicationCache[ident].hosts) {
+                applicationCache[ident].hosts = new Set();
             }
         }
 
@@ -416,7 +746,7 @@
 
         function isVerdictFilterActive() {
             const { category, impact } = getActiveVerdictFilters();
-            return category !== 'all' || impact !== 'all';
+            return category !== 'all' || impact !== 'all' || currentDimensionFilter !== 'all' || currentKindFilter !== 'all';
         }
 
         function getVerdictWindowCutoff(appList) {
@@ -498,11 +828,11 @@
             const appObj = applicationCache[app];
             if (appObj && appObj.hosts && appObj.hosts.size > 0) {
                 for (const h of appObj.hosts) {
-                    if (matchesFilter(h, hostFilterVal)) return true;
+                    if (hostMatchesDimensionAndKind(h) && matchesFilter(h, hostFilterVal)) return true;
                 }
             }
             for (const [h, hObj] of Object.entries(hostCache)) {
-                if (hObj && hObj.apps && hObj.apps.has(app) && matchesFilter(h, hostFilterVal)) {
+                if (hObj && hObj.apps && hObj.apps.has(app) && hostMatchesDimensionAndKind(h) && matchesFilter(h, hostFilterVal)) {
                     return true;
                 }
             }
@@ -510,6 +840,7 @@
         }
 
         function hostHasEligibleApp(host, appFilterVal, cutoffTime) {
+            if (!hostMatchesDimensionAndKind(host)) return false;
             const verdictActive = isVerdictFilterActive();
             const matchedApps = new Set();
 
@@ -528,6 +859,7 @@
             }
 
             for (const app of matchedApps) {
+                if (!appMatchesDimensionAndKind(app)) continue;
                 if (appFilterVal && !matchesFilter(app, appFilterVal)) continue;
                 if (verdictActive && !appMatchesVerdictFilters(app, cutoffTime)) continue;
                 return true;
@@ -552,6 +884,8 @@
         }
 
         function updateFilterLists() {
+            updateKindAndDimensionComboboxes();
+
             const appDatalist = document.getElementById('applicationList');
             const hostDatalist = document.getElementById('hostList');
             if (!appDatalist || !hostDatalist) return;
@@ -560,6 +894,7 @@
             const cutoffTime = getVerdictWindowCutoff(allApps);
 
             let filteredAppsForList = allApps.filter(app =>
+                appMatchesDimensionAndKind(app) &&
                 appHasHostMatching(app, currentHostFilter) &&
                 appMatchesVerdictFilters(app, cutoffTime)
             ).sort();
@@ -590,6 +925,7 @@
             const allApps = getAllKnownApps();
             const cutoffTime = getVerdictWindowCutoff(allApps);
             return allApps.filter(app => {
+                if (!appMatchesDimensionAndKind(app)) return false;
                 if (!matchesFilter(app, currentFilter)) return false;
                 if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
                 if (!appMatchesVerdictFilters(app, cutoffTime)) return false;
@@ -612,14 +948,14 @@
             matchingApps.forEach(app => {
                 if (applicationCache[app] && applicationCache[app].hosts) {
                     applicationCache[app].hosts.forEach(h => {
-                        if (hostCache[h] && matchesFilter(h, currentHostFilter)) {
+                        if (hostCache[h] && hostMatchesDimensionAndKind(h) && matchesFilter(h, currentHostFilter)) {
                             hostsSet.add(h);
                         }
                     });
                 }
             });
 
-            if (hostsSet.size === 0 && !currentFilter && !isVerdictFilterActive()) {
+            if (hostsSet.size === 0 && !currentFilter && currentDimensionFilter === 'all' && currentKindFilter === 'all' && !isVerdictFilterActive()) {
                 Object.keys(hostCache).forEach(h => {
                     if (matchesFilter(h, currentHostFilter)) {
                         hostsSet.add(h);
@@ -711,19 +1047,6 @@
             }
         }
 
-        function updateMetricColor(newColor) {
-            sharedMetricColor = newColor;
-            localStorage.setItem('sharedMetricColor', newColor);
-            for (const key in charts) {
-                const c = charts[key];
-                const { entities } = getEntitiesForChart(key);
-                if (entities.length <= 1 && c.data.datasets[0]) {
-                    c.data.datasets[0].borderColor = sharedMetricColor;
-                    c.update('none');
-                }
-            }
-        }
-
         function changeTheme() {
             const theme = document.getElementById('themeSelect').value;
             document.body.className = '';
@@ -738,30 +1061,20 @@
             document.getElementById('themeSelect').value = savedTheme;
             changeTheme();
 
-            const savedColor = localStorage.getItem('sharedMetricColor');
-            if (savedColor) {
-                sharedMetricColor = savedColor;
-                document.getElementById('metricColorPicker').value = savedColor;
-            }
-
             const savedTop5 = localStorage.getItem('top5FilterEnabled');
             if (savedTop5 !== null) {
                 const toggle = document.getElementById('top5FilterToggle');
                 if (toggle) toggle.checked = (savedTop5 === 'true');
             }
 
-            const savedHighHighlight = localStorage.getItem('showHighHighlight');
-            if (savedHighHighlight !== null) {
-                showHighHighlight = (savedHighHighlight === 'true');
-                const highEl = document.getElementById('highHighlightToggle');
-                if (highEl) highEl.checked = showHighHighlight;
-            }
-
-            const savedLowHighlight = localStorage.getItem('showLowHighlight');
-            if (savedLowHighlight !== null) {
-                showLowHighlight = (savedLowHighlight === 'true');
-                const lowEl = document.getElementById('lowHighlightToggle');
-                if (lowEl) lowEl.checked = showLowHighlight;
+            const savedChartHighlights = localStorage.getItem('chartHighlightStates');
+            if (savedChartHighlights) {
+                try {
+                    const parsed = JSON.parse(savedChartHighlights);
+                    if (parsed && typeof parsed === 'object') {
+                        chartHighlightStates = parsed;
+                    }
+                } catch(e) {}
             }
 
             const savedOrder = localStorage.getItem('chartOrder');
@@ -839,6 +1152,7 @@
                 ctx.save();
 
                 const metricKey = chart.canvas.id.replace('chart_', '');
+                const { high: showHighHighlight, low: showLowHighlight } = getChartHighlightState(metricKey);
                 const { entities } = getEntitiesForChart(metricKey);
                 const multiMode = entities.length > 1;
 
@@ -1059,7 +1373,7 @@
             } else {
                 const singleLabel = (entities.length === 1) ? entities[0] : cfg.label;
                 datasets = [
-                    { label: singleLabel, data: [], borderColor: sharedMetricColor, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
+                    { label: singleLabel, data: [], borderColor: DEFAULT_SERIES_COLOR, backgroundColor: 'transparent', tension: 0.2, _violationPoints: [], _violationTypes: [] },
                     { label: 'Upper', data: [], borderColor: '#ef4444', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                     { label: 'Lower', data: [], borderColor: '#3b82f6', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 },
                     { label: 'Median', data: [], borderColor: '#5df63b', borderDash: [1, 4], backgroundColor: 'transparent', tension: 0.1, pointRadius: 0 }
@@ -1111,11 +1425,16 @@
                 card.id = 'card_' + key;
 
                 const maxBtnText = (maximizedChartKey === key) ? '❐' : '🗖';
+                const { high: isHighChecked, low: isLowChecked } = getChartHighlightState(key);
 
                 const legendHtml = '' +
-                    '<div class="inline-legend">' +
-                        '<span style="color:#ef4444">--- Upper</span>' +
-                        '<span style="color:#3b82f6">--- Lower</span>' +
+                    '<div class="inline-legend" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">' +
+                        '<label style="color:#ef4444">' +
+                            '<input type="checkbox" ' + (isHighChecked ? 'checked' : '') + ' onchange="toggleChartHighlight(\'' + key + '\', \'high\', this.checked)"> Upper' +
+                        '</label>' +
+                        '<label style="color:#3b82f6">' +
+                            '<input type="checkbox" ' + (isLowChecked ? 'checked' : '') + ' onchange="toggleChartHighlight(\'' + key + '\', \'low\', this.checked)"> Lower' +
+                        '</label>' +
                     '</div>';
 
                 card.innerHTML = '<div class="card-header" draggable="true" data-metric="' + key + '">' +
@@ -1272,14 +1591,11 @@
         function resetLayoutPositions() {
             orderedMetrics = [...defaultOrderedMetrics];
             maximizedChartKey = null;
+            currentKindFilter = 'all';
+            currentDimensionFilter = 'all';
             const top5Toggle = document.getElementById('top5FilterToggle');
             if (top5Toggle) top5Toggle.checked = true;
-            const highToggle = document.getElementById('highHighlightToggle');
-            if (highToggle) highToggle.checked = true;
-            const lowToggle = document.getElementById('lowHighlightToggle');
-            if (lowToggle) lowToggle.checked = true;
-            showHighHighlight = true;
-            showLowHighlight = true;
+            chartHighlightStates = {};
             const catSelect = document.getElementById('categoryFilterSelect');
             if (catSelect) catSelect.value = 'all';
             const impSelect = document.getElementById('impactFilterSelect');
@@ -1290,19 +1606,23 @@
             localStorage.removeItem('verdictWidth');
             localStorage.removeItem('isPanelCollapsed');
             localStorage.removeItem('top5FilterEnabled');
-            localStorage.removeItem('showHighHighlight');
-            localStorage.removeItem('showLowHighlight');
+            localStorage.removeItem('chartHighlightStates');
             isPanelCollapsed = false;
             mainGrid.classList.remove('panel-collapsed');
             const btn = document.getElementById('toggleRightPanelBtn');
             if (btn) btn.innerText = '📋';
             mainGrid.style.gridTemplateColumns = 'minmax(0, 1fr) 8px 540px';
+            selectedTimeLabel = null;
+            selectedVerdictRecord = null;
+            renderVerdictDetails(null);
             updateFilterLists();
             refreshAllViews();
         }
 
         function handleVerdictFilterChange() {
             selectedTimeLabel = null;
+            selectedVerdictRecord = null;
+            renderVerdictDetails(null);
             updateFilterLists();
             refreshAllViews();
         }
@@ -1313,6 +1633,8 @@
             const top5Enabled = document.getElementById('top5FilterToggle') ? document.getElementById('top5FilterToggle').checked : true;
             localStorage.setItem('top5FilterEnabled', top5Enabled);
             selectedTimeLabel = null;
+            selectedVerdictRecord = null;
+            renderVerdictDetails(null);
 
             updateFilterLists();
 
@@ -1320,7 +1642,9 @@
                 ws.send(JSON.stringify({
                     type: "filter",
                     application: currentFilter,
-                    host: currentHostFilter
+                    host: currentHostFilter,
+                    kind: currentKindFilter === 'all' ? '' : currentKindFilter,
+                    dimension: currentDimensionFilter === 'all' ? '' : currentDimensionFilter
                 }));
             }
 
@@ -1391,6 +1715,7 @@
             tbody.innerHTML = "";
 
             const textAndHostMatchedApps = getAllKnownApps().filter(app => {
+                if (!appMatchesDimensionAndKind(app)) return false;
                 if (!matchesFilter(app, currentFilter)) return false;
                 if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
                 return true;
@@ -1418,11 +1743,15 @@
 
             allVerdicts.sort((a, b) => new Date(b.fullTimestamp || b.time) - new Date(a.fullTimestamp || a.time));
 
+            const selectedKey = selectedVerdictRecord ? getVerdictRecordKey(selectedVerdictRecord) : '';
+            let matchedSelectedEntry = null;
+
             allVerdicts.forEach(v => {
                 const timeLabel = v.time;
                 const vv = v.verdict;
                 const categoryText = vv.category || '-';
                 const impactText = vv.impact || '-';
+                const rowKey = getVerdictRecordKey(v);
 
                 let badgeImpactClass = 'text-green';
                 if (vv.impact === 'severe') badgeImpactClass = 'text-red';
@@ -1441,7 +1770,11 @@
 
                 const row = document.createElement('tr');
                 row.setAttribute('data-time', timeLabel);
-                if (timeLabel === selectedTimeLabel) row.className = 'selected';
+                row.setAttribute('data-verdict-key', rowKey);
+                if (selectedKey && rowKey === selectedKey) {
+                    row.className = 'selected';
+                    matchedSelectedEntry = v;
+                }
 
                 row.title = largeHint;
                 row.innerHTML = '<td>' + timeLabel + '</td>' +
@@ -1450,9 +1783,16 @@
                     '<td><span class="badge ' + badgeImpactClass + '">' + impactText + '</span></td>' +
                     '<td>' + vv.score + '</td>';
 
-                row.onclick = function() { selectVerdict(timeLabel, row); };
+                row.onclick = function() { selectVerdict(v, row); };
                 tbody.appendChild(row);
             });
+
+            if (matchedSelectedEntry) {
+                selectedVerdictRecord = matchedSelectedEntry;
+                renderVerdictDetails(matchedSelectedEntry);
+            } else if (selectedVerdictRecord) {
+                renderVerdictDetails(selectedVerdictRecord);
+            }
         }
 
         function changeTimeframe() {
@@ -1590,8 +1930,8 @@
                 c.data.datasets[0]._violationPoints = trimmed.map(pt => pt.val > pt.up || pt.val < pt.lo);
 
                 c.data.datasets[0].pointRadius = trimmed.map(pt => (pt.time === selectedTimeLabel) ? 6 : 0);
-                c.data.datasets[0].pointBackgroundColor = sharedMetricColor;
-                c.data.datasets[0].pointBorderColor = (pt) => (pt.time === selectedTimeLabel) ? '#ffffff' : sharedMetricColor;
+                c.data.datasets[0].pointBackgroundColor = DEFAULT_SERIES_COLOR;
+                c.data.datasets[0].pointBorderColor = (pt) => (pt.time === selectedTimeLabel) ? '#ffffff' : DEFAULT_SERIES_COLOR;
             } else {
                 c.data.labels = [];
                 c.data.datasets.forEach(ds => { ds.data = []; });
@@ -1600,14 +1940,21 @@
             c.update('none');
         }
 
-        function selectVerdict(timeLabel, rowElement) {
-            if (selectedTimeLabel === timeLabel) {
+        function selectVerdict(verdictEntry, rowElement) {
+            const clickedKey = getVerdictRecordKey(verdictEntry);
+            const currentKey = selectedVerdictRecord ? getVerdictRecordKey(selectedVerdictRecord) : '';
+
+            if (currentKey && clickedKey === currentKey) {
                 selectedTimeLabel = null;
+                selectedVerdictRecord = null;
                 document.querySelectorAll('#verdictTableBody tr').forEach(tr => tr.classList.remove('selected'));
+                renderVerdictDetails(null);
             } else {
-                selectedTimeLabel = timeLabel;
+                selectedTimeLabel = verdictEntry.time;
+                selectedVerdictRecord = verdictEntry;
                 document.querySelectorAll('#verdictTableBody tr').forEach(tr => tr.classList.remove('selected'));
                 rowElement.classList.add('selected');
+                renderVerdictDetails(verdictEntry);
             }
             for (const key in charts) { redrawChart(key); }
         }
@@ -1631,9 +1978,9 @@
             }
         }
 
-        function addApplication(app) {
-            const isNew = !applicationCache[app];
-            ensureAppCache(app);
+        function addApplication(ident) {
+            const isNew = !applicationCache[ident];
+            ensureAppCache(ident);
             if (isNew) {
                 updateFilterLists();
             }
@@ -1646,6 +1993,9 @@
                     applicationCache[app].verdicts = [];
                 }
             });
+            selectedTimeLabel = null;
+            selectedVerdictRecord = null;
+            renderVerdictDetails(null);
             rebuildVerdictTable();
         }
 
@@ -1708,7 +2058,9 @@
                 socket.send(JSON.stringify({
                     type: 'filter',
                     application: currentFilter,
-                    host: currentHostFilter
+                    host: currentHostFilter,
+                    kind: currentKindFilter === 'all' ? '' : currentKindFilter,
+                    dimension: currentDimensionFilter === 'all' ? '' : currentDimensionFilter
                 }));
             };
 
@@ -1721,7 +2073,16 @@
                 }
 
                 const appIdent = v.ident;
-                if (!appIdent) return;
+                const hostIdent = v.host || null;
+                let kindDimChanged = ingestKindDimensionPayload(v, appIdent, hostIdent);
+
+                if (!appIdent) {
+                    if (kindDimChanged) {
+                        updateFilterLists();
+                        refreshAllViews();
+                    }
+                    return;
+                }
 
                 const prevMatchingApps = new Set(getMatchingApps());
 
@@ -1765,6 +2126,9 @@
                                 if (ingestHostPoints(appIdent, hostObj.ident, hostObj.points, timeLabel, v.timestamp, updatedHostMetrics)) {
                                     topologyChanged = true;
                                 }
+                                if (ingestKindDimensionPayload(hostObj, appIdent, hostObj.ident)) {
+                                    kindDimChanged = true;
+                                }
                             }
                         });
                     } else if (typeof v.hosts === 'object') {
@@ -1776,6 +2140,9 @@
                             } else if (val && typeof val === 'object') {
                                 if (ingestHostPoints(appIdent, val.ident || key, val.points, timeLabel, v.timestamp, updatedHostMetrics)) {
                                     topologyChanged = true;
+                                }
+                                if (ingestKindDimensionPayload(val, appIdent, val.ident || key)) {
+                                    kindDimChanged = true;
                                 }
                             }
                         });
@@ -1808,7 +2175,7 @@
                     matchingApps.length !== prevMatchingApps.size ||
                     matchingApps.some(a => !prevMatchingApps.has(a));
 
-                if (topologyChanged || matchingSetChanged || v.verdict) {
+                if (topologyChanged || matchingSetChanged || kindDimChanged || v.verdict) {
                     updateFilterLists();
                 }
 

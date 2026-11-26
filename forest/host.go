@@ -368,6 +368,14 @@ func (af *HostFrame) Name() string {
 	return af.name
 }
 
+func (af *HostFrame) Kind() string {
+	return ""
+}
+
+func (af *HostFrame) Dimension() string {
+	return ""
+}
+
 func NewHostFrame(name string, stamp common.Stamp, signal *common.HostSignal) *HostFrame {
 
 	r := &HostFrame{
@@ -1076,16 +1084,17 @@ func (ae *HostEngine) Consolidate(frames HostFrames) *HostFrame {
 		return cmp.Compare(a.Stamp(), b.Stamp())
 	})
 
-	begin := frames[0].Stamp()
-	end := frames[len(frames)-1].Stamp()
+	first := frames[0]
+	last := frames[len(frames)-1]
+
+	begin := first.Stamp()
+	end := last.Stamp()
 
 	stamp := begin + (end-begin)/2
-	//stamp := begin
 
 	frame := ae.aggregateFrames(frames)
-
-	//frame.name = ae.name
-	frame.hash = ae.hash
+	frame.name = first.name
+	frame.hash = first.hash
 	frame.stamp = stamp
 	frame.begin = begin
 	frame.end = end

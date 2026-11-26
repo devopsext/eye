@@ -45,12 +45,16 @@ type ModelFrame interface {
 
 type ModelHostFrame interface {
 	ModelFrame
+	Name() string
 	CPU() ModelDataPoint
 	Memory() ModelDataPoint
 }
 
 type ModelApplicationFrame interface {
 	ModelFrame
+	Name() string
+	Kind() string
+	Dimension() string
 	InRequests() ModelDataPoint
 	InThroughput() ModelDataPoint
 	InLatency() ModelDataPoint
