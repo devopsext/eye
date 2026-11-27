@@ -1090,12 +1090,10 @@ func (ae *HostEngine) Consolidate(frames HostFrames) *HostFrame {
 	begin := first.Stamp()
 	end := last.Stamp()
 
-	stamp := begin + (end-begin)/2
-
 	frame := ae.aggregateFrames(frames)
 	frame.name = first.name
 	frame.hash = first.hash
-	frame.stamp = stamp
+	frame.stamp = begin
 	frame.begin = begin
 	frame.end = end
 

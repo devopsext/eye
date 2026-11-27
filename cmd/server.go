@@ -149,16 +149,17 @@ var testModelOptions = model.TestModelOptions{
 }
 
 var forestModelOptions = model.ForestModelOptions{
-	Enabled:             envGet("FOREST_MODEL_ENABLED", false).(bool),
-	Concurrency:         envGet("FOREST_MODEL_CONCURRENCY", 100).(int),
-	Filter:              strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
-	Dimensions:          strings.Split(envStringExpand("FOREST_MODEL_DIMENSIONS", ""), ","),
-	EngineTTL:           envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
-	DetectionTTL:        envGet("FOREST_MODEL_DETECTION_TTL", "5m").(string),
-	DetectionMass:       envGet("FOREST_MODEL_DETECTION_MASS", 10.0).(float64),
-	DetectionCategories: envGet("FOREST_MODEL_DETECTION_CATEGORIES", "").(string),
-	DetectionImpacts:    envGet("FOREST_MODEL_DETECTION_IMPACTS", "").(string),
-	DetectionScore:      envGet("FOREST_MODEL_DETECTION_SCORE", 5).(int),
+	Enabled:           envGet("FOREST_MODEL_ENABLED", false).(bool),
+	Filter:            strings.Split(envStringExpand("FOREST_MODEL_FILTER", ""), ","),
+	Dimensions:        strings.Split(envStringExpand("FOREST_MODEL_DIMENSIONS", ""), ","),
+	EngineTTL:         envGet("FOREST_MODEL_ENGINE_TTL", "1h").(string),
+	DetectTTL:         envGet("FOREST_MODEL_DETECT_TTL", "5m").(string),
+	DetectMass:        envGet("FOREST_MODEL_DETECT_MASS", 10.0).(float64),
+	DetectCategories:  envGet("FOREST_MODEL_DETECT_CATEGORIES", "").(string),
+	DetectImpacts:     envGet("FOREST_MODEL_DETECT_IMPACTS", "").(string),
+	DetectScore:       envGet("FOREST_MODEL_DETECT_SCORE", 5).(int),
+	DetectConcurrency: envGet("FOREST_MODEL_DETECT_CONCURRENCY", 50).(int),
+	TrainConcurrency:  envGet("FOREST_MODEL_TRAIN_CONCURRENCY", 50).(int),
 	ApplicationOptions: forest.ApplicationEngineOptions{
 		Path:                  envGet("FOREST_MODEL_APP_PATH", "").(string),
 		TreesNumber:           envGet("FOREST_MODEL_APP_TREES_NUMBER", model.ForestModelTreesNumber).(int),
@@ -343,12 +344,12 @@ func NewServerCommand(wg *sync.WaitGroup) *cobra.Command {
 	flags.StringVar(&testModelOptions.WaitInterval, "test-model-wait-interval", testModelOptions.WaitInterval, "Test model wait interval")
 
 	// Forest model
-	flags.IntVar(&forestModelOptions.Concurrency, "forest-model-concurrency", forestModelOptions.Concurrency, "Forest model concurrency")
 	flags.StringSliceVar(&forestModelOptions.Filter, "forest-model-filter", forestModelOptions.Filter, "Forest model filter")
 	flags.StringSliceVar(&forestModelOptions.Dimensions, "forest-model-dimensions", forestModelOptions.Dimensions, "Forest model dimensions")
 	flags.StringVar(&forestModelOptions.EngineTTL, "forest-model-engine-ttl", forestModelOptions.EngineTTL, "Forest model engine ttl")
-	flags.StringVar(&forestModelOptions.DetectionTTL, "forest-model-detection-ttl", forestModelOptions.DetectionTTL, "Forest model detection ttl")
-	flags.Float64Var(&forestModelOptions.DetectionMass, "forest-model-detection-mass", forestModelOptions.DetectionMass, "Forest model detection mass threshold")
+	flags.StringVar(&forestModelOptions.DetectTTL, "forest-model-detect-ttl", forestModelOptions.DetectTTL, "Forest model detect ttl")
+	flags.Float64Var(&forestModelOptions.DetectMass, "forest-model-detect-mass", forestModelOptions.DetectMass, "Forest model detect mass threshold")
+	flags.IntVar(&forestModelOptions.DetectConcurrency, "forest-model-detect-concurrency", forestModelOptions.DetectConcurrency, "Forest model detect concurrency")
 	// add application options ....
 
 	// Slack

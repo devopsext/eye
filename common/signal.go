@@ -933,13 +933,17 @@ func (h *Host) Labels(attributes *Attributes) Labels {
 	return lbs
 }
 
-func (h *Host) LabelValue(attributes *Attributes, label string) string {
+func (h *Host) LabelValue(attributes *Attributes, label string) (string, bool) {
 
 	lbs := h.Labels(attributes)
 	if lbs == nil {
-		return ""
+		return "", false
 	}
-	return lbs[label]
+	v, ok := lbs[label]
+	if !ok {
+		return "", false
+	}
+	return v, true
 }
 
 func (h *Host) Name(names *Names) string {

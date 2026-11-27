@@ -222,14 +222,14 @@
             <option value="all" selected>All Dimensions</option>
         </select>
 
-        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:300px;">
+        <input type="text" id="applicationSearch" list="applicationList" placeholder="Search application or regex (e.g. app.*)..." oninput="handleApplicationSearchInput()" onchange="handleApplicationFilterChange()" style="width:300px;">
         <datalist id="applicationList"></datalist>
 
-        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleSearchInput()" onchange="changeFilter()" style="width:240px;">
+        <input type="text" id="hostSearch" list="hostList" placeholder="Search host or regex (e.g. host.*)..." oninput="handleHostSearchInput()" onchange="handleHostFilterChange()" style="width:240px;">
         <datalist id="hostList"></datalist>
 
         <label style="font-size: 13px; cursor: pointer; margin-right: auto; ">
-            <input type="checkbox" id="top5FilterToggle" checked onchange="changeFilter()">Top
+            <input type="checkbox" id="top5FilterToggle" checked onchange="handleTopToggleChange()">Top
         </label>
       
         <span id="modelStatus" style="font-size:12px; color:#4169E1;">Unknown</span>
@@ -285,6 +285,8 @@
     <script>
         const DEFAULT_SERIES_COLOR = '#f83838';
 
+        // Top-down filter pipeline state:
+        // Stage 1: Kind -> Stage 2: Dimension -> Stage 3: Application -> Stage 4: Host
         let currentKindFilter = 'all';
         let currentDimensionFilter = 'all';
         let currentFilter = document.getElementById('applicationSearch').value.trim();
@@ -308,7 +310,16 @@
         let chartHighlightStates = {};
         const appColorMap = {};
 
-        let debounceTimer = null;
+        let appDebounceTimer = null;
+        let hostDebounceTimer = null;
+
+        function hasSpecificKindOrDimensionSelected() {
+            return currentKindFilter !== 'all' || currentDimensionFilter !== 'all';
+        }
+
+        function isAppFilterProvided() {
+            return Boolean(currentFilter && currentFilter.trim() !== '');
+        }
 
         function getVerdictRecordKey(v) {
             if (!v) return '';
@@ -407,6 +418,19 @@
             return dimensionEntitiesMap[dimVal];
         }
 
+        function getAllowedDimensionsForCurrentKind() {
+            const allowed = new Set();
+            if (currentKindFilter === 'all') {
+                Object.values(kindDimensionsMap).forEach(dimSet => {
+                    dimSet.forEach(d => allowed.add(d));
+                });
+                Object.keys(dimensionEntitiesMap).forEach(d => allowed.add(d));
+            } else if (kindDimensionsMap[currentKindFilter]) {
+                kindDimensionsMap[currentKindFilter].forEach(d => allowed.add(d));
+            }
+            return allowed;
+        }
+
         function registerKindAndDimension(kindName, dimValues, appIdent, hostIdent) {
             const cleanKind = (kindName !== undefined && kindName !== null) ? String(kindName).trim() : '';
             const dims = Array.isArray(dimValues)
@@ -431,11 +455,12 @@
         }
 
         function ingestKindDimensionPayload(payload, appIdent, hostIdent) {
-            if (!payload || typeof payload !== 'object') return false;
+            if (!payload || typeof payload !== 'object') {
+                return false;
+            }
             const prevKinds = Object.keys(kindDimensionsMap).sort().join('|');
             const prevDims = Object.keys(dimensionEntitiesMap).sort().join('|');
 
-            // Case 1: payload.kind is a string or object
             if (payload.kind !== undefined && payload.kind !== null) {
                 if (typeof payload.kind === 'string') {
                     const dimVal = payload.dimension ?? payload.value ?? null;
@@ -457,7 +482,6 @@
                 }
             }
 
-            // Case 2: payload.kinds (array or map/object of kindName -> dimension values)
             if (payload.kinds) {
                 if (Array.isArray(payload.kinds)) {
                     payload.kinds.forEach(item => {
@@ -476,7 +500,6 @@
                 }
             }
 
-            // Case 3: standalone dimension(s) when kind is omitted
             if (!payload.kind && !payload.kinds && (payload.dimension !== undefined || payload.dimensions !== undefined)) {
                 const rawDims = payload.dimensions !== undefined ? payload.dimensions : payload.dimension;
                 registerKindAndDimension('', rawDims, appIdent, hostIdent);
@@ -506,21 +529,13 @@
             });
             kindSelect.value = currentKindFilter;
 
-            const availableDimsSet = new Set();
-            if (currentKindFilter === 'all') {
-                Object.values(kindDimensionsMap).forEach(dimSet => {
-                    dimSet.forEach(d => availableDimsSet.add(d));
-                });
-                Object.keys(dimensionEntitiesMap).forEach(d => availableDimsSet.add(d));
-            } else if (kindDimensionsMap[currentKindFilter]) {
-                kindDimensionsMap[currentKindFilter].forEach(d => availableDimsSet.add(d));
-            }
+            const availableDimsSet = getAllowedDimensionsForCurrentKind();
+            const sortedDims = Array.from(availableDimsSet).sort((a, b) => a.localeCompare(b));
 
             if (currentDimensionFilter !== 'all' && !availableDimsSet.has(currentDimensionFilter)) {
                 currentDimensionFilter = 'all';
             }
 
-            const sortedDims = Array.from(availableDimsSet).sort((a, b) => a.localeCompare(b));
             dimSelect.innerHTML = '<option value="all">All Dimensions</option>';
             sortedDims.forEach(d => {
                 const opt = document.createElement('option');
@@ -531,25 +546,129 @@
             dimSelect.value = currentDimensionFilter;
         }
 
+        function clearAppAndHostFilters() {
+            currentFilter = '';
+            currentHostFilter = '';
+            const appInput = document.getElementById('applicationSearch');
+            const hostInput = document.getElementById('hostSearch');
+            if (appInput) appInput.value = '';
+            if (hostInput) {
+                hostInput.value = '';
+                hostInput.setAttribute('placeholder', 'Search host or regex (e.g. host.*)...');
+            }
+        }
+
+        function pruneDownstreamAppAndHostFilters() {
+            if (!hasSpecificKindOrDimensionSelected()) {
+                clearAppAndHostFilters();
+                return;
+            }
+
+            const allowedApps = getAppsInCurrentKindAndDimension();
+            if (currentFilter && allowedApps.length > 0 && !allowedApps.some(app => matchesFilter(app, currentFilter))) {
+                currentFilter = '';
+                const appInput = document.getElementById('applicationSearch');
+                if (appInput) appInput.value = '';
+            }
+
+            const allowedHosts = getHostsInCurrentKindDimensionAndApps(allowedApps);
+            if (currentHostFilter && allowedHosts.length > 0 && !allowedHosts.some(h => matchesFilter(h, currentHostFilter))) {
+                currentHostFilter = '';
+                const hostInput = document.getElementById('hostSearch');
+                if (hostInput) hostInput.value = '';
+            }
+        }
+
         function handleKindChange() {
             currentKindFilter = document.getElementById('kindSelect').value || 'all';
             updateKindAndDimensionComboboxes();
-            changeFilter();
+            pruneDownstreamAppAndHostFilters();
+            syncHostInputWithAppFilter();
+            applyFilterPipeline();
         }
 
         function handleDimensionChange() {
             currentDimensionFilter = document.getElementById('dimensionSelect').value || 'all';
-            changeFilter();
+            updateKindAndDimensionComboboxes();
+            pruneDownstreamAppAndHostFilters();
+            syncHostInputWithAppFilter();
+            applyFilterPipeline();
         }
 
-        function appMatchesDimensionAndKind(app) {
+        function syncHostInputWithAppFilter() {
+            const hostInput = document.getElementById('hostSearch');
+            if (!hostInput) return;
+
+            if (!isAppFilterProvided()) {
+                currentHostFilter = '';
+                hostInput.value = '';
+                hostInput.setAttribute('placeholder', 'Search host or regex (e.g. host.*)...');
+                return;
+            }
+
+            const appsAfterStage3 = getAppsFilteredThroughStage3();
+            const hostsInScope = getHostsInCurrentKindDimensionAndApps(appsAfterStage3).sort((a, b) => a.localeCompare(b));
+
+            if (currentHostFilter && hostsInScope.length > 0 && !hostsInScope.some(h => matchesFilter(h, currentHostFilter))) {
+                currentHostFilter = '';
+                hostInput.value = '';
+            }
+
+            if (hostsInScope.length > 0) {
+                hostInput.setAttribute('placeholder', hostsInScope.join(', '));
+            } else {
+                hostInput.setAttribute('placeholder', 'No hosts for matched apps');
+            }
+        }
+
+        function handleApplicationSearchInput() {
+            clearTimeout(appDebounceTimer);
+            const appInput = document.getElementById('applicationSearch');
+            currentFilter = appInput ? appInput.value.trim() : '';
+            syncHostInputWithAppFilter();
+            applyFilterPipeline();
+            appDebounceTimer = setTimeout(() => {
+                handleApplicationFilterChange();
+            }, 150);
+        }
+
+        function handleApplicationFilterChange() {
+            clearTimeout(appDebounceTimer);
+            const appInput = document.getElementById('applicationSearch');
+            currentFilter = appInput ? appInput.value.trim() : '';
+
+            syncHostInputWithAppFilter();
+            applyFilterPipeline();
+        }
+
+        function handleHostSearchInput() {
+            clearTimeout(hostDebounceTimer);
+            hostDebounceTimer = setTimeout(() => {
+                handleHostFilterChange();
+            }, 200);
+        }
+
+        function handleHostFilterChange() {
+            clearTimeout(hostDebounceTimer);
+            currentHostFilter = document.getElementById('hostSearch').value.trim();
+            applyFilterPipeline();
+        }
+
+        function handleTopToggleChange() {
+            const top5Enabled = document.getElementById('top5FilterToggle') ? document.getElementById('top5FilterToggle').checked : true;
+            localStorage.setItem('top5FilterEnabled', top5Enabled);
+            applyFilterPipeline();
+        }
+
+        function appMatchesKindAndDimension(app) {
             if (currentDimensionFilter !== 'all') {
+                if (currentKindFilter !== 'all') {
+                    const dimsForKind = kindDimensionsMap[currentKindFilter];
+                    if (!dimsForKind || !dimsForKind.has(currentDimensionFilter)) return false;
+                }
                 const dimEntry = dimensionEntitiesMap[currentDimensionFilter];
                 if (!dimEntry) return false;
-                if (dimEntry.apps.size > 0) {
-                    return dimEntry.apps.has(app);
-                }
-                return false;
+                return dimEntry.apps.has(app);
             }
             if (currentKindFilter !== 'all') {
                 const dimsForKind = kindDimensionsMap[currentKindFilter];
@@ -567,18 +686,18 @@
             return true;
         }
 
-        function hostMatchesDimensionAndKind(host) {
+        function hostMatchesKindAndDimension(host) {
             if (currentDimensionFilter !== 'all') {
+                if (currentKindFilter !== 'all') {
+                    const dimsForKind = kindDimensionsMap[currentKindFilter];
+                    if (!dimsForKind || !dimsForKind.has(currentDimensionFilter)) return false;
+                }
                 const dimEntry = dimensionEntitiesMap[currentDimensionFilter];
                 if (!dimEntry) return false;
-                if (dimEntry.hosts.size > 0) {
-                    return dimEntry.hosts.has(host);
-                }
-                if (dimEntry.apps.size > 0) {
-                    for (const app of dimEntry.apps) {
-                        if (applicationCache[app] && applicationCache[app].hosts && applicationCache[app].hosts.has(host)) {
-                            return true;
-                        }
+                if (dimEntry.hosts.has(host)) return true;
+                for (const app of dimEntry.apps) {
+                    if (applicationCache[app] && applicationCache[app].hosts && applicationCache[app].hosts.has(host)) {
+                        return true;
                     }
                 }
                 return false;
@@ -626,13 +745,6 @@
             if (charts[metricKey]) {
                 charts[metricKey].update('none');
             }
-        }
-
-        function handleSearchInput() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                changeFilter();
-            }, 1000);
         }
 
         function updateConnectionStatusUI() {
@@ -746,7 +858,7 @@
 
         function isVerdictFilterActive() {
             const { category, impact } = getActiveVerdictFilters();
-            return category !== 'all' || impact !== 'all' || currentDimensionFilter !== 'all' || currentKindFilter !== 'all';
+            return category !== 'all' || impact !== 'all';
         }
 
         function getVerdictWindowCutoff(appList) {
@@ -791,9 +903,57 @@
             return matchesCategory && matchesImpact;
         }
 
+        function verdictMatchesHostAndKindDimension(verdictObj, app) {
+            const vv = verdictObj && verdictObj.verdict ? verdictObj.verdict : {};
+            const verdictHost = verdictObj.host || vv.host || null;
+
+            if (currentHostFilter) {
+                if (verdictHost) {
+                    if (!matchesFilter(verdictHost, currentHostFilter) || !hostMatchesKindAndDimension(verdictHost)) {
+                        return false;
+                    }
+                } else {
+                    const appObj = applicationCache[app];
+                    let matchedHost = false;
+                    if (appObj && appObj.hosts) {
+                        for (const h of appObj.hosts) {
+                            if (hostMatchesKindAndDimension(h) && matchesFilter(h, currentHostFilter)) {
+                                matchedHost = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!matchedHost) {
+                        for (const [h, hObj] of Object.entries(hostCache)) {
+                            if (hObj && hObj.apps && hObj.apps.has(app) && hostMatchesKindAndDimension(h) && matchesFilter(h, currentHostFilter)) {
+                                matchedHost = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!matchedHost) return false;
+                }
+            } else if (verdictHost && !hostMatchesKindAndDimension(verdictHost)) {
+                return false;
+            }
+
+            const vKind = verdictObj.kind || vv.kind || null;
+            const vDim = verdictObj.dimension || vv.dimension || null;
+            if (currentKindFilter !== 'all' && vKind && String(vKind).trim() !== currentKindFilter) {
+                return false;
+            }
+            if (currentDimensionFilter !== 'all' && vDim && String(vDim).trim() !== currentDimensionFilter) {
+                return false;
+            }
+
+            return true;
+        }
+
         function appMatchesVerdictFilters(app, cutoffTime) {
             const { category, impact } = getActiveVerdictFilters();
-            if (category === 'all' && impact === 'all') return true;
+            if (category === 'all' && impact === 'all') {
+                return true;
+            }
 
             const appObj = applicationCache[app];
             if (!appObj || !Array.isArray(appObj.verdicts) || appObj.verdicts.length === 0) {
@@ -803,7 +963,8 @@
             return appObj.verdicts.some(v => {
                 const verdictTime = new Date(v.fullTimestamp || v.time).getTime();
                 if (!isNaN(verdictTime) && verdictTime < cutoffTime) return false;
-                return verdictMatchesCategoryAndImpact(v, category, impact);
+                if (!verdictMatchesCategoryAndImpact(v, category, impact)) return false;
+                return verdictMatchesHostAndKindDimension(v, app);
             });
         }
 
@@ -823,48 +984,90 @@
             return Array.from(hostsSet);
         }
 
-        function appHasHostMatching(app, hostFilterVal) {
-            if (!hostFilterVal) return true;
-            const appObj = applicationCache[app];
-            if (appObj && appObj.hosts && appObj.hosts.size > 0) {
-                for (const h of appObj.hosts) {
-                    if (hostMatchesDimensionAndKind(h) && matchesFilter(h, hostFilterVal)) return true;
-                }
-            }
-            for (const [h, hObj] of Object.entries(hostCache)) {
-                if (hObj && hObj.apps && hObj.apps.has(app) && hostMatchesDimensionAndKind(h) && matchesFilter(h, hostFilterVal)) {
-                    return true;
-                }
-            }
-            return false;
+        function getAppsInCurrentKindAndDimension() {
+            return getAllKnownApps().filter(app => appMatchesKindAndDimension(app));
         }
 
-        function hostHasEligibleApp(host, appFilterVal, cutoffTime) {
-            if (!hostMatchesDimensionAndKind(host)) return false;
-            const verdictActive = isVerdictFilterActive();
-            const matchedApps = new Set();
-
-            const hObj = hostCache[host];
-            if (hObj && hObj.apps) {
-                hObj.apps.forEach(app => matchedApps.add(app));
-            }
-            for (const [app, appObj] of Object.entries(applicationCache)) {
-                if (appObj && appObj.hosts && appObj.hosts.has(host)) {
-                    matchedApps.add(app);
-                }
-            }
-
-            if (matchedApps.size === 0) {
-                return !appFilterVal && !verdictActive;
-            }
-
-            for (const app of matchedApps) {
-                if (!appMatchesDimensionAndKind(app)) continue;
-                if (appFilterVal && !matchesFilter(app, appFilterVal)) continue;
-                if (verdictActive && !appMatchesVerdictFilters(app, cutoffTime)) continue;
+        function getAppsFilteredThroughStage3() {
+            if (!isAppFilterProvided()) return [];
+            const stage12Apps = getAppsInCurrentKindAndDimension();
+            const cutoffTime = getVerdictWindowCutoff(stage12Apps);
+            return stage12Apps.filter(app => {
+                if (!matchesFilter(app, currentFilter)) return false;
+                if (!appMatchesVerdictFilters(app, cutoffTime)) return false;
                 return true;
+            });
+        }
+
+        function getHostsInCurrentKindDimensionAndApps(appList) {
+            const hostsSet = new Set();
+            const targetApps = Array.isArray(appList) ? appList : getAppsFilteredThroughStage3();
+
+            targetApps.forEach(app => {
+                const appObj = applicationCache[app];
+                if (appObj && appObj.hosts) {
+                    appObj.hosts.forEach(h => {
+                        if (hostMatchesKindAndDimension(h)) {
+                            hostsSet.add(h);
+                        }
+                    });
+                }
+            });
+
+            Object.entries(hostCache).forEach(([h, hObj]) => {
+                if (!hostMatchesKindAndDimension(h)) return;
+                if (hObj && hObj.apps) {
+                    for (const app of targetApps) {
+                        if (hObj.apps.has(app)) {
+                            hostsSet.add(h);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            if (hostsSet.size === 0 && targetApps.length === 0 && !currentFilter && currentDimensionFilter === 'all' && currentKindFilter === 'all') {
+                getAllKnownHosts().forEach(h => {
+                    if (hostMatchesKindAndDimension(h)) hostsSet.add(h);
+                });
             }
-            return false;
+
+            return Array.from(hostsSet);
+        }
+
+        function getFinalFilteredHosts() {
+            if (!isAppFilterProvided()) return [];
+            const stage3Apps = getAppsFilteredThroughStage3();
+            const candidateHosts = getHostsInCurrentKindDimensionAndApps(stage3Apps);
+            return candidateHosts.filter(h => matchesFilter(h, currentHostFilter));
+        }
+
+        function getMatchingApps() {
+            if (!isAppFilterProvided()) return [];
+            const stage3Apps = getAppsFilteredThroughStage3();
+            if (!currentHostFilter) {
+                return stage3Apps;
+            }
+
+            const allowedHostsSet = new Set(getFinalFilteredHosts());
+            return stage3Apps.filter(app => {
+                const appObj = applicationCache[app];
+                if (appObj && appObj.hosts) {
+                    for (const h of appObj.hosts) {
+                        if (allowedHostsSet.has(h)) return true;
+                    }
+                }
+                for (const h of allowedHostsSet) {
+                    if (hostCache[h] && hostCache[h].apps && hostCache[h].apps.has(app)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+
+        function getMatchingHosts() {
+            return getFinalFilteredHosts();
         }
 
         function limitToTopN(entityList, cacheObj, metricKey, limit = 5) {
@@ -890,87 +1093,42 @@
             const hostDatalist = document.getElementById('hostList');
             if (!appDatalist || !hostDatalist) return;
 
-            const allApps = getAllKnownApps();
-            const cutoffTime = getVerdictWindowCutoff(allApps);
-
-            let filteredAppsForList = allApps.filter(app =>
-                appMatchesDimensionAndKind(app) &&
-                appHasHostMatching(app, currentHostFilter) &&
+            const stage12Apps = getAppsInCurrentKindAndDimension();
+            const cutoffTime = getVerdictWindowCutoff(stage12Apps);
+            let appCandidates = stage12Apps.filter(app =>
                 appMatchesVerdictFilters(app, cutoffTime)
-            ).sort();
-            filteredAppsForList = limitToTopN(filteredAppsForList, applicationCache, 'InRequests', 5);
+            ).sort((a, b) => a.localeCompare(b));
+            if (!isAppFilterProvided()) {
+                appCandidates = limitToTopN(appCandidates, applicationCache, 'InRequests', 5);
+            }
 
             appDatalist.innerHTML = '';
-            filteredAppsForList.forEach(app => {
+            appCandidates.forEach(app => {
                 const opt = document.createElement('option');
                 opt.value = app;
                 appDatalist.appendChild(opt);
             });
 
-            const allHosts = getAllKnownHosts();
-            let filteredHostsForList = allHosts.filter(host =>
-                hostHasEligibleApp(host, currentFilter, cutoffTime)
-            ).sort();
-            filteredHostsForList = limitToTopN(filteredHostsForList, hostCache, 'HostCPU', 5);
+            // Fulfill host filter options according to applications matched by app filter
+            let hostCandidates = [];
+            if (isAppFilterProvided()) {
+                const stage3Apps = getAppsFilteredThroughStage3();
+                hostCandidates = getHostsInCurrentKindDimensionAndApps(stage3Apps).sort((a, b) => a.localeCompare(b));
+            } else {
+                const allHosts = getHostsInCurrentKindDimensionAndApps(stage12Apps).sort((a, b) => a.localeCompare(b));
+                hostCandidates = limitToTopN(allHosts, hostCache, 'HostCPU', 5);
+            }
 
             hostDatalist.innerHTML = '';
-            filteredHostsForList.forEach(host => {
+            hostCandidates.forEach(host => {
                 const opt = document.createElement('option');
                 opt.value = host;
                 hostDatalist.appendChild(opt);
             });
         }
 
-        function getBaseMatchingApps() {
-            const allApps = getAllKnownApps();
-            const cutoffTime = getVerdictWindowCutoff(allApps);
-            return allApps.filter(app => {
-                if (!appMatchesDimensionAndKind(app)) return false;
-                if (!matchesFilter(app, currentFilter)) return false;
-                if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
-                if (!appMatchesVerdictFilters(app, cutoffTime)) return false;
-                return true;
-            });
-        }
-
-        function getMatchingApps() {
-            const baseMatching = getBaseMatchingApps();
-            if (currentFilter || currentHostFilter || isVerdictFilterActive()) {
-                return baseMatching;
-            }
-            return limitToTopN(baseMatching, applicationCache, 'InRequests', 5);
-        }
-
-        function getMatchingHosts() {
-            const matchingApps = getMatchingApps();
-            const hostsSet = new Set();
-
-            matchingApps.forEach(app => {
-                if (applicationCache[app] && applicationCache[app].hosts) {
-                    applicationCache[app].hosts.forEach(h => {
-                        if (hostCache[h] && hostMatchesDimensionAndKind(h) && matchesFilter(h, currentHostFilter)) {
-                            hostsSet.add(h);
-                        }
-                    });
-                }
-            });
-
-            if (hostsSet.size === 0 && !currentFilter && currentDimensionFilter === 'all' && currentKindFilter === 'all' && !isVerdictFilterActive()) {
-                Object.keys(hostCache).forEach(h => {
-                    if (matchesFilter(h, currentHostFilter)) {
-                        hostsSet.add(h);
-                    }
-                });
-            }
-
-            let hostList = Array.from(hostsSet);
-            if (currentFilter || currentHostFilter || isVerdictFilterActive()) {
-                return hostList;
-            }
-            return limitToTopN(hostList, hostCache, 'HostCPU', 5);
-        }
-
         function hasHostDataForMatchingApps() {
+            if (!isAppFilterProvided()) return false;
             const matchingHosts = getMatchingHosts();
             return matchingHosts.some(h => {
                 const hc = hostCache[h];
@@ -980,14 +1138,22 @@
         }
 
         function getEntitiesForChart(key) {
+            if (!isAppFilterProvided()) {
+                return {
+                    entities: [],
+                    cache: isHostMetric(key) ? hostCache : applicationCache
+                };
+            }
+
             if (isHostMetric(key)) {
-                let hosts = getMatchingHosts();
+                const hosts = getMatchingHosts();
                 return {
                     entities: limitToTopN(hosts, hostCache, key, 5),
                     cache: hostCache
                 };
             }
-            let apps = getMatchingApps();
+
+            const apps = getMatchingApps();
             return {
                 entities: limitToTopN(apps, applicationCache, key, 5),
                 cache: applicationCache
@@ -1024,6 +1190,9 @@
                                 hostCache[h].apps.add(key);
                             });
                         }
+                        if (appMeta && typeof appMeta === 'object') {
+                            ingestKindDimensionPayload(appMeta, key, null);
+                        }
                     });
                 }
 
@@ -1032,15 +1201,20 @@
                 const activeData = await activeRes.json();
                 if (isPaused) return;
                 if (activeData) {
-                    if (activeData.application && !currentFilter) {
-                        currentFilter = activeData.application;
-                        document.getElementById('applicationSearch').value = currentFilter;
-                    }
-                    if (activeData.host && !currentHostFilter) {
-                        currentHostFilter = activeData.host;
-                        document.getElementById('hostSearch').value = currentHostFilter;
+                    ingestKindDimensionPayload(activeData, activeData.application || null, activeData.host || null);
+
+                    if (hasSpecificKindOrDimensionSelected()) {
+                        if (activeData.application && !currentFilter) {
+                            currentFilter = activeData.application;
+                            document.getElementById('applicationSearch').value = currentFilter;
+                        }
+                        if (activeData.host && !currentHostFilter) {
+                            currentHostFilter = activeData.host;
+                            document.getElementById('hostSearch').value = currentHostFilter;
+                        }
                     }
                 }
+                syncHostInputWithAppFilter();
                 updateFilterLists();
             } catch(err) {
                 console.error("Failed to load applications from API", err);
@@ -1093,7 +1267,7 @@
 
             setInterval(fetchApplications, 5000);
             await fetchApplications();
-            initCharts();
+            refreshAllViews();
             connectWS();
         });
 
@@ -1593,6 +1767,7 @@
             maximizedChartKey = null;
             currentKindFilter = 'all';
             currentDimensionFilter = 'all';
+            clearAppAndHostFilters();
             const top5Toggle = document.getElementById('top5FilterToggle');
             if (top5Toggle) top5Toggle.checked = true;
             chartHighlightStates = {};
@@ -1627,28 +1802,23 @@
             refreshAllViews();
         }
 
-        function changeFilter() {
-            currentFilter = document.getElementById('applicationSearch').value.trim();
-            currentHostFilter = document.getElementById('hostSearch').value.trim();
-            const top5Enabled = document.getElementById('top5FilterToggle') ? document.getElementById('top5FilterToggle').checked : true;
-            localStorage.setItem('top5FilterEnabled', top5Enabled);
+        function applyFilterPipeline() {
             selectedTimeLabel = null;
             selectedVerdictRecord = null;
             renderVerdictDetails(null);
 
             updateFilterLists();
-
-            if (!isPaused && ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: "filter",
-                    application: currentFilter,
-                    host: currentHostFilter,
-                    kind: currentKindFilter === 'all' ? '' : currentKindFilter,
-                    dimension: currentDimensionFilter === 'all' ? '' : currentDimensionFilter
-                }));
-            }
-
+            sendActiveFilterToWS();
             refreshAllViews();
+        }
+
+        function changeFilter() {
+            currentFilter = document.getElementById('applicationSearch').value.trim();
+            currentHostFilter = document.getElementById('hostSearch').value.trim();
+            const top5Enabled = document.getElementById('top5FilterToggle') ? document.getElementById('top5FilterToggle').checked : true;
+            localStorage.setItem('top5FilterEnabled', top5Enabled);
+            syncHostInputWithAppFilter();
+            applyFilterPipeline();
         }
 
         function refreshAllViews() {
@@ -1714,29 +1884,29 @@
             const tbody = document.getElementById('verdictTableBody');
             tbody.innerHTML = "";
 
-            const textAndHostMatchedApps = getAllKnownApps().filter(app => {
-                if (!appMatchesDimensionAndKind(app)) return false;
-                if (!matchesFilter(app, currentFilter)) return false;
-                if (currentHostFilter && !appHasHostMatching(app, currentHostFilter)) return false;
-                return true;
-            });
-            updateVerdictFilterOptions(textAndHostMatchedApps);
+            if (!isAppFilterProvided()) {
+                selectedTimeLabel = null;
+                selectedVerdictRecord = null;
+                renderVerdictDetails(null);
+                updateVerdictFilterOptions([]);
+                return;
+            }
 
-            const matchingApps = getMatchingApps();
+            const matchedApps = getAppsInCurrentKindAndDimension().filter(app => matchesFilter(app, currentFilter));
+            updateVerdictFilterOptions(matchedApps);
+
             const allVerdicts = [];
-
-            const cutoffTime = getVerdictWindowCutoff(matchingApps);
+            const cutoffTime = getVerdictWindowCutoff(matchedApps);
             const { category: categoryFilterVal, impact: impactFilterVal } = getActiveVerdictFilters();
 
-            matchingApps.forEach(app => {
+            matchedApps.forEach(app => {
                 if (applicationCache[app] && applicationCache[app].verdicts) {
                     applicationCache[app].verdicts.forEach(v => {
                         const verdictTime = new Date(v.fullTimestamp || v.time).getTime();
-                        if (isNaN(verdictTime) || verdictTime >= cutoffTime) {
-                            if (verdictMatchesCategoryAndImpact(v, categoryFilterVal, impactFilterVal)) {
-                                allVerdicts.push({ app, ...v });
-                            }
-                        }
+                        if (!isNaN(verdictTime) && verdictTime < cutoffTime) return;
+                        if (!verdictMatchesCategoryAndImpact(v, categoryFilterVal, impactFilterVal)) return;
+                        if (!verdictMatchesHostAndKindDimension(v, app)) return;
+                        allVerdicts.push({ app, ...v });
                     });
                 }
             });
@@ -1790,8 +1960,10 @@
             if (matchedSelectedEntry) {
                 selectedVerdictRecord = matchedSelectedEntry;
                 renderVerdictDetails(matchedSelectedEntry);
-            } else if (selectedVerdictRecord) {
-                renderVerdictDetails(selectedVerdictRecord);
+            } else if (selectedKey) {
+                selectedVerdictRecord = null;
+                selectedTimeLabel = null;
+                renderVerdictDetails(null);
             }
         }
 
@@ -1831,6 +2003,13 @@
             if (!c) return;
 
             const { entities, cache } = getEntitiesForChart(key);
+            if (!isAppFilterProvided() || entities.length === 0) {
+                c.data.labels = [];
+                c.data.datasets.forEach(ds => { ds.data = []; });
+                c.update('none');
+                return;
+            }
+
             const multiMode = entities.length > 1;
             const expectedDatasetCount = multiMode ? (entities.length + 3) : 4;
 
@@ -2038,6 +2217,19 @@
             return isNewHost || !hadLink;
         }
 
+        function sendActiveFilterToWS(socket) {
+            const targetSocket = socket || ws;
+            if (!isPaused && targetSocket && targetSocket.readyState === WebSocket.OPEN) {
+                targetSocket.send(JSON.stringify({
+                    type: 'filter',
+                    kind: currentKindFilter === 'all' ? '' : currentKindFilter,
+                    dimension: currentDimensionFilter === 'all' ? '' : currentDimensionFilter,
+                    application: currentFilter,
+                    host: currentHostFilter
+                }));
+            }
+        }
+
         function connectWS() {
             if (isPaused) return;
             if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -2055,13 +2247,7 @@
                     return;
                 }
                 updateConnectionStatusUI();
-                socket.send(JSON.stringify({
-                    type: 'filter',
-                    application: currentFilter,
-                    host: currentHostFilter,
-                    kind: currentKindFilter === 'all' ? '' : currentKindFilter,
-                    dimension: currentDimensionFilter === 'all' ? '' : currentDimensionFilter
-                }));
+                sendActiveFilterToWS(socket);
             };
 
             socket.onmessage = function(event) {
@@ -2156,6 +2342,9 @@
                     const verdictObj = {
                         time: timeLabel,
                         fullTimestamp: v.timestamp,
+                        host: hostIdent || v.verdict.host || null,
+                        kind: v.kind || v.verdict.kind || null,
+                        dimension: v.dimension || v.verdict.dimension || null,
                         verdict: v.verdict
                     };
 
@@ -2176,6 +2365,7 @@
                     matchingApps.some(a => !prevMatchingApps.has(a));
 
                 if (topologyChanged || matchingSetChanged || kindDimChanged || v.verdict) {
+                    syncHostInputWithAppFilter();
                     updateFilterLists();
                 }
 
@@ -2184,7 +2374,7 @@
                     return;
                 }
 
-                if (matchingApps.includes(appIdent)) {
+                if (isAppFilterProvided() && matchingApps.includes(appIdent)) {
                     const showHostCharts = hasHostDataForMatchingApps();
                     const needsHostCardInit = showHostCharts &&
                                               Array.from(updatedHostMetrics).some(m => isHostMetric(m) && !charts[m]) &&

@@ -21,18 +21,20 @@ import (
 )
 
 type ForestModelOptions struct {
-	Enabled     bool
-	Concurrency int
-	Filter      []string // filter by apps and hosts
-	Dimensions  []string
+	Enabled    bool
+	Filter     []string // filter by apps and hosts
+	Dimensions []string
 
 	EngineTTL string
 
-	DetectionTTL        string
-	DetectionMass       float64
-	DetectionCategories string
-	DetectionImpacts    string
-	DetectionScore      int
+	DetectTTL         string
+	DetectMass        float64
+	DetectCategories  string
+	DetectImpacts     string
+	DetectScore       int
+	DetectConcurrency int
+
+	TrainConcurrency int
 
 	ApplicationOptions forest.ApplicationEngineOptions
 	HostOptions        forest.HostEngineOptions
@@ -104,10 +106,11 @@ type ForestModel struct {
 }
 
 const (
-	ForestModelTreesNumber   = 100
-	ForestModelSubsampleSize = 256
-	ForestModelOutlierRatio  = 0.01
-	ForestModelDimensionAll  = "all"
+	ForestModelTreesNumber      = 100
+	ForestModelSubsampleSize    = 256
+	ForestModelOutlierRatio     = 0.01
+	ForestModelDimensionAll     = "all"
+	ForestModelDimensionUnknown = "unknown"
 )
 
 type ForestModelFileData struct {
@@ -589,9 +592,9 @@ func (fm *ForestModel) prepare(data common.DataSourceData, filter []common.Hash,
 				continue
 			}
 
-			value := host.LabelValue(attributes, dimension)
-			if utils.IsEmpty(value) {
-				continue
+			value, found := host.LabelValue(attributes, dimension)
+			if !found {
+				value = ForestModelDimensionUnknown
 			}
 
 			arr, ok := m[value]
@@ -724,7 +727,7 @@ func (fm *ForestModel) train(data common.DataSourceData) ([]common.Hash, error) 
 	}
 
 	gr := &errgroup.Group{}
-	gr.SetLimit(fm.options.Concurrency)
+	gr.SetLimit(fm.options.TrainConcurrency)
 	errs := make(chan error, length)
 
 	// run hosts engine
@@ -1185,7 +1188,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 	}
 
 	gr := &errgroup.Group{}
-	gr.SetLimit(fm.options.Concurrency)
+	gr.SetLimit(fm.options.DetectConcurrency)
 	errs := make(chan error, length)
 	verdictFrames := &sync.Map{}
 
@@ -1263,40 +1266,6 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 			}
 		}
 	}
-	/*
-		// run apps engine
-		for hash, frames := range appFrames {
-
-			gr.Go(func() error {
-
-				name := names.FindByHash(hash)
-				fm.logger.Debug("%s: App detecting %s (%d)", fm.Name(), name, hash)
-
-				// check existence
-				if _, ok := fm.trains.Load(hash); ok {
-					fm.logger.Debug("%s: App training found %s (%d). Skipped", fm.Name(), name, hash)
-					return nil
-				}
-
-				when := time.Now()
-
-				verdictFrame, err := fm.appDetect(data, hash, frames, verdictFrames)
-				if err != nil {
-					errs <- err
-					return nil
-				}
-
-				if verdictFrame != nil {
-					verdictFrames.Store(hash, verdictFrame)
-					if onFrame != nil && verdictFrame.points != nil {
-						go onFrame(verdictFrame)
-					}
-				}
-				fm.logger.Debug("%s: App detecting %s (%d) spent %s", fm.Name(), name, hash, time.Since(when))
-				return nil
-			})
-		}
-	*/
 
 	gr.Wait()
 	close(errs)
@@ -1349,7 +1318,7 @@ func (fm *ForestModel) detect(data common.DataSourceData, onFrame common.ModelOn
 	p := float64((l1 * 100) / l2)
 
 	// if mass triggered => only mass detection
-	if p >= fm.options.DetectionMass {
+	if p >= fm.options.DetectMass {
 		fm.setMassDetections(eligible, found)
 		return err
 	}
@@ -1427,12 +1396,12 @@ func (fm *ForestModel) Status() *common.ModelStatus {
 
 func NewForestModel(options ForestModelOptions, observability *common.Observability, issues common.DataSourceIssues) *ForestModel {
 
-	categories := common.StringToCaseCategories(options.DetectionCategories)
+	categories := common.StringToCaseCategories(options.DetectCategories)
 	if len(categories) == 0 {
 		categories = common.AllCaseCategories()
 	}
 
-	impacts := common.StringToCaseImpacts(options.DetectionImpacts)
+	impacts := common.StringToCaseImpacts(options.DetectImpacts)
 	if len(impacts) == 0 {
 		impacts = common.AllCaseImpacts()
 	}
@@ -1449,10 +1418,10 @@ func NewForestModel(options ForestModelOptions, observability *common.Observabil
 		engines: ttlcache.New(
 			ttlcache.WithTTL[common.Hash, ForestModelEngine](common.DefaultTTL(options.EngineTTL, 1*time.Hour)),
 		),
-		detections: NewForestModelDetections(common.DefaultTTL(options.DetectionTTL, 5*time.Minute)),
+		detections: NewForestModelDetections(common.DefaultTTL(options.DetectTTL, 5*time.Minute)),
 		categories: categories,
 		impacts:    impacts,
 		issues:     issues,
-		minScore:   options.DetectionScore,
+		minScore:   options.DetectScore,
 	}
 }

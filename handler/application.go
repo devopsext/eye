@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -73,16 +74,12 @@ type HttpApplicationHandler struct {
 	page          string
 	//
 	wsMutex     sync.Mutex
-	wsClients   map[*websocket.Conn]bool
+	wsClients   map[*websocket.Conn]*regexp.Regexp
 	wsUpgrader  websocket.Upgrader
 	datachannel chan HttpApplicationHandlerData
 	//
 	identMutex sync.Mutex
 	identMap   map[string]*HttpApplicationInfo
-	identSeen  []string
-	//
-	activeMutex sync.Mutex
-	activeIdent string
 	//
 	reIdents *regexp.Regexp
 }
@@ -121,8 +118,21 @@ func (h *HttpApplicationHandler) updateWsClients() {
 	for {
 		data := <-h.datachannel
 		h.wsMutex.Lock()
-		for client := range h.wsClients {
-			_ = client.WriteJSON(data)
+		for client, re := range h.wsClients {
+
+			if data.Model != nil {
+				_ = client.WriteJSON(data)
+				continue
+			}
+
+			if re == nil {
+				continue
+			}
+
+			if re.MatchString(data.Ident) {
+				_ = client.WriteJSON(data)
+				continue
+			}
 		}
 		h.wsMutex.Unlock()
 	}
@@ -155,27 +165,16 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 	defer h.identMutex.Unlock()
 
 	info := h.identMap[ident]
-
 	if info == nil {
 		info = &HttpApplicationInfo{}
 	}
-
 	info.Name = af.Name()
 	info.Kind = af.Kind()
 	info.Dimension = af.Dimension()
 	h.identMap[ident] = info
 
-	// check active
-	h.activeMutex.Lock()
-	defer h.activeMutex.Unlock()
-
-	if !utils.Contains(h.identSeen, ident) {
-		if h.reIdents == nil {
-			return
-		}
-		if !h.reIdents.MatchString(ident) {
-			return
-		}
+	if h.reIdents != nil && !h.reIdents.MatchString(ident) {
+		return
 	}
 
 	ts := af.Timestamp()
@@ -291,10 +290,6 @@ func (h *HttpApplicationHandler) Frame(frame common.ModelFrame) {
 		}
 	}
 	h.datachannel <- data
-
-	if !utils.Contains(h.identSeen, ident) {
-		h.identSeen = append(h.identSeen, ident)
-	}
 }
 
 func (h *HttpApplicationHandler) State(model common.Model, state common.ModelState) {
@@ -360,7 +355,7 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 	defer ws.Close()
 
 	h.wsMutex.Lock()
-	h.wsClients[ws] = true
+	h.wsClients[ws] = nil
 	h.wsMutex.Unlock()
 
 	name := h.Name()
@@ -368,9 +363,11 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 	for {
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+
 			h.wsMutex.Lock()
 			delete(h.wsClients, ws)
 			h.wsMutex.Unlock()
+
 			break
 		}
 
@@ -384,12 +381,18 @@ func (h *HttpApplicationHandler) handleWebsocket(w http.ResponseWriter, r *http.
 			break
 		}
 		if payload.Type == "filter" && !utils.IsEmpty(payload.Application) {
-			h.activeMutex.Lock()
-			h.activeIdent = payload.Application
-			if !utils.Contains(h.identSeen, h.activeIdent) {
-				h.identSeen = append(h.identSeen, h.activeIdent)
+			h.wsMutex.Lock()
+
+			search := payload.Application
+			index := strings.Index(search, ".*")
+			if index == -1 {
+				search = fmt.Sprintf(".*%s", search)
 			}
-			h.activeMutex.Unlock()
+			re, err := regexp.Compile(search)
+			if err == nil {
+				h.wsClients[ws] = re
+			}
+			h.wsMutex.Unlock()
 		}
 	}
 	return nil
@@ -496,7 +499,7 @@ func NewHttpApplicationHandler(options HttpApplicationHandlerOptions, observabil
 		meter:         observability.Metrics(),
 
 		//
-		wsClients: make(map[*websocket.Conn]bool),
+		wsClients: make(map[*websocket.Conn]*regexp.Regexp),
 		wsUpgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},

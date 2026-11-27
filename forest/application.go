@@ -2234,8 +2234,6 @@ func (ae *ApplicationEngine) Consolidate(frames []*ApplicationFrame) *Applicatio
 	begin := first.Stamp()
 	end := last.Stamp()
 
-	stamp := begin + (end-begin)/2
-
 	frame := ae.aggregateFrames(frames)
 
 	frame.name = first.name
@@ -2252,7 +2250,7 @@ func (ae *ApplicationEngine) Consolidate(frames []*ApplicationFrame) *Applicatio
 	}
 	frame.hosts = common.Unique(hosts)
 
-	frame.stamp = stamp
+	frame.stamp = begin
 	frame.begin = begin
 	frame.end = end
 
